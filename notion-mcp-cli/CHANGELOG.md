@@ -1,5 +1,9 @@
 # notion-mcp-cli
 
+## 0.0.4
+
+- JSON outputs are now formatted as YAML for better readability
+
 ## 0.0.3
 
 - Update dependencies
