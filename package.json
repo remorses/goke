@@ -1,0 +1,13 @@
+{
+  "name": "notion-mcp-cli-monorepo",
+  "private": true,
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "author": "Tommaso De Rossi, morse <beats.by.morse@gmail.com>",
+  "license": "MIT"
+}
