@@ -1,4 +1,5 @@
 import nodeResolvePlugin from '@rollup/plugin-node-resolve'
+import commonjsPlugin from '@rollup/plugin-commonjs'
 import esbuildPlugin from 'rollup-plugin-esbuild'
 import dtsPlugin from 'rollup-plugin-dts'
 
@@ -27,7 +28,7 @@ function createConfig({ dts, esm } = {}) {
             : ['node_modules'],
         },
       }),
-      !dts && require('@rollup/plugin-commonjs')(),
+      !dts && commonjsPlugin(),
       !dts &&
         esbuildPlugin({
           target: 'es2017',
