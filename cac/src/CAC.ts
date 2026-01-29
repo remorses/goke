@@ -136,6 +136,32 @@ class CAC extends EventEmitter {
   }
 
   /**
+   * Output help for commands matching a prefix.
+   * Used when user types "mcp nonexistent" and we have "mcp login", "mcp status", etc.
+   */
+  outputHelpForPrefix(prefix: string, matchingCommands: Command[]) {
+    const { versionNumber } = this.globalCommand
+
+    console.log(`${this.name}${versionNumber ? `/${versionNumber}` : ''}`)
+    console.log()
+    console.log(
+      `Unknown command: ${this.args.join(' ')}`
+    )
+    console.log()
+    console.log(`Available "${prefix}" commands:`)
+    console.log()
+
+    const longestName = Math.max(...matchingCommands.map((c) => c.rawName.length))
+    for (const cmd of matchingCommands) {
+      const firstLine = cmd.description.split('\n')[0].trim()
+      console.log(`  ${cmd.rawName.padEnd(longestName)}  ${firstLine}`)
+    }
+
+    console.log()
+    console.log(`Run "${this.name} <command> --help" for more information.`)
+  }
+
+  /**
    * Output the version number.
    *
    */
@@ -257,6 +283,21 @@ class CAC extends EventEmitter {
 
     if (!this.matchedCommand && this.args[0]) {
       this.emit('command:*')
+
+      // If the first arg is a prefix of existing commands but no command matched,
+      // show help automatically (user likely mistyped a subcommand)
+      if (this.showHelpOnExit) {
+        const firstArg = this.args[0]
+        const matchingCommands = this.commands.filter((cmd) => {
+          if (cmd.name === '') return false
+          const cmdParts = cmd.name.split(' ')
+          return cmdParts[0] === firstArg
+        })
+        if (matchingCommands.length > 0) {
+          // Show help for commands starting with this prefix
+          this.outputHelpForPrefix(firstArg, matchingCommands)
+        }
+      }
     }
 
     return parsedArgv

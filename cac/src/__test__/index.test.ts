@@ -302,4 +302,57 @@ describe('space-separated subcommands', () => {
       "
     `)
   })
+
+  test('unknown subcommand shows filtered help for prefix', () => {
+    const cli = cac('mycli')
+
+    cli.command('mcp login', 'Login to MCP')
+    cli.command('mcp logout', 'Logout from MCP')
+    cli.command('mcp status', 'Show status')
+    cli.command('build', 'Build project')
+
+    cli.help()
+
+    let output = ''
+    const originalLog = console.log
+    console.log = (msg: string) => {
+      output += msg + '\n'
+    }
+
+    // User types "mcp nonexistent" - should show help for mcp commands
+    cli.parse(['node', 'bin', 'mcp', 'nonexistent'], { run: true })
+
+    console.log = originalLog
+
+    expect(cli.matchedCommand).toBeUndefined()
+    expect(output).toContain('Unknown command: mcp nonexistent')
+    expect(output).toContain('Available "mcp" commands:')
+    expect(output).toContain('mcp login')
+    expect(output).toContain('mcp logout')
+    expect(output).toContain('mcp status')
+    expect(output).not.toContain('build')
+  })
+
+  test('unknown command without prefix does not show filtered help', () => {
+    const cli = cac('mycli')
+
+    cli.command('mcp login', 'Login to MCP')
+    cli.command('build', 'Build project')
+
+    cli.help()
+
+    let output = ''
+    const originalLog = console.log
+    console.log = (msg: string) => {
+      output += msg + '\n'
+    }
+
+    // User types "foo" - no commands start with "foo"
+    cli.parse(['node', 'bin', 'foo'], { run: true })
+
+    console.log = originalLog
+
+    // Should not show filtered help since "foo" is not a prefix of any command
+    expect(output).not.toContain('Available "foo" commands')
+  })
 })
