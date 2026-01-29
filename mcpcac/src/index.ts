@@ -52,6 +52,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { CAC } from "@xmorse/cac";
+import yaml from "js-yaml";
 import { FileOAuthProvider } from "./oauth-provider.js";
 import { startOAuthFlow, isAuthRequiredError } from "./auth.js";
 import type { McpOAuthConfig, McpOAuthState } from "./types.js";
@@ -255,7 +256,23 @@ function outputResult(result: {
 }): void {
   for (const block of result.content) {
     if (block.type === "text" && block.text) {
-      console.log(block.text);
+      // Try to parse as JSON and format as YAML for better readability
+      try {
+        const parsed = JSON.parse(block.text);
+        if (parsed) {
+          console.log(yaml.dump(parsed, {
+            indent: 2,
+            lineWidth: 120,
+            noRefs: true,
+            sortKeys: false,
+          }));
+        } else {
+          console.log(block.text);
+        }
+      } catch {
+        // Not JSON, output as-is
+        console.log(block.text);
+      }
     } else if (block.type === "image") {
       console.log("[Image content omitted]");
     } else {
