@@ -1,6 +1,13 @@
-# goke
+<div align='center'>
+    <br/>
+    <br/>
+    <h3>goke</h3>
+    <p>simple, type safe elegant command line framework</p>
+    <br/>
+    <br/>
+</div>
 
-A [cac](https://github.com/cacjs/cac)-inspired CLI framework for building command-line apps in JavaScript/TypeScript.
+A [cac](https://github.com/cacjs/cac)-inspired CLI framework for building command-line apps in TypeScript.
 
 ## Features
 
