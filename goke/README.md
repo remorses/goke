@@ -2,7 +2,7 @@
     <br/>
     <br/>
     <h3>goke</h3>
-    <p>simple, type safe elegant command line framework. Cac inspired</p>
+    <p>simple, type safe elegant command line framework. Cac replacement</p>
     <br/>
     <br/>
 </div>
