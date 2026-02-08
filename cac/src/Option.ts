@@ -2,7 +2,7 @@ import { removeBrackets, camelcaseOptionName } from "./utils.js"
 import type { StandardJSONSchemaV1 } from "./standard-schema.js"
 
 interface OptionConfig {
-  default?: any
+  default?: unknown
   /**
    * A Standard JSON Schema V1-compatible object for this option.
    * Used for both runtime coercion (string→typed value) and TypeScript type inference.

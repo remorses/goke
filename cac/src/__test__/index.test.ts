@@ -501,6 +501,52 @@ describe('regression: oracle-found issues', () => {
   test('const null coercion works', () => {
     expect(coerceBySchema('', { const: null }, 'val')).toBe(null)
   })
+
+  test('optional value option with schema preserves true sentinel', () => {
+    const cli = cac()
+
+    cli.option('--count [count]', 'Count', {
+      schema: wrapJsonSchema({ type: 'number' }),
+    })
+
+    // --count without value → mri returns true → should NOT coerce to 1
+    const { options } = cli.parse('node bin --count'.split(' '))
+    expect(options.count).toBe(true)
+  })
+
+  test('optional value option with schema coerces when value given', () => {
+    const cli = cac()
+
+    cli.option('--count [count]', 'Count', {
+      schema: wrapJsonSchema({ type: 'number' }),
+    })
+
+    const { options } = cli.parse('node bin --count 42'.split(' '))
+    expect(options.count).toBe(42)
+  })
+
+  test('alias + schema coercion works', () => {
+    const cli = cac()
+
+    cli.option('-p, --port <port>', 'Port', {
+      schema: wrapJsonSchema({ type: 'number' }),
+    })
+
+    const { options } = cli.parse('node bin -p 3000'.split(' '))
+    expect(options.port).toBe(3000)
+    expect(options.p).toBe(3000)
+  })
+
+  test('union type ["array", "null"] with repeated flags', () => {
+    const cli = cac()
+
+    cli.option('--tags <tags>', 'Tags', {
+      schema: wrapJsonSchema({ type: ['array', 'null'], items: { type: 'string' } }),
+    })
+
+    const { options } = cli.parse('node bin --tags foo --tags bar'.split(' '))
+    expect(options.tags).toEqual(['foo', 'bar'])
+  })
 })
 
 test('throw on unknown options', () => {

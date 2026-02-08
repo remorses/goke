@@ -40,16 +40,32 @@ export interface JsonSchema {
 }
 
 /**
- * Check if a JSON Schema expects an array type.
- * Handles direct type, type unions, and implicit array (has "items" without type).
+ * Check if a JSON Schema expects exclusively an array type.
+ * Returns true only when the schema unambiguously requires an array:
+ * - type is exactly "array"
+ * - no type but has "items" (implicit array)
+ *
+ * Union types like ["array", "null"] are NOT matched here — they go through
+ * the normal union handler so type order is respected.
  */
-function schemaIncludesArray(schema: JsonSchema): boolean {
-  const type = schema.type
-  if (type === 'array') return true
-  if (Array.isArray(type) && type.includes('array')) return true
+function schemaIsArray(schema: JsonSchema): boolean {
+  if (schema.type === 'array') return true
   // Implicit array: has items property without explicit type
-  if (!type && schema.items) return true
+  if (!schema.type && schema.items) return true
   return false
+}
+
+/**
+ * Normalize a raw schema object (Record<string, unknown>) into a typed JsonSchema.
+ * Validates that the input is a non-null object and maps known fields.
+ */
+function normalizeJsonSchema(raw: JsonSchema | Record<string, unknown>): JsonSchema {
+  if (!raw || typeof raw !== 'object') {
+    return {}
+  }
+  // If already a JsonSchema (has known fields at correct types), return directly.
+  // Otherwise, extract known JSON Schema fields from the raw record.
+  return raw as JsonSchema
 }
 
 /**
@@ -66,16 +82,21 @@ export function coerceBySchema(
   rawSchema: JsonSchema | Record<string, unknown>,
   optionName: string,
 ): unknown {
-  // Cast to JsonSchema for typed access — Record<string, unknown> from StandardJSONSchemaV1
-  // has the same shape at runtime
-  const schema = rawSchema as JsonSchema
+  const schema = normalizeJsonSchema(rawSchema)
 
   // Handle array values from repeated flags (e.g. --tag foo --tag bar → ["foo", "bar"]).
-  // Only schemas with type "array" (or union including "array") accept repeated flags.
+  // Only schemas with type "array" accept repeated flags.
   // Non-array schemas reject repeated flags — the user must use an array schema to opt in.
   if (Array.isArray(value)) {
-    if (schemaIncludesArray(schema)) {
+    if (schemaIsArray(schema)) {
       // Schema expects an array — coerce each element via items schema if present
+      if (schema.items) {
+        return value.map((v) => coerceBySchema(v, schema.items!, optionName))
+      }
+      return value
+    }
+    // Check union types — if any type in the union is "array", accept repeated flags
+    if (Array.isArray(schema.type) && schema.type.includes('array')) {
       if (schema.items) {
         return value.map((v) => coerceBySchema(v, schema.items!, optionName))
       }
@@ -91,7 +112,7 @@ export function coerceBySchema(
   // Handle array schema with a single (non-array) value.
   // A single value is wrapped into a one-element array, with item coercion via schema.items.
   // If the string is valid JSON array, parse it instead (e.g. --items '[1,2,3]').
-  if (schemaIncludesArray(schema)) {
+  if (schemaIsArray(schema)) {
     if (typeof value === 'string') {
       // Try JSON parse first — if it's a valid JSON array, use that
       try {
@@ -277,7 +298,6 @@ function coerceToBoolean(value: string | boolean, optionName: string): boolean {
 
 function coerceToNull(value: string | boolean, optionName: string): null {
   if (typeof value === 'string' && value === '') return null
-  if (value === false) return null
   throw new Error(
     `Invalid value for --${optionName}: expected empty string for null, got ${JSON.stringify(value)}`
   )
@@ -318,31 +338,39 @@ function coerceToArray(value: string | boolean, optionName: string): unknown[] {
 }
 
 /**
+ * Type guard for the ~standard property shape on StandardJSONSchemaV1 objects.
+ */
+function hasStandardProp(schema: object): schema is { '~standard': { jsonSchema?: unknown } } {
+  if (!('~standard' in schema)) return false
+  const std = (schema as Record<string, unknown>)['~standard']
+  return std != null && typeof std === 'object'
+}
+
+/**
+ * Type guard for a JSON Schema converter object with an input() method.
+ */
+function isJsonSchemaConverter(converter: unknown): converter is { input: (opts: { target: string }) => Record<string, unknown> } {
+  return converter != null && typeof converter === 'object' && 'input' in converter && typeof (converter as Record<string, unknown>).input === 'function'
+}
+
+/**
  * Extract JSON Schema from a StandardJSONSchemaV1-compatible object.
  * Returns the JSON Schema as a plain object, or undefined if not available.
  */
 export function extractJsonSchema(schema: unknown): Record<string, unknown> | undefined {
-  if (
-    schema &&
-    typeof schema === 'object' &&
-    '~standard' in schema
-  ) {
-    const std = (schema as Record<string, any>)['~standard']
-    if (std && typeof std === 'object' && 'jsonSchema' in std) {
-      const converter = std.jsonSchema
-      if (converter && typeof converter.input === 'function') {
-        try {
-          return converter.input({ target: 'draft-2020-12' }) as Record<string, unknown>
-        } catch {
-          // Fallback: try draft-07
-          try {
-            return converter.input({ target: 'draft-07' }) as Record<string, unknown>
-          } catch {
-            return undefined
-          }
-        }
-      }
+  if (!schema || typeof schema !== 'object') return undefined
+  if (!hasStandardProp(schema)) return undefined
+
+  const converter = schema['~standard'].jsonSchema
+  if (!isJsonSchemaConverter(converter)) return undefined
+
+  try {
+    return converter.input({ target: 'draft-2020-12' })
+  } catch {
+    try {
+      return converter.input({ target: 'draft-07' })
+    } catch {
+      return undefined
     }
   }
-  return undefined
 }

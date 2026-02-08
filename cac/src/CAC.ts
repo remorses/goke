@@ -352,7 +352,10 @@ class CAC extends EventEmitter {
     for (const cliOption of cliOptions) {
       if (!ignoreDefault && cliOption.config.default !== undefined) {
         for (const name of cliOption.names) {
-          options[name] = cliOption.config.default
+          // Use setDotProp so dot-nested defaults (e.g. "config.port") produce
+          // nested objects ({ config: { port: ... } }) instead of flat keys.
+          const keys = name.split('.')
+          setDotProp(options, keys, cliOption.config.default)
         }
       }
 
@@ -369,15 +372,18 @@ class CAC extends EventEmitter {
       }
     }
 
-    // Build a set of option names that require a value (<...> syntax).
-    // When mri returns `true` for these, it means "flag present, no value given" —
-    // a sentinel that checkOptionValue() uses to throw "value is missing".
-    // We must NOT coerce this sentinel, or it becomes a valid value (e.g. true→1).
-    const requiredValueOptions = new Set<string>()
+    // Build a set of option names that take a value (<...> or [...] syntax).
+    // When mri returns `true` for these, it means "flag present, no value given".
+    // For required options (<...>), checkOptionValue() throws "value is missing".
+    // For optional options ([...]), we skip schema coercion so `true` is preserved
+    // (not silently coerced to 1, "true", etc.) — the user intended a flag, not a value.
+    const valueTakingOptions = new Set<string>()
     for (const cliOption of cliOptions) {
-      if (cliOption.required === true) {
+      if (cliOption.required === true || cliOption.required === false) {
+        // required=true means <...>, required=false means [...]
+        // Both take values — only isBoolean options (no brackets) are pure flags
         for (const name of cliOption.names) {
-          requiredValueOptions.add(name)
+          valueTakingOptions.add(name)
         }
       }
     }
@@ -394,7 +400,7 @@ class CAC extends EventEmitter {
         // that's mri's sentinel for "flag present but no value given".
         const schemaInfo = schemaMap.get(key)
         if (schemaInfo && value !== undefined) {
-          const isMissingSentinel = value === true && requiredValueOptions.has(key)
+          const isMissingSentinel = value === true && valueTakingOptions.has(key)
           if (!isMissingSentinel) {
             value = coerceBySchema(value, schemaInfo.jsonSchema, schemaInfo.optionName)
           }

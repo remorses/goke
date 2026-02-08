@@ -357,4 +357,55 @@ describe('coerceBySchema', () => {
       expect(coerceBySchema('hello', {}, 'val')).toBe('hello')
     })
   })
+
+  describe('union types with array', () => {
+    test('["array", "null"] — JSON array string parsed as array', () => {
+      expect(coerceBySchema('[1,2]', { type: ['array', 'null'] }, 'val'))
+        .toEqual([1, 2])
+    })
+
+    test('["array", "null"] — empty string becomes null', () => {
+      expect(coerceBySchema('', { type: ['null', 'array'] }, 'val'))
+        .toBe(null)
+    })
+
+    test('["string", "array"] — string value stays string (tried first)', () => {
+      expect(coerceBySchema('hello', { type: ['string', 'array'] }, 'val'))
+        .toBe('hello')
+    })
+
+    test('["array", "string"] — non-JSON string wraps into array', () => {
+      // When array is tried first: JSON.parse fails, coerceToArray throws,
+      // then string is tried and succeeds
+      expect(coerceBySchema('hello', { type: ['array', 'string'] }, 'val'))
+        .toEqual('hello')
+    })
+
+    test('["array", "null"] — repeated flags accepted', () => {
+      expect(coerceBySchema(['a', 'b'], { type: ['array', 'null'] }, 'val'))
+        .toEqual(['a', 'b'])
+    })
+
+    test('["array", "null"] — repeated flags with items coerced', () => {
+      expect(coerceBySchema(['1', '2'], { type: ['array', 'null'], items: { type: 'number' } }, 'val'))
+        .toEqual([1, 2])
+    })
+  })
+
+  describe('null coercion edge cases', () => {
+    test('false does NOT coerce to null', () => {
+      expect(() => coerceBySchema(false, { type: 'null' }, 'val'))
+        .toThrow('expected empty string for null')
+    })
+
+    test('["null", "boolean"] — false stays as false', () => {
+      expect(coerceBySchema(false, { type: ['null', 'boolean'] }, 'val'))
+        .toBe(false)
+    })
+
+    test('["boolean", "null"] — false stays as false (tried first)', () => {
+      expect(coerceBySchema(false, { type: ['boolean', 'null'] }, 'val'))
+        .toBe(false)
+    })
+  })
 })

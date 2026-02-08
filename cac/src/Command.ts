@@ -378,7 +378,18 @@ class Command {
     const { options: parsedOptions, globalCommand } = this.cli
     const options = [...globalCommand.options, ...this.options]
     for (const option of options) {
-      const value = parsedOptions[option.name.split('.')[0]]
+      // Resolve the full dot-path to get the actual value.
+      // For "config.port", traverse parsedOptions.config.port instead of just parsedOptions.config.
+      const keys = option.name.split('.')
+      let value: unknown = parsedOptions
+      for (const key of keys) {
+        if (value != null && typeof value === 'object') {
+          value = (value as Record<string, unknown>)[key]
+        } else {
+          value = undefined
+          break
+        }
+      }
       // Check required option value
       if (option.required) {
         const hasNegated = options.some(
