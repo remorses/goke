@@ -1,13 +1,13 @@
-import CAC from './CAC'
-import Option, { OptionConfig } from './Option'
+import CAC from "./CAC.js"
+import Option, { OptionConfig } from "./Option.js"
 import {
   removeBrackets,
   findAllBrackets,
   findLongest,
   padRight,
   CACError,
-} from './utils'
-import { platformInfo } from './node'
+} from "./utils.js"
+import { platformInfo } from "./node.js"
 
 interface CommandArg {
   required: boolean

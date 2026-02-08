@@ -1,4 +1,4 @@
-import { removeBrackets, camelcaseOptionName } from './utils'
+import { removeBrackets, camelcaseOptionName } from "./utils.js"
 
 interface OptionConfig {
   default?: any

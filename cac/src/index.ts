@@ -1,5 +1,5 @@
-import CAC from './CAC'
-import Command from './Command'
+import CAC from "./CAC.js"
+import Command from "./Command.js"
 
 /**
  * @param name The program name to display in help and version message

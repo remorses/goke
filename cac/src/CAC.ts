@@ -1,20 +1,20 @@
 import { EventEmitter } from 'events'
-import mri from './mri'
+import mri from "./mri.js"
 import Command, {
   GlobalCommand,
   CommandConfig,
   HelpCallback,
   CommandExample,
-} from './Command'
-import { OptionConfig } from './Option'
+} from "./Command.js"
+import { OptionConfig } from "./Option.js"
 import {
   getMriOptions,
   setDotProp,
   setByType,
   getFileName,
   camelcaseOptionName,
-} from './utils'
-import { processArgs } from './node'
+} from "./utils.js"
+import { processArgs } from "./node.js"
 
 interface ParsedArgv {
   args: ReadonlyArray<string>

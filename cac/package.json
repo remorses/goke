@@ -7,35 +7,27 @@
     "type": "git",
     "url": "https://github.com/remorses/notion-mcp-cli"
   },
-  "main": "index-compat.js",
-  "module": "dist/index.mjs",
+  "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./index-compat.js"
+      "import": "./dist/index.js"
     },
     "./package.json": "./package.json"
   },
   "files": [
-    "dist",
-    "index-compat.js"
+    "dist"
   ],
   "scripts": {
-    "build": "rollup -c",
+    "build": "tsc",
     "test": "vitest --run",
     "prepublishOnly": "pnpm build"
   },
   "author": "egoist <0x142857@gmail.com>",
   "license": "MIT",
   "devDependencies": {
-    "@rollup/plugin-commonjs": "^28.0.0",
-    "@rollup/plugin-node-resolve": "^16.0.0",
-    "esbuild": "^0.25.0",
-    "rollup": "^4.40.0",
-    "rollup-plugin-dts": "^6.1.0",
-    "rollup-plugin-esbuild": "^6.2.1",
+    "@types/node": "^25.2.2",
     "typescript": "^5.9.3",
     "vitest": "^3.1.0"
   },

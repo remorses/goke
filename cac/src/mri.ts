@@ -92,8 +92,8 @@ export default function mri(args?: string[], opts?: MriOptions): MriArgv {
   }
 
   if (defaults) {
-    for (k in opts.default) {
-      name = typeof opts.default[k]
+    for (k in opts.default!) {
+      name = typeof opts.default![k]
       arr = alias[k] = alias[k] || []
       if ((resolvedOpts as any)[name] !== undefined) {
         ;(resolvedOpts as any)[name].push(k)
@@ -149,9 +149,9 @@ export default function mri(args?: string[], opts?: MriOptions): MriArgv {
   }
 
   if (defaults) {
-    for (k in opts.default) {
+    for (k in opts.default!) {
       if (out[k] === undefined) {
-        out[k] = opts.default[k]
+        out[k] = opts.default![k]
       }
     }
   }

@@ -1,29 +1,16 @@
 {
   "compilerOptions": {
-    "skipLibCheck": true,
-    "typeRoots": ["./node_modules/@types"],
-    "target": "es2015",
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "declaration": true,
-    "declarationDir": "types",
+    "declarationMap": true,
+    "strict": true,
     "esModuleInterop": true,
-    "pretty": true,
-    "moduleResolution": "node",
-    "lib": ["es2015", "es2016.array.include"],
-    "allowSyntheticDefaultImports": true,
-    "stripInternal": true,
-    "noImplicitAny": true,
-    "noImplicitReturns": true,
-    "noImplicitThis": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    "strictNullChecks": true,
-    "strictFunctionTypes": true,
-    "strictPropertyInitialization": true,
-    "alwaysStrict": true,
-    "module": "commonjs",
-    "outDir": "lib"
+    "skipLibCheck": true,
+    "rootDir": "src",
+    "outDir": "dist"
   },
-  "include": ["src", "declarations.d.ts"],
-  "exclude": ["src/deno.ts"]
+  "include": ["src"],
+  "exclude": ["src/__test__"]
 }

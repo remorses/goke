@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import cac from '..'
+import cac from '../index.js'
 
 test('negated option', () => {
   const cli = cac()
