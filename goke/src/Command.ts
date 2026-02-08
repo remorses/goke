@@ -314,7 +314,7 @@ class Command {
       sections = helpCallback(sections) || sections
     }
 
-    console.log(
+    this.cli.console.log(
       sections
         .map((section) => {
           return section.title
@@ -329,7 +329,7 @@ class Command {
     const { name } = this.cli
     const { versionNumber } = this.cli.globalCommand
     if (versionNumber) {
-      console.log(`${name}/${versionNumber} ${platformInfo}`)
+      this.cli.console.log(`${name}/${versionNumber} ${platformInfo}`)
     }
   }
 

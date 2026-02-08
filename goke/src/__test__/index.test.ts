@@ -1,7 +1,21 @@
 import { describe, test, expect } from 'vitest'
-import goke from '../index.js'
+import goke, { createConsole } from '../index.js'
+import type { GokeOutputStream } from '../index.js'
 import { coerceBySchema } from '../coerce.js'
 import { z } from 'zod'
+
+/**
+ * Helper: creates a GokeOutputStream that captures all written data into a string array.
+ * Access `output.lines` for raw writes, or `output.text` for the joined result.
+ */
+function createTestOutputStream(): GokeOutputStream & { lines: string[]; readonly text: string } {
+  const lines: string[] = []
+  return {
+    lines,
+    get text() { return lines.join('') },
+    write(data: string) { lines.push(data) },
+  }
+}
 
 test('double dashes', () => {
   const cli = goke()
@@ -906,7 +920,10 @@ describe('space-separated subcommands', () => {
   })
 
   test('help output with subcommands', () => {
-    const cli = goke('mycli')
+    let output = ''
+    const cli = goke('mycli', {
+      stdout: { write(data) { output += data } },
+    })
 
     cli.command('mcp login <url>', 'Login to MCP server')
     cli.command('mcp logout', 'Logout from MCP server')
@@ -916,15 +933,8 @@ describe('space-separated subcommands', () => {
     cli.command('build', 'Build the project').option('--watch', 'Watch mode')
 
     cli.help()
+    // parse with --help triggers outputHelp() internally, which writes to our captured stdout
     cli.parse(['node', 'bin', '--help'], { run: false })
-
-    let output = ''
-    const originalLog = console.log
-    console.log = (msg: string) => {
-      output += msg + '\n'
-    }
-    cli.outputHelp()
-    console.log = originalLog
 
     expect(output).toMatchInlineSnapshot(`
       "mycli
@@ -955,7 +965,10 @@ describe('space-separated subcommands', () => {
   })
 
   test('unknown subcommand shows filtered help for prefix', () => {
-    const cli = goke('mycli')
+    let output = ''
+    const cli = goke('mycli', {
+      stdout: { write(data) { output += data } },
+    })
 
     cli.command('mcp login', 'Login to MCP')
     cli.command('mcp logout', 'Logout from MCP')
@@ -964,16 +977,8 @@ describe('space-separated subcommands', () => {
 
     cli.help()
 
-    let output = ''
-    const originalLog = console.log
-    console.log = (msg: string) => {
-      output += msg + '\n'
-    }
-
     // User types "mcp nonexistent" - should show help for mcp commands
     cli.parse(['node', 'bin', 'mcp', 'nonexistent'], { run: true })
-
-    console.log = originalLog
 
     expect(cli.matchedCommand).toBeUndefined()
     expect(output).toContain('Unknown command: mcp nonexistent')
@@ -985,25 +990,138 @@ describe('space-separated subcommands', () => {
   })
 
   test('unknown command without prefix does not show filtered help', () => {
-    const cli = goke('mycli')
+    let output = ''
+    const cli = goke('mycli', {
+      stdout: { write(data) { output += data } },
+    })
 
     cli.command('mcp login', 'Login to MCP')
     cli.command('build', 'Build project')
 
     cli.help()
 
-    let output = ''
-    const originalLog = console.log
-    console.log = (msg: string) => {
-      output += msg + '\n'
-    }
-
     // User types "foo" - no commands start with "foo"
     cli.parse(['node', 'bin', 'foo'], { run: true })
 
-    console.log = originalLog
-
     // Should not show filtered help since "foo" is not a prefix of any command
     expect(output).not.toContain('Available "foo" commands')
+  })
+})
+
+describe('stdout/stderr/argv injection', () => {
+  test('stdout captures help output', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout })
+
+    cli.command('serve', 'Start server')
+    cli.help()
+    cli.parse(['node', 'bin', '--help'], { run: false })
+    cli.outputHelp()
+
+    expect(stdout.text).toContain('mycli')
+    expect(stdout.text).toContain('serve')
+    expect(stdout.text).toContain('Start server')
+  })
+
+  test('stdout captures version output', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout })
+
+    cli.version('1.2.3')
+    cli.parse(['node', 'bin', '--version'], { run: false })
+    cli.outputVersion()
+
+    expect(stdout.text).toContain('mycli/1.2.3')
+  })
+
+  test('stdout captures prefix help for unknown subcommands', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout })
+
+    cli.command('mcp login', 'Login to MCP')
+    cli.command('mcp logout', 'Logout from MCP')
+    cli.help()
+
+    cli.parse(['node', 'bin', 'mcp', 'nonexistent'], { run: true })
+
+    expect(stdout.text).toContain('Unknown command: mcp nonexistent')
+    expect(stdout.text).toContain('mcp login')
+    expect(stdout.text).toContain('mcp logout')
+  })
+
+  test('stderr is separate from stdout', () => {
+    const stdout = createTestOutputStream()
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stdout, stderr })
+
+    cli.console.log('hello stdout')
+    cli.console.error('hello stderr')
+
+    expect(stdout.text).toBe('hello stdout\n')
+    expect(stderr.text).toBe('hello stderr\n')
+  })
+
+  test('argv option is used as default in parse()', () => {
+    const cli = goke('mycli', {
+      argv: ['node', 'bin', 'serve', '--port', '3000'],
+    })
+
+    let result: any = {}
+    cli
+      .command('serve', 'Start server')
+      .option('--port <port>', 'Port', { schema: z.number() })
+      .action((options) => { result = options })
+
+    // parse() without args uses the injected argv
+    cli.parse()
+
+    expect(result.port).toBe(3000)
+  })
+
+  test('parse(customArgv) overrides injected argv', () => {
+    const cli = goke('mycli', {
+      argv: ['node', 'bin', 'serve', '--port', '3000'],
+    })
+
+    let result: any = {}
+    cli
+      .command('serve', 'Start server')
+      .option('--port <port>', 'Port', { schema: z.number() })
+      .action((options) => { result = options })
+
+    // Explicit argv overrides the default
+    cli.parse(['node', 'bin', 'serve', '--port', '8080'])
+
+    expect(result.port).toBe(8080)
+  })
+
+  test('default behavior without options uses process.stdout', () => {
+    const cli = goke('mycli')
+
+    // stdout/stderr should be process.stdout/process.stderr by default
+    expect(cli.stdout).toBe(process.stdout)
+    expect(cli.stderr).toBe(process.stderr)
+  })
+
+  test('createConsole routes log to stdout and error to stderr', () => {
+    const stdout = createTestOutputStream()
+    const stderr = createTestOutputStream()
+    const con = createConsole(stdout, stderr)
+
+    con.log('msg1', 'msg2')
+    con.error('err1', 'err2')
+
+    expect(stdout.text).toBe('msg1 msg2\n')
+    expect(stderr.text).toBe('err1 err2\n')
+  })
+
+  test('createConsole log with no args writes empty line', () => {
+    const stdout = createTestOutputStream()
+    const stderr = createTestOutputStream()
+    const con = createConsole(stdout, stderr)
+
+    con.log()
+
+    expect(stdout.text).toBe('\n')
   })
 })

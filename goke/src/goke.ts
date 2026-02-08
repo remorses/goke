@@ -16,6 +16,54 @@ import {
 import { processArgs } from "./node.js"
 import { coerceBySchema, extractJsonSchema } from "./coerce.js"
 
+/**
+ * Output stream interface, modeled after Node's process.stdout / process.stderr.
+ * Requires only a `write` method that accepts a string.
+ */
+interface GokeOutputStream {
+  write(data: string): void
+}
+
+/**
+ * Console-like object returned by `createConsole`.
+ * Provides `log` and `error` methods that route output through
+ * the configured GokeOutputStream instances.
+ */
+interface GokeConsole {
+  log(...args: unknown[]): void
+  error(...args: unknown[]): void
+}
+
+/**
+ * Options for configuring a Goke CLI instance.
+ */
+interface GokeOptions {
+  /** Custom stdout stream. Defaults to process.stdout */
+  stdout?: GokeOutputStream
+  /** Custom stderr stream. Defaults to process.stderr */
+  stderr?: GokeOutputStream
+  /** Custom argv array. Defaults to process.argv */
+  argv?: string[]
+}
+
+/**
+ * Creates a console-like object that writes to the given output streams.
+ *
+ * Joins arguments with a space and appends a newline, then writes to the
+ * provided stream. Does not support format specifiers like `%d` — only
+ * simple string concatenation via `String()` conversion.
+ */
+function createConsole(stdout: GokeOutputStream, stderr: GokeOutputStream): GokeConsole {
+  return {
+    log(...args: unknown[]) {
+      stdout.write(args.map(String).join(' ') + '\n')
+    },
+    error(...args: unknown[]) {
+      stderr.write(args.map(String).join(' ') + '\n')
+    },
+  }
+}
+
 interface ParsedArgv {
   args: ReadonlyArray<string>
   options: {
@@ -46,16 +94,30 @@ class Goke extends EventEmitter {
   showHelpOnExit?: boolean
   showVersionOnExit?: boolean
 
+  /** Output stream for normal output (help, version, etc.) */
+  readonly stdout: GokeOutputStream
+  /** Output stream for error output */
+  readonly stderr: GokeOutputStream
+  /** Console-like object that routes through stdout/stderr */
+  readonly console: GokeConsole
+
+  #defaultArgv: string[]
+
   /**
    * @param name The program name to display in help and version message
+   * @param options Configuration for stdout, stderr, and argv
    */
-  constructor(name = '') {
+  constructor(name = '', options?: GokeOptions) {
     super()
     this.name = name
     this.commands = []
     this.rawArgs = []
     this.args = []
     this.options = {}
+    this.stdout = options?.stdout ?? process.stdout
+    this.stderr = options?.stderr ?? process.stderr
+    this.console = createConsole(this.stdout, this.stderr)
+    this.#defaultArgv = options?.argv ?? processArgs
     this.globalCommand = new GlobalCommand(this)
     this.globalCommand.usage('<command> [options]')
   }
@@ -142,23 +204,23 @@ class Goke extends EventEmitter {
   outputHelpForPrefix(prefix: string, matchingCommands: Command[]) {
     const { versionNumber } = this.globalCommand
 
-    console.log(`${this.name}${versionNumber ? `/${versionNumber}` : ''}`)
-    console.log()
-    console.log(
+    this.console.log(`${this.name}${versionNumber ? `/${versionNumber}` : ''}`)
+    this.console.log()
+    this.console.log(
       `Unknown command: ${this.args.join(' ')}`
     )
-    console.log()
-    console.log(`Available "${prefix}" commands:`)
-    console.log()
+    this.console.log()
+    this.console.log(`Available "${prefix}" commands:`)
+    this.console.log()
 
     const longestName = Math.max(...matchingCommands.map((c) => c.rawName.length))
     for (const cmd of matchingCommands) {
       const firstLine = cmd.description.split('\n')[0].trim()
-      console.log(`  ${cmd.rawName.padEnd(longestName)}  ${firstLine}`)
+      this.console.log(`  ${cmd.rawName.padEnd(longestName)}  ${firstLine}`)
     }
 
-    console.log()
-    console.log(`Run "${this.name} <command> --help" for more information.`)
+    this.console.log()
+    this.console.log(`Run "${this.name} <command> --help" for more information.`)
   }
 
   /**
@@ -194,7 +256,7 @@ class Goke extends EventEmitter {
    * Parse argv
    */
   parse(
-    argv = processArgs,
+    argv = this.#defaultArgv,
     {
       /** Whether to run the action for matched command */
       run = true,
@@ -449,4 +511,6 @@ class Goke extends EventEmitter {
   }
 }
 
+export type { GokeOutputStream, GokeConsole, GokeOptions }
+export { createConsole }
 export default Goke
