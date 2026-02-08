@@ -120,7 +120,7 @@ await addMcpCommands({
 cli
   .command('login', 'Save MCP URL')
   .option('--url <url>', 'MCP server URL')
-  .action((options: { url: string }) => {
+  .action((options) => {
     saveConfig({ mcpUrl: options.url })
     console.log(`Saved: ${options.url}`)
   })

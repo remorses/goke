@@ -13,7 +13,7 @@
 
 import { EventEmitter } from 'events'
 import mri from "./mri.js"
-import { coerceBySchema, extractJsonSchema } from "./coerce.js"
+import { coerceBySchema, extractJsonSchema, extractSchemaMetadata, isStandardSchema } from "./coerce.js"
 import type { StandardJSONSchemaV1 } from "./coerce.js"
 
 // ─── Node.js platform constants ───
@@ -154,24 +154,6 @@ class GokeError extends Error {
 
 // ─── Option ───
 
-interface OptionConfig {
-  default?: unknown
-  /**
-   * A Standard JSON Schema V1-compatible object for this option.
-   * Used for both runtime coercion (string→typed value) and TypeScript type inference.
-   *
-   * Accepts any object implementing StandardJSONSchemaV1, e.g.:
-   * - Zod schemas: z.number() (Zod v4.2+ implements StandardJSONSchemaV1)
-   * - Valibot: toStandardJsonSchema(v.number())
-   * - ArkType: type("number")
-   * - Plain wrapper: wrapJsonSchema({ type: "number" })
-   *
-   * At runtime, JSON Schema is extracted via schema['~standard'].jsonSchema.input()
-   * and used by coerceBySchema() to convert CLI strings to typed values.
-   */
-  schema?: StandardJSONSchemaV1
-}
-
 class Option {
   /** Option name */
   name: string
@@ -180,13 +162,35 @@ class Option {
   isBoolean?: boolean
   // `required` will be a boolean for options with brackets
   required?: boolean
-  config: OptionConfig
+  /** Description text for help output */
+  description: string
+  /** Default value for this option */
+  default?: unknown
+  /** Standard JSON Schema V1 schema for type coercion and inference */
+  schema?: StandardJSONSchemaV1
+
+  /**
+   * Create an option.
+   * @param rawName - The raw option string, e.g. '--port <port>', '-v, --verbose'
+   * @param descriptionOrSchema - Either a description string or a StandardJSONSchemaV1 schema.
+   *   When a schema is provided, description and default are extracted from the JSON Schema.
+   */
   constructor(
     public rawName: string,
-    public description: string,
-    config?: OptionConfig
+    descriptionOrSchema?: string | StandardJSONSchemaV1,
   ) {
-    this.config = Object.assign({}, config)
+    if (typeof descriptionOrSchema === 'string') {
+      this.description = descriptionOrSchema
+    } else if (descriptionOrSchema && isStandardSchema(descriptionOrSchema)) {
+      this.schema = descriptionOrSchema
+      const meta = extractSchemaMetadata(descriptionOrSchema)
+      this.description = meta.description ?? ''
+      if (meta.default !== undefined) {
+        this.default = meta.default
+      }
+    } else {
+      this.description = ''
+    }
 
     // You may use cli.option('--env.* [value]', 'desc') to denote a dot-nested option
     rawName = rawName.replace(/\.\*/g, '')
@@ -337,25 +341,26 @@ class Command {
   /**
    * Add an option for this command.
    *
-   * When a `schema` implementing StandardJSONSchemaV1 is provided, the option's
-   * type is inferred from the schema and the option name is extracted from rawName.
+   * The second argument is either a description string or a StandardJSONSchemaV1
+   * schema. When a schema is provided, description and default are extracted from
+   * the JSON Schema automatically.
    *
    * @example
    * ```ts
-   * // With Zod v4.2+ (implements StandardJSONSchemaV1):
-   * cmd.option('--port <port>', 'Port number', { schema: z.number() })
+   * // With Zod schema (description + default extracted from schema):
+   * cmd.option('--port <port>', z.number().describe('Port number'))
    *
-   * // Without schema (no type inference, values are raw strings/booleans):
+   * // Without schema (plain description, values are raw strings/booleans):
    * cmd.option('--verbose', 'Verbose output')
    * ```
    */
   option<
     RawName extends string,
     S extends StandardJSONSchemaV1
-  >(rawName: RawName, description: string, config: OptionConfig & { schema: S }): Command & { __opts: OptionEntry<RawName, S> }
-  option(rawName: string, description: string, config?: OptionConfig): this
-  option(rawName: string, description: string, config?: OptionConfig): any {
-    const option = new Option(rawName, description, config)
+  >(rawName: RawName, schema: S): Command & { __opts: OptionEntry<RawName, S> }
+  option(rawName: string, descriptionOrSchema?: string | StandardJSONSchemaV1): this
+  option(rawName: string, descriptionOrSchema?: string | StandardJSONSchemaV1): any {
+    const option = new Option(rawName, descriptionOrSchema)
     this.options.push(option)
     return this
   }
@@ -481,9 +486,9 @@ class Command {
             return `  ${padRight(option.rawName, longestOptionName.length)}  ${
               option.description
             } ${
-              option.config.default === undefined
+              option.default === undefined
                 ? ''
-                : `(default: ${option.config.default})`
+                : `(default: ${option.default})`
             }`
           })
           .join('\n'),
@@ -741,8 +746,8 @@ class Goke extends EventEmitter {
    *
    * Which is also applied to sub-commands.
    */
-  option(rawName: string, description: string, config?: OptionConfig) {
-    this.globalCommand.option(rawName, description, config)
+  option(rawName: string, descriptionOrSchema?: string | StandardJSONSchemaV1) {
+    this.globalCommand.option(rawName, descriptionOrSchema as any)
     return this
   }
 
@@ -1005,18 +1010,18 @@ class Goke extends EventEmitter {
     const schemaMap = new Map<string, { jsonSchema: Record<string, unknown>; optionName: string }>()
 
     for (const cliOption of cliOptions) {
-      if (!ignoreDefault && cliOption.config.default !== undefined) {
+      if (!ignoreDefault && cliOption.default !== undefined) {
         for (const name of cliOption.names) {
           // Use setDotProp so dot-nested defaults (e.g. "config.port") produce
           // nested objects ({ config: { port: ... } }) instead of flat keys.
           const keys = name.split('.')
-          setDotProp(options, keys, cliOption.config.default)
+          setDotProp(options, keys, cliOption.default)
         }
       }
 
       // Extract JSON Schema from StandardJSONSchemaV1-compatible schema
-      if (cliOption.config.schema) {
-        const jsonSchema = extractJsonSchema(cliOption.config.schema)
+      if (cliOption.schema) {
+        const jsonSchema = extractJsonSchema(cliOption.schema)
         if (jsonSchema) {
           schemaMap.set(cliOption.name, { jsonSchema, optionName: cliOption.name })
           // Also register aliases so we can look up by any name
@@ -1107,6 +1112,6 @@ class Goke extends EventEmitter {
 
 // ─── Exports ───
 
-export type { GokeOutputStream, GokeConsole, GokeOptions, OptionConfig }
+export type { GokeOutputStream, GokeConsole, GokeOptions }
 export { createConsole, Command }
 export default Goke

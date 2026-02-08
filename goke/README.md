@@ -8,7 +8,7 @@ A [cac](https://github.com/cacjs/cac)-inspired CLI framework for building comman
 - **Easy to learn**. There are only 4 APIs you need to learn for building simple CLIs: `cli.option` `cli.version` `cli.help` `cli.parse`.
 - **Yet so powerful**. Enable features like default command, git-like subcommands, validation for required arguments and options, variadic arguments, dot-nested options, automated help message generation and so on.
 - **Space-separated subcommands**: Support multi-word commands like `mcp login`, `git remote add`.
-- **Schema-based type coercion**: Use Zod, Valibot, ArkType, or plain JSON Schema for automatic type coercion and TypeScript type inference.
+- **Schema-based type coercion**: Use Zod, Valibot, ArkType, or plain JSON Schema for automatic type coercion and TypeScript type inference. Description and default values are extracted from the schema automatically.
 - **Developer friendly**. Written in TypeScript.
 
 ## Install
@@ -23,14 +23,16 @@ npm install goke
 
 Use goke as simple argument parser:
 
-```js
+```ts
 import { goke } from 'goke'
+import { z } from 'zod'
 
 const cli = goke()
 
-cli.option('--type <type>', 'Choose a project type', {
-  default: 'node',
-})
+cli.option(
+  '--type [type]',
+  z.string().default('node').describe('Choose a project type'),
+)
 
 const parsed = cli.parse()
 
@@ -39,8 +41,9 @@ console.log(JSON.stringify(parsed, null, 2))
 
 ### Display Help Message and Version
 
-```js
+```ts
 import { goke } from 'goke'
+import { z } from 'zod'
 
 const cli = goke()
 
@@ -62,11 +65,77 @@ cli.version('0.0.0')
 cli.parse()
 ```
 
+### Many Commands with a Root Command
+
+Use `''` as the command name to define a root command that runs when no subcommand is given. This is useful for CLIs that have a primary action alongside several subcommands:
+
+```ts
+import { goke } from 'goke'
+import { z } from 'zod'
+
+const cli = goke('deploy')
+
+// Root command — runs when user types just `deploy`
+cli
+  .command('', 'Deploy the current project')
+  .option('--env <env>', z.string().default('production').describe('Target environment'))
+  .option('--dry-run', 'Preview without deploying')
+  .action((options) => {
+    console.log(`Deploying to ${options.env}...`)
+  })
+
+// Subcommands
+cli
+  .command('init', 'Initialize a new project')
+  .option('--template <template>', 'Project template')
+  .action((options) => {
+    console.log('Initializing project...')
+  })
+
+cli
+  .command('login', 'Authenticate with the server')
+  .action(() => {
+    console.log('Opening browser for login...')
+  })
+
+cli.command('logout', 'Clear saved credentials').action(() => {
+  console.log('Logged out')
+})
+
+cli
+  .command('status', 'Show deployment status')
+  .option('--json', 'Output as JSON')
+  .action((options) => {
+    console.log('Fetching status...')
+  })
+
+cli
+  .command('logs <deploymentId>', 'Stream logs for a deployment')
+  .option('--follow', 'Follow log output')
+  .option('--lines <n>', z.number().default(100).describe('Number of lines'))
+  .action((deploymentId, options) => {
+    console.log(`Streaming logs for ${deploymentId}...`)
+  })
+
+cli.help()
+cli.version('1.0.0')
+cli.parse()
+```
+
+```bash
+deploy                          # runs root command (deploy to production)
+deploy --env staging --dry-run  # root command with options
+deploy init --template react    # subcommand
+deploy login                    # subcommand
+deploy logs abc123 --follow     # subcommand with args + options
+deploy --help                   # shows all commands
+```
+
 ### Command-specific Options
 
 You can attach options to a command.
 
-```js
+```ts
 import { goke } from 'goke'
 
 const cli = goke()
@@ -87,7 +156,7 @@ cli.parse()
 
 goke supports multi-word command names for git-like nested subcommands:
 
-```js
+```ts
 import { goke } from 'goke'
 
 const cli = goke('mycli')
@@ -112,7 +181,7 @@ cli.parse()
 
 ### Schema-based Type Coercion
 
-By default, option values are kept as raw strings. Use the `schema` config to get typed values with automatic coercion:
+Pass a Standard Schema (like Zod) as the second argument to `.option()` for automatic type coercion. Description and default values are extracted from the schema:
 
 ```ts
 import { goke } from 'goke'
@@ -122,10 +191,10 @@ const cli = goke()
 
 cli
   .command('serve', 'Start server')
-  .option('--port <port>', 'Port number', { schema: z.number() })
-  .option('--host <host>', 'Hostname', { schema: z.string() })
-  .option('--workers <workers>', 'Worker count', { schema: z.int() })
-  .option('--tags <tag>', 'Tags (repeatable)', { schema: z.array(z.string()) })
+  .option('--port <port>', z.number().describe('Port number'))
+  .option('--host [host]', z.string().default('localhost').describe('Hostname'))
+  .option('--workers <workers>', z.int().describe('Worker count'))
+  .option('--tags <tag>', z.array(z.string()).describe('Tags (repeatable)'))
   .option('--verbose', 'Verbose output')
   .action((options) => {
     // options.port is number, options.host is string, etc.
@@ -135,11 +204,11 @@ cli
 cli.parse()
 ```
 
-The `schema` option accepts any object implementing [Standard JSON Schema V1](https://github.com/standard-schema/standard-schema), including:
+The second argument accepts any object implementing [Standard JSON Schema V1](https://github.com/standard-schema/standard-schema), including:
 
 - **Zod** v4.2+ (e.g. `z.number()`, `z.string()`, `z.array(z.number())`)
 - **Valibot**, **ArkType**, and other Standard Schema-compatible libraries
-- **Plain JSON Schema** via `wrapJsonSchema({ type: "number" })`
+- **Plain JSON Schema** via `wrapJsonSchema({ type: "number", description: "Port" })`
 
 ### Brackets
 
@@ -151,7 +220,7 @@ When using brackets in option name, angled brackets indicate that a string / num
 
 To allow an option whose value is `false`, you need to manually specify a negated option:
 
-```js
+```ts
 cli
   .command('build [project]', 'Build a project')
   .option('--no-config', 'Disable config file')
@@ -162,7 +231,7 @@ cli
 
 The last argument of a command can be variadic. To make an argument variadic you have to add `...` to the start of argument name:
 
-```js
+```ts
 cli
   .command('build <entry> [...otherFiles]', 'Build your app')
   .option('--foo', 'Foo option')
@@ -177,7 +246,7 @@ cli
 
 Dot-nested options will be merged into a single option.
 
-```js
+```ts
 cli
   .command('build', 'desc')
   .option('--env <env>', 'Set envs')
@@ -191,7 +260,7 @@ cli
 
 Register a command that will be used when no other command is matched.
 
-```js
+```ts
 cli
   .command('[...files]', 'Build files')
   .option('--minimize', 'Minimize output')
@@ -205,7 +274,7 @@ cli
 
 To handle command errors globally:
 
-```js
+```ts
 try {
   cli.parse(process.argv, { run: false })
   await cli.runMatchedCommand()
@@ -229,7 +298,7 @@ const cli = goke('my-program')
 
 CLI instance is created by invoking the `goke` function:
 
-```js
+```ts
 import { goke } from 'goke'
 const cli = goke()
 ```
@@ -247,14 +316,13 @@ Create a command instance. Supports space-separated subcommands like `mcp login`
 - `config.allowUnknownOptions`: `boolean` Allow unknown options in this command.
 - `config.ignoreOptionDefaultValue`: `boolean` Don't use the options's default value in parsed options, only display them in help message.
 
-#### cli.option(name, description, config?)
+#### cli.option(name, descriptionOrSchema?)
 
-- Type: `(name: string, description: string, config?: OptionConfig) => CLI`
+- Type: `(name: string, descriptionOrSchema?: string | StandardJSONSchemaV1) => CLI`
 
-Add a global option.
-
-- `config.default`: Default value for the option.
-- `config.schema`: A [Standard JSON Schema V1](https://github.com/standard-schema/standard-schema) object for automatic type coercion and TypeScript type inference.
+Add a global option. The second argument is either:
+- A **string** used as the description text
+- A **Standard Schema** (e.g. `z.number().describe('Port')`) — description and default are extracted from the schema automatically
 
 #### cli.parse(argv?)
 

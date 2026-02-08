@@ -11,6 +11,7 @@
  */
 
 import { goke } from "goke";
+import { wrapJsonSchema } from "goke";
 import { addMcpCommands } from "@goke/mcp";
 import type { McpOAuthState, CachedMcpTools } from "@goke/mcp";
 import fs from "node:fs";
@@ -69,7 +70,7 @@ await addMcpCommands({
 // Login command - just saves URL, auth happens on first tool call
 cli
   .command("login", "Save MCP URL and prepare for authentication")
-  .option("--url <url>", "MCP server URL", { default: "https://mcp.notion.com/mcp" })
+  .option("--url [url]", wrapJsonSchema({ type: "string", default: "https://mcp.notion.com/mcp", description: "MCP server URL" }))
   .action((options: { url: string }) => {
     saveConfig({ mcpUrl: options.url });
     console.log(`Saved MCP URL: ${options.url}`);

@@ -509,3 +509,30 @@ export function extractJsonSchema(schema: unknown): Record<string, unknown> | un
     }
   }
 }
+
+/**
+ * Check if a value is a StandardJSONSchemaV1-compatible schema object.
+ * Returns true when the value has a `~standard` property with a jsonSchema converter.
+ */
+export function isStandardSchema(value: unknown): value is StandardJSONSchemaV1 {
+  if (!value || typeof value !== 'object') return false
+  if (!hasStandardProp(value)) return false
+  return isJsonSchemaConverter(value['~standard'].jsonSchema)
+}
+
+/**
+ * Extract description and default value from a StandardJSONSchemaV1-compatible schema.
+ * Calls extractJsonSchema() internally and pulls `description` and `default` fields.
+ */
+export function extractSchemaMetadata(schema: StandardJSONSchemaV1): { description?: string; default?: unknown } {
+  const jsonSchema = extractJsonSchema(schema)
+  if (!jsonSchema) return {}
+  const result: { description?: string; default?: unknown } = {}
+  if (typeof jsonSchema.description === 'string') {
+    result.description = jsonSchema.description
+  }
+  if (jsonSchema.default !== undefined) {
+    result.default = jsonSchema.default
+  }
+  return result
+}

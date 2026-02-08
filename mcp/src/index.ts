@@ -406,18 +406,16 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
           optionDesc += ` (JSON: ${schemaToString(propSchema)})`;
         }
 
-        // Wrap the MCP tool's JSON Schema property into a StandardJSONSchemaV1
-        // object so Goke can use it for type coercion (string → typed value).
-        // Boolean flags don't need schema coercion — mri handles them natively.
-        const optionConfig: { default?: unknown; schema?: ReturnType<typeof wrapJsonSchema> } = {};
-        if (propSchema.default !== undefined) {
-          optionConfig.default = propSchema.default;
+        if (isBooleanType) {
+          // Boolean flags don't need schema coercion — mri handles them natively.
+          cmd.option(optionStr, optionDesc);
+        } else {
+          // Wrap the MCP tool's JSON Schema property into a StandardJSONSchemaV1
+          // object so Goke can use it for type coercion (string → typed value).
+          // Put the enriched description into the JSON Schema so it's extracted automatically.
+          const enrichedSchema = { ...propSchema, description: optionDesc } as Record<string, unknown>;
+          cmd.option(optionStr, wrapJsonSchema(enrichedSchema));
         }
-        if (!isBooleanType) {
-          optionConfig.schema = wrapJsonSchema(propSchema as Record<string, unknown>);
-        }
-
-        cmd.option(optionStr, optionDesc, optionConfig);
       }
     }
 
