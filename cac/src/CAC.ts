@@ -12,7 +12,6 @@ import {
   setDotProp,
   getFileName,
   camelcaseOptionName,
-  CACError,
 } from "./utils.js"
 import { processArgs } from "./node.js"
 import { coerceBySchema, extractJsonSchema } from "./coerce.js"
@@ -372,17 +371,13 @@ class CAC extends EventEmitter {
       }
     }
 
-    // Build sets of option names for sentinel detection and negated option bypass.
+    // Build sets of option names for sentinel detection.
     //
     // When mri returns `true` for value-taking options, it means "flag present, no value given".
     // For required options (<...>), the sentinel is preserved so checkOptionValue() throws.
     // For optional options ([...]) with a schema, we replace `true` with `undefined`.
-    //
-    // When mri returns `false` from negated options (--no-X), we must NOT coerce it —
-    // the user intended boolean false, not "false" (string) or 0 (number).
     const requiredValueOptions = new Set<string>()
     const optionalValueOptions = new Set<string>()
-    const negatedOptionNames = new Set<string>()
     for (const cliOption of cliOptions) {
       if (cliOption.required === true) {
         for (const name of cliOption.names) {
@@ -391,11 +386,6 @@ class CAC extends EventEmitter {
       } else if (cliOption.required === false) {
         for (const name of cliOption.names) {
           optionalValueOptions.add(name)
-        }
-      }
-      if (cliOption.negated) {
-        for (const name of cliOption.names) {
-          negatedOptionNames.add(name)
         }
       }
     }
@@ -420,8 +410,6 @@ class CAC extends EventEmitter {
           } else if (value === true && optionalValueOptions.has(key)) {
             // Optional value not given — schema expects a typed value, so return undefined
             value = undefined
-          } else if (value === false && negatedOptionNames.has(key)) {
-            // Negated option (--no-X) → boolean false. Don't coerce to "false" or 0.
           } else {
             value = coerceBySchema(value, schemaInfo.jsonSchema, schemaInfo.optionName)
           }

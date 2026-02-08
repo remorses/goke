@@ -45,7 +45,7 @@ interface MriOptions {
 export const getMriOptions = (options: Option[]) => {
   const result: MriOptions = { alias: {}, boolean: [] }
 
-  for (const [index, option] of options.entries()) {
+  for (const option of options) {
     // We do not set default values in mri options
     // Since its type (typeof) will be used to cast parsed arguments.
     // Which mean `--foo foo` will be parsed as `{foo: true}` if we have `{default:{foo: true}}`
@@ -56,22 +56,7 @@ export const getMriOptions = (options: Option[]) => {
     }
     // Set boolean
     if (option.isBoolean) {
-      if (option.negated) {
-        // For negated option
-        // We only set it to `boolean` type when there's no string-type option with the same name
-        const hasStringTypeOption = options.some((o, i) => {
-          return (
-            i !== index &&
-            o.names.some(name => option.names.includes(name)) &&
-            typeof o.required === 'boolean'
-          )
-        })
-        if (!hasStringTypeOption) {
-          result.boolean.push(option.names[0])
-        }
-      } else {
-        result.boolean.push(option.names[0])
-      }
+      result.boolean.push(option.names[0])
     }
   }
 

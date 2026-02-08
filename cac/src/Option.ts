@@ -28,8 +28,6 @@ export default class Option {
   // `required` will be a boolean for options with brackets
   required?: boolean
   config: OptionConfig
-  negated: boolean
-
   constructor(
     public rawName: string,
     public description: string,
@@ -40,26 +38,16 @@ export default class Option {
     // You may use cli.option('--env.* [value]', 'desc') to denote a dot-nested option
     rawName = rawName.replace(/\.\*/g, '')
 
-    this.negated = false
     this.names = removeBrackets(rawName)
       .split(',')
       .map((v: string) => {
         let name = v.trim().replace(/^-{1,2}/, '')
-        if (name.startsWith('no-')) {
-          this.negated = true
-          name = name.replace(/^no-/, '')
-        }
-
         return camelcaseOptionName(name)
       })
       .sort((a, b) => (a.length > b.length ? 1 : -1)) // Sort names
 
     // Use the longest name (last one) as actual option name
     this.name = this.names[this.names.length - 1]
-
-    if (this.negated && this.config.default == null) {
-      this.config.default = true
-    }
 
     if (rawName.includes('<')) {
       this.required = true

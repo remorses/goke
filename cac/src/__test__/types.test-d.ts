@@ -6,7 +6,7 @@
  * These use expectTypeOf from vitest for compile-time type assertions.
  */
 import { describe, test, expectTypeOf } from 'vitest'
-import type { StandardJSONSchemaV1, StandardTypedV1 } from '../standard-schema.js'
+import type { StandardTypedV1 } from '../standard-schema.js'
 
 // ─── Import type helpers from Command.ts ───
 // We can't import the private types directly, so we reconstruct them here
@@ -18,9 +18,6 @@ type CamelCase<S extends string> =
     : S
 
 type ExtractOptionName<S extends string> =
-  S extends `${string}--no-${infer Name} <${string}>` ? CamelCase<Name> :
-  S extends `${string}--no-${infer Name} [${string}]` ? CamelCase<Name> :
-  S extends `${string}--no-${infer Name}` ? CamelCase<Name> :
   S extends `${string}--${infer Name} <${string}>` ? CamelCase<Name> :
   S extends `${string}--${infer Name} [${string}]` ? CamelCase<Name> :
   S extends `${string}--${infer Name}` ? CamelCase<Name> :
@@ -58,9 +55,6 @@ describe('type-level: ExtractOptionName', () => {
     expectTypeOf<ExtractOptionName<'--my-long-option <val>'>>().toEqualTypeOf<'myLongOption'>()
   })
 
-  test('extracts negated option name', () => {
-    expectTypeOf<ExtractOptionName<'--no-debug'>>().toEqualTypeOf<'debug'>()
-  })
 })
 
 describe('type-level: IsOptionalOption', () => {

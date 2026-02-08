@@ -26,13 +26,8 @@ type CamelCase<S extends string> =
  * "-p, --port <port>"   → "port"
  * "--foo-bar <val>"     → "fooBar"
  * "--verbose"           → "verbose"
- * "--no-debug"          → "debug"
  */
 type ExtractOptionName<S extends string> =
-  // Match: --no-name <value>
-  S extends `${string}--no-${infer Name} <${string}>` ? CamelCase<Name> :
-  S extends `${string}--no-${infer Name} [${string}]` ? CamelCase<Name> :
-  S extends `${string}--no-${infer Name}` ? CamelCase<Name> :
   // Match: --name <value> or --name [value] or --name
   S extends `${string}--${infer Name} <${string}>` ? CamelCase<Name> :
   S extends `${string}--${infer Name} [${string}]` ? CamelCase<Name> :
@@ -392,10 +387,7 @@ class Command {
       }
       // Check required option value
       if (option.required) {
-        const hasNegated = options.some(
-          (o) => o.negated && o.names.includes(option.name)
-        )
-        if (value === true || (value === false && !hasNegated)) {
+        if (value === true || value === false) {
           throw new CACError(`option \`${option.rawName}\` value is missing`)
         }
       }

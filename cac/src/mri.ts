@@ -121,12 +121,6 @@ export default function mri(args?: string[], opts?: MriOptions): MriArgv {
 
     if (j === 0) {
       out._.push(arg)
-    } else if (arg.substring(j, j + 3) === 'no-') {
-      name = arg.substring(j + 3)
-      if (strict && !~keys.indexOf(name)) {
-        return opts.unknown!(arg) as any
-      }
-      out[name] = false
     } else {
       for (idx = j + 1; idx < arg.length; idx++) {
         if (arg.charCodeAt(idx) === 61) break // "="

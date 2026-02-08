@@ -3,20 +3,6 @@ import cac from '../index.js'
 import { coerceBySchema } from '../coerce.js'
 import { z } from 'zod'
 
-test('negated option', () => {
-  const cli = cac()
-
-  cli.option('--foo [foo]', 'Set foo').option('--no-foo', 'Disable foo')
-  cli.option('--bar [bar]', 'Set bar').option('--no-bar', 'Disable bar')
-
-  const { options } = cli.parse(['node', 'bin', '--foo', 'foo', '--bar'])
-  expect(options).toEqual({
-    '--': [],
-    foo: 'foo',
-    bar: true,
-  })
-})
-
 test('double dashes', () => {
   const cli = cac()
 
@@ -32,29 +18,6 @@ test('double dashes', () => {
 
   expect(args).toEqual(['foo', 'bar'])
   expect(options['--']).toEqual(['npm', 'test'])
-})
-
-test('default value for negated option', () => {
-  const cli = cac()
-
-  cli.option('--no-clear-screen', 'no clear screen')
-  cli.option('--no-a-b, --no-c-d', 'desc')
-
-  const { options } = cli.parse(`node bin`.split(' '))
-
-  expect(options).toEqual({ '--': [], clearScreen: true, aB: true, cD: true })
-})
-
-test('negated option validation', () => {
-  const cli = cac()
-
-  cli.option('--config <config>', 'config file')
-  cli.option('--no-config', 'no config file')
-
-  const { options } = cli.parse(`node bin --no-config`.split(' '))
-
-  cli.globalCommand.checkOptionValue()
-  expect(options.config).toBe(false)
 })
 
 test('dot-nested options', () => {
@@ -225,10 +188,8 @@ describe('no-schema behavior (mri no longer auto-converts)', () => {
   test('boolean flags still work without schema', () => {
     const cli = cac()
     cli.option('--verbose', 'Verbose')
-    cli.option('--no-color', 'No color')
-    const { options } = cli.parse('node bin --verbose --no-color'.split(' '))
+    const { options } = cli.parse('node bin --verbose'.split(' '))
     expect(options.verbose).toBe(true)
-    expect(options.color).toBe(false)
   })
 
   test('optional value flag returns true when no value given', () => {
@@ -279,10 +240,10 @@ describe('typical CLI usage examples', () => {
         schema: z.int(),
       })
       .option('--cors', 'Enable CORS')
-      .option('--no-log', 'Disable logging')
+      .option('--log', 'Enable logging')
       .action((options) => { config = options })
 
-    cli.parse('node bin start --port 8080 --host 0.0.0.0 --workers 4 --cors --no-log'.split(' '), { run: true })
+    cli.parse('node bin start --port 8080 --host 0.0.0.0 --workers 4 --cors'.split(' '), { run: true })
 
     expect(config.port).toBe(8080)
     expect(typeof config.port).toBe('number')
@@ -290,7 +251,6 @@ describe('typical CLI usage examples', () => {
     expect(config.workers).toBe(4)
     expect(typeof config.workers).toBe('number')
     expect(config.cors).toBe(true)
-    expect(config.log).toBe(false)
   })
 
   test('web server CLI with defaults (no args)', () => {
@@ -608,42 +568,6 @@ describe('edge cases: schema + defaults interaction', () => {
     // Passed without value → undefined (sentinel replaced)
     const { options: opts3 } = cli.parse('node bin --count'.split(' '))
     expect(opts3.count).toBe(undefined)
-  })
-})
-
-describe('edge cases: negated options + schema', () => {
-  test('--no-debug sets value to false, no schema interaction', () => {
-    const cli = cac()
-
-    cli.option('--no-debug', 'Disable debug')
-
-    const { options } = cli.parse('node bin --no-debug'.split(' '))
-    expect(options.debug).toBe(false)
-  })
-
-  test('--config <path> + --no-config with schema on config', () => {
-    const cli = cac()
-
-    cli.option('--config <config>', 'Config file', {
-      schema: z.string(),
-    })
-    cli.option('--no-config', 'Disable config')
-
-    // --no-config sets config to false — schema should NOT coerce this
-    const { options } = cli.parse('node bin --no-config'.split(' '))
-    expect(options.config).toBe(false)
-  })
-
-  test('--config <path> with value + schema coerces normally', () => {
-    const cli = cac()
-
-    cli.option('--config <config>', 'Config file', {
-      schema: z.string(),
-    })
-    cli.option('--no-config', 'Disable config')
-
-    const { options } = cli.parse('node bin --config myfile.json'.split(' '))
-    expect(options.config).toBe('myfile.json')
   })
 })
 
