@@ -25,6 +25,9 @@
     "test": "vitest --run",
     "prepublishOnly": "pnpm build"
   },
+  "dependencies": {
+    "picocolors": "^1.1.1"
+  },
   "author": "remorses, egoist <0x142857@gmail.com>",
   "license": "MIT",
   "devDependencies": {

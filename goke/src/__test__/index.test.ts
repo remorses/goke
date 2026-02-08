@@ -4,6 +4,10 @@ import type { GokeOutputStream } from '../index.js'
 import { coerceBySchema } from '../coerce.js'
 import { z } from 'zod'
 
+const ANSI_RE = /\x1B\[[0-9;]*m/g
+
+const stripAnsi = (text: string) => text.replace(ANSI_RE, '')
+
 /**
  * Helper: creates a GokeOutputStream that captures all written data into a string array.
  * Access `output.lines` for raw writes, or `output.text` for the joined result.
@@ -12,7 +16,7 @@ function createTestOutputStream(): GokeOutputStream & { lines: string[]; readonl
   const lines: string[] = []
   return {
     lines,
-    get text() { return lines.join('') },
+    get text() { return stripAnsi(lines.join('')) },
     write(data: string) { lines.push(data) },
   }
 }
@@ -827,7 +831,7 @@ describe('space-separated subcommands', () => {
     // parse with --help triggers outputHelp() internally, which writes to our captured stdout
     cli.parse(['node', 'bin', '--help'], { run: false })
 
-    expect(output).toMatchInlineSnapshot(`
+    expect(stripAnsi(output)).toMatchInlineSnapshot(`
       "mycli
 
       Usage:
@@ -835,22 +839,20 @@ describe('space-separated subcommands', () => {
 
       Commands:
         mcp login <url>              Login to MCP server
-        mcp logout                   Logout from MCP server
-        mcp status                   Show connection status
-        git remote add <name> <url>  Add a git remote
-        git remote remove <name>     Remove a git remote
-        build                        Build the project
 
-      For more info, run any command with the \`--help\` flag:
-        $ mycli mcp login --help
-        $ mycli mcp logout --help
-        $ mycli mcp status --help
-        $ mycli git remote add --help
-        $ mycli git remote remove --help
-        $ mycli build --help
+        mcp logout                   Logout from MCP server
+
+        mcp status                   Show connection status
+
+        git remote add <name> <url>  Add a git remote
+
+        git remote remove <name>     Remove a git remote
+
+        build                        Build the project
+          --watch  Watch mode
 
       Options:
-        -h, --help  Display this message 
+        -h, --help  Display this message
       "
     `)
   })
@@ -872,12 +874,13 @@ describe('space-separated subcommands', () => {
     cli.parse(['node', 'bin', 'mcp', 'nonexistent'], { run: true })
 
     expect(cli.matchedCommand).toBeUndefined()
-    expect(output).toContain('Unknown command: mcp nonexistent')
-    expect(output).toContain('Available "mcp" commands:')
-    expect(output).toContain('mcp login')
-    expect(output).toContain('mcp logout')
-    expect(output).toContain('mcp status')
-    expect(output).not.toContain('build')
+    const normalizedOutput = stripAnsi(output)
+    expect(normalizedOutput).toContain('Unknown command: mcp nonexistent')
+    expect(normalizedOutput).toContain('Available "mcp" commands:')
+    expect(normalizedOutput).toContain('mcp login')
+    expect(normalizedOutput).toContain('mcp logout')
+    expect(normalizedOutput).toContain('mcp status')
+    expect(normalizedOutput).not.toContain('build')
   })
 
   test('unknown command without prefix does not show filtered help', () => {
@@ -895,7 +898,7 @@ describe('space-separated subcommands', () => {
     cli.parse(['node', 'bin', 'foo'], { run: true })
 
     // Should not show filtered help since "foo" is not a prefix of any command
-    expect(output).not.toContain('Available "foo" commands')
+    expect(stripAnsi(output)).not.toContain('Available "foo" commands')
   })
 })
 
@@ -1029,6 +1032,69 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toContain('logs <deploymentId>')
     expect(stdout.text).toContain('Initialize a new project')
     expect(stdout.text).toContain('Stream logs for a deployment')
+  })
+
+  test('root help wraps long command descriptions snapshot', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout, columns: 56 })
+
+    cli.command(
+      'notion-search',
+      'Perform a semantic search over Notion workspace content and connected integrations with advanced filtering options, date filters, and creator filters.',
+    )
+      .option('--query <query>', 'Natural language query text to search for')
+      .option('--limit [limit]', z.number().default(10).describe('Maximum number of results to return'))
+
+    cli.command(
+      'notion-fetch',
+      'Retrieve a Notion page or database by URL or ID and render the result in enhanced markdown format for terminal output.',
+    ).option('--id <id>', 'Notion URL or UUID to fetch')
+
+    cli.help()
+    cli.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toMatchInlineSnapshot(`
+      "mycli
+
+      Usage:
+        $ mycli <command> [options]
+
+      Commands:
+        notion-search  Perform a semantic search over Notion
+                       workspace content and connected
+                       integrations with advanced filtering
+                       options, date filters, and creator
+                       filters.
+          --query <query>  Natural language query text to
+                           search for
+          --limit [limit]  Maximum number of results to return
+                           (default: 10)
+
+        notion-fetch   Retrieve a Notion page or database by
+                       URL or ID and render the result in
+                       enhanced markdown format for terminal
+                       output.
+          --id <id>        Notion URL or UUID to fetch
+
+      Options:
+        -h, --help  Display this message
+      "
+    `)
+  })
+
+  test('root help wraps all multi-line description lines', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout, columns: 64 })
+
+    cli.command(
+      'notion-create',
+      'Create a new page.\n  {"title":"Example"}\n  {"done":true}',
+    )
+    cli.help()
+    cli.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toContain('{"title":"Example"}')
+    expect(stdout.text).toContain('{"done":true}')
   })
 
   test('many subcommands all resolve correctly', () => {

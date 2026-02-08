@@ -13,6 +13,10 @@ importers:
         version: 5.9.3
 
   goke:
+    dependencies:
+      picocolors:
+        specifier: ^1.1.1
+        version: 1.1.1
     devDependencies:
       '@types/node':
         specifier: ^25.2.2

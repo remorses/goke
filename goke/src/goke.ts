@@ -12,6 +12,7 @@
  */
 
 import { EventEmitter } from 'events'
+import pc from 'picocolors'
 import mri from "./mri.js"
 import { coerceBySchema, extractJsonSchema, extractSchemaMetadata, isStandardSchema } from "./coerce.js"
 import type { StandardJSONSchemaV1 } from "./coerce.js"
@@ -90,8 +91,90 @@ const findLongest = (arr: string[]) => {
   })[0]
 }
 
+const ANSI_RE = /\x1B\[[0-9;]*m/g
+
+const visibleLength = (value: string) => value.replace(ANSI_RE, '').length
+
+const orange = (value: string) => {
+  if (!pc.isColorSupported) {
+    return value
+  }
+  return `\x1b[38;5;208m${value}\x1b[39m`
+}
+
 const padRight = (str: string, length: number) => {
-  return str.length >= length ? str : `${str}${' '.repeat(length - str.length)}`
+  return visibleLength(str) >= length ? str : `${str}${' '.repeat(length - visibleLength(str))}`
+}
+
+const wrapLine = (line: string, width: number) => {
+  if (width <= 0 || visibleLength(line) <= width) {
+    return [line]
+  }
+
+  const words = line.trim().split(/\s+/)
+  const wrapped: string[] = []
+  let current = ''
+
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word
+    if (visibleLength(next) <= width) {
+      current = next
+      continue
+    }
+
+    if (current) {
+      wrapped.push(current)
+    }
+
+    if (visibleLength(word) <= width) {
+      current = word
+      continue
+    }
+
+    let remaining = word
+    while (visibleLength(remaining) > width) {
+      wrapped.push(remaining.slice(0, width))
+      remaining = remaining.slice(width)
+    }
+    current = remaining
+  }
+
+  if (current) {
+    wrapped.push(current)
+  }
+
+  return wrapped
+}
+
+const wrapDescription = (text: string, width: number) => {
+  const maxWidth = Math.max(20, width)
+  return text
+    .split('\n')
+    .flatMap((line) => {
+      if (line.trim() === '') {
+        return ['']
+      }
+      return wrapLine(line, maxWidth)
+    })
+}
+
+const formatWrappedDescription = (text: string, width: number, indent: number) => {
+  const lines = wrapDescription(text, width)
+    .map((line) => (line ? pc.dim(line) : line))
+  if (lines.length === 0) {
+    return ''
+  }
+  return [
+    lines[0],
+    ...lines.slice(1).map((line) => `${' '.repeat(indent)}${line}`),
+  ].join('\n')
+}
+
+const optionDescriptionText = (option: Option) => {
+  const defaultText = option.default === undefined
+    ? ''
+    : ` ${pc.cyan(`(default: ${String(option.default)})`)}`
+  return `${option.description}${defaultText}`.trim()
 }
 
 const camelcase = (input: string) => {
@@ -427,45 +510,68 @@ class Command {
 
     let sections: HelpSection[] = [
       {
-        body: `${name}${versionNumber ? `/${versionNumber}` : ''}`,
+        body: pc.bold(pc.cyan(`${name}${versionNumber ? `/${versionNumber}` : ''}`)),
       },
     ]
 
     sections.push({
       title: 'Usage',
-      body: `  $ ${name} ${this.usageText || this.rawName}`,
+      body: `  ${pc.green('$')} ${pc.bold(name)} ${this.usageText || this.rawName}`,
     })
 
     const showCommands =
       (this.isGlobalCommand || this.isDefaultCommand) && commands.length > 0
+    const terminalWidth = Math.max(this.cli.columns, 40)
 
     if (showCommands) {
       const longestCommandName = findLongest(
         commands.map((command) => command.rawName)
       )
+      const longestCommandOptions = commands
+        .flatMap((command) => command.options.map((option) => option.rawName))
+      const longestCommandOptionName = longestCommandOptions.length > 0
+        ? findLongest(longestCommandOptions)
+        : ''
+      const commandDescriptionColumn = 2 + longestCommandName.length + 2
+      const commandDescriptionWidth = terminalWidth - commandDescriptionColumn
+      const optionDescriptionColumn = 4 + longestCommandOptionName.length + 2
+      const optionDescriptionWidth = terminalWidth - optionDescriptionColumn
+
       sections.push({
         title: 'Commands',
         body: commands
           .map((command) => {
-            // Only show first line of description in commands listing
-            const firstLine = command.description.split('\n')[0].trim()
-            return `  ${padRight(
-              command.rawName,
-              longestCommandName.length
-            )}  ${firstLine}`
+            const commandLabel = padRight(command.rawName, longestCommandName.length)
+            const commandDescription = formatWrappedDescription(
+              command.description,
+              commandDescriptionWidth,
+              commandDescriptionColumn,
+            )
+            const headerLine = commandDescription
+              ? `  ${pc.bold(pc.blue(commandLabel))}  ${commandDescription}`
+              : `  ${pc.bold(pc.blue(commandLabel))}`
+
+            if (command.options.length === 0) {
+              return headerLine
+            }
+
+            const optionLines = command.options
+              .map((option) => {
+                const optionLabel = padRight(option.rawName, longestCommandOptionName.length)
+                const optionDescription = formatWrappedDescription(
+                  optionDescriptionText(option),
+                  optionDescriptionWidth,
+                  optionDescriptionColumn,
+                )
+                return optionDescription
+                  ? `    ${orange(optionLabel)}  ${optionDescription}`
+                  : `    ${orange(optionLabel)}`
+              })
+              .join('\n')
+
+            return `${headerLine}\n${optionLines}`
           })
-          .join('\n'),
-      })
-      sections.push({
-        title: `For more info, run any command with the \`--help\` flag`,
-        body: commands
-          .map(
-            (command) =>
-              `  $ ${name}${
-                command.name === '' ? '' : ` ${command.name}`
-              } --help`
-          )
-          .join('\n'),
+          .join('\n\n'),
       })
     }
 
@@ -479,17 +585,21 @@ class Command {
       const longestOptionName = findLongest(
         options.map((option) => option.rawName)
       )
+      const descriptionColumn = 2 + longestOptionName.length + 2
+      const descriptionWidth = terminalWidth - descriptionColumn
       sections.push({
         title: 'Options',
         body: options
           .map((option) => {
-            return `  ${padRight(option.rawName, longestOptionName.length)}  ${
-              option.description
-            } ${
-              option.default === undefined
-                ? ''
-                : `(default: ${option.default})`
-            }`
+            const optionLabel = padRight(option.rawName, longestOptionName.length)
+            const description = formatWrappedDescription(
+              optionDescriptionText(option),
+              descriptionWidth,
+              descriptionColumn,
+            )
+            return description
+              ? `  ${orange(optionLabel)}  ${description}`
+              : `  ${orange(optionLabel)}`
           })
           .join('\n'),
       })
@@ -497,11 +607,11 @@ class Command {
 
     // Show full description for specific commands (not global/default)
     if (!this.isGlobalCommand && !this.isDefaultCommand && this.description) {
+      const descriptionLines = wrapDescription(this.description, terminalWidth - 2)
       sections.push({
         title: 'Description',
-        body: this.description
-          .split('\n')
-          .map((line) => `  ${line}`)
+        body: descriptionLines
+          .map((line) => (line ? `  ${pc.dim(line)}` : ''))
           .join('\n'),
       })
     }
@@ -528,7 +638,7 @@ class Command {
       sections
         .map((section) => {
           return section.title
-            ? `${section.title}:\n${section.body}`
+            ? `${pc.bold(pc.blue(section.title))}:\n${section.body}`
             : section.body
         })
         .join('\n\n')
@@ -641,6 +751,8 @@ interface GokeOptions {
   stderr?: GokeOutputStream
   /** Custom argv array. Defaults to process.argv */
   argv?: string[]
+  /** Terminal width used to wrap help output. Defaults to process.stdout.columns or 80 */
+  columns?: number
 }
 
 /**
@@ -699,6 +811,8 @@ class Goke extends EventEmitter {
   readonly stderr: GokeOutputStream
   /** Console-like object that routes through stdout/stderr */
   readonly console: GokeConsole
+  /** Terminal width used to wrap help output text */
+  readonly columns: number
 
   #defaultArgv: string[]
 
@@ -716,6 +830,7 @@ class Goke extends EventEmitter {
     this.stdout = options?.stdout ?? process.stdout
     this.stderr = options?.stderr ?? process.stderr
     this.console = createConsole(this.stdout, this.stderr)
+    this.columns = options?.columns ?? process.stdout.columns ?? 80
     this.#defaultArgv = options?.argv ?? processArgs
     this.globalCommand = new GlobalCommand(this)
     this.globalCommand.usage('<command> [options]')
