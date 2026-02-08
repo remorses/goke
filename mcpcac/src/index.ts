@@ -105,11 +105,11 @@ export interface AddMcpCommandsOptions {
 
   /**
    * OAuth configuration. When provided, enables automatic OAuth authentication.
-   * 
+   *
    * OAuth is lazy - no auth check happens on startup. Authentication is only
    * triggered when a tool call returns 401. After successful auth, the tool
    * call is automatically retried.
-   * 
+   *
    * The library handles everything internally:
    * - Detecting 401 errors
    * - Starting local callback server on random port
@@ -258,23 +258,14 @@ function createTransportWithAuth(
   });
 }
 
-/**
- * Normalize MCP URL for StreamableHTTP transport
- */
-function normalizeUrl(mcpUrl: string): URL {
-  const url = new URL(mcpUrl);
-  if (url.pathname.endsWith("/sse")) {
-    url.pathname = url.pathname.replace(/\/sse$/, "/mcp");
-  }
-  return url;
-}
+
 
 /**
  * Adds MCP tool commands to a goke CLI instance.
- * 
+ *
  * Tools are cached for 1 hour to avoid connecting on every CLI invocation.
  * Session ID is also cached to skip MCP initialization handshake.
- * 
+ *
  * OAuth is lazy - authentication only happens when a 401 error occurs.
  * After successful auth, the operation is automatically retried.
  */
@@ -299,7 +290,7 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
         return null;
       }
 
-      const url = normalizeUrl(mcpUrl);
+      const url = new URL(mcpUrl);
       const oauthState = oauth?.load();
 
       return createTransportWithAuth(url, sessionId, oauthState, oauth);
@@ -382,7 +373,7 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
       if (isAuthRequiredError(err) && oauth && getMcpUrl) {
         const mcpUrl = getMcpUrl();
         if (mcpUrl) {
-          const authSuccess = await handleAuthRequired(normalizeUrl(mcpUrl).toString());
+          const authSuccess = await handleAuthRequired((mcpUrl).toString());
           if (authSuccess) {
             // Retry after auth
             return addMcpCommands(options);
@@ -448,7 +439,7 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
           console.error("MCP transport not available. Run login command first.");
           process.exit(1);
         }
-        
+
         const actionClient = new Client({ name: clientName, version: "1.0.0" }, { capabilities: {} });
 
         try {
@@ -460,7 +451,7 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
           if (!isRetry && isAuthRequiredError(err) && oauth && getMcpUrl) {
             const mcpUrl = getMcpUrl();
             if (mcpUrl) {
-              const authSuccess = await handleAuthRequired(normalizeUrl(mcpUrl).toString());
+              const authSuccess = await handleAuthRequired((mcpUrl).toString());
               if (authSuccess) {
                 await actionClient.close();
                 return executeWithRetry(true);
