@@ -1,5 +1,5 @@
 {
-  "name": "mcpcac",
+  "name": "@goke/mcp",
   "version": "0.0.3",
   "description": "Dynamically generate CLI commands from MCP server tools",
   "type": "module",

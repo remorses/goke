@@ -18,34 +18,26 @@
  *
  * ```ts
  * import { goke } from 'goke'
- * import { addMcpCommands } from 'mcpcac'
+ * import { addMcpCommands } from '@goke/mcp'
  *
  * const cli = goke('mycli')
  *
  * await addMcpCommands({
  *   cli,
- *   commandPrefix: 'mcp',
- *   clientName: 'my-mcp-client',
- *   getMcpUrl: () => loadConfig().mcpUrl,
+ *   getMcpUrl: () => 'https://your-mcp-server.com/mcp',
  *   oauth: {
  *     clientName: 'My CLI',
- *     load: () => loadConfig().mcpOauth,
- *     save: (state) => saveConfig({ mcpOauth: state }),
+ *     load: () => loadConfig().oauthState,
+ *     save: (state) => saveConfig({ oauthState: state }),
  *   },
  *   loadCache: () => loadConfig().cache,
  *   saveCache: (cache) => saveConfig({ cache }),
  * })
  *
- * // Login command just saves URL - no auth check, fast!
- * cli.command('login [url]').action((url) => {
- *   saveConfig({ mcpUrl: url })
- *   console.log('URL saved.')
- * })
- *
  * cli.parse()
  * ```
  *
- * @module mcpcac
+ * @module @goke/mcp
  */
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -79,7 +71,7 @@ export interface AddMcpCommandsOptions {
   /**
    * Prefix for all MCP tool commands.
    * Set to empty string '' for no prefix (e.g., 'notion-search' instead of 'mcp notion-search').
-   * @default 'mcp'
+   * @default ''
    */
   commandPrefix?: string;
   /**
@@ -272,7 +264,7 @@ function createTransportWithAuth(
 export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<void> {
   const {
     cli,
-    commandPrefix = "mcp",
+    commandPrefix = "",
     clientName = "mcp-cli-client",
     getMcpUrl,
     getMcpTransport,

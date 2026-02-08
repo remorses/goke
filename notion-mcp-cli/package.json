@@ -30,7 +30,7 @@
   },
   "dependencies": {
     "goke": "workspace:*",
-    "mcpcac": "workspace:*"
+    "@goke/mcp": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.15.21",

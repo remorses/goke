@@ -11,8 +11,8 @@
  */
 
 import { goke } from "goke";
-import { addMcpCommands } from "mcpcac";
-import type { McpOAuthState, CachedMcpTools } from "mcpcac";
+import { addMcpCommands } from "@goke/mcp";
+import type { McpOAuthState, CachedMcpTools } from "@goke/mcp";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -51,7 +51,6 @@ const cli = goke("notion-mcp-cli");
 // Add MCP commands with OAuth support (no prefix - commands are top-level)
 await addMcpCommands({
   cli,
-  commandPrefix: "",
   clientName: "notion-mcp-cli",
   getMcpUrl: () => loadConfig().mcpUrl,
   oauth: {

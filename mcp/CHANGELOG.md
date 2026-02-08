@@ -1,4 +1,4 @@
-# mcpcac
+# @goke/mcp
 
 ## 0.0.3
 

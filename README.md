@@ -38,16 +38,16 @@ This monorepo contains:
 | Package | Description |
 |---------|-------------|
 | [notion-mcp-cli](./notion-mcp-cli) | CLI for Notion MCP |
-| [mcpcac](./mcpcac) | Generate CLI commands from any MCP server |
+| [@goke/mcp](./mcp) | Generate CLI commands from any MCP server |
 | [goke](./goke) | cac-inspired CLI framework with space-separated subcommands |
 
-## mcpcac
+## @goke/mcp
 
-Use `mcpcac` to build your own MCP CLI:
+Use `@goke/mcp` to build your own MCP CLI:
 
 ```ts
 import { goke } from 'goke'
-import { addMcpCommands } from 'mcpcac'
+import { addMcpCommands } from '@goke/mcp'
 
 const cli = goke('mycli')
 

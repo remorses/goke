@@ -27,7 +27,7 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
 
-  mcpcac:
+  mcp:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.0
@@ -48,12 +48,12 @@ importers:
 
   notion-mcp-cli:
     dependencies:
+      '@goke/mcp':
+        specifier: workspace:*
+        version: link:../mcp
       goke:
         specifier: workspace:*
         version: link:../goke
-      mcpcac:
-        specifier: workspace:*
-        version: link:../mcpcac
     devDependencies:
       '@types/node':
         specifier: ^22.15.21
