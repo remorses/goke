@@ -1,5 +1,10 @@
 # goke
 
+## 6.1.1
+
+- Fix: use Infinity as default help width fallback when terminal columns are unavailable, avoiding forced wrapping in non-TTY environments
+- Test: add inline snapshot coverage for root `--help` output when `process.stdout.columns` is undefined
+
 ## 6.1.0
 
 - Feat: redesign help rendering with wrapped full descriptions and colorized sections

@@ -1126,6 +1126,51 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toContain('{"done":true}')
   })
 
+  test('root help snapshot when columns is undefined (no wrapping fallback)', () => {
+    const stdout = createTestOutputStream()
+    const originalColumns = process.stdout.columns
+
+    Object.defineProperty(process.stdout, 'columns', {
+      configurable: true,
+      value: undefined,
+    })
+
+    try {
+      const cli = goke('mycli', { stdout })
+
+      cli.command(
+        'notion-search',
+        'Perform a semantic search over Notion workspace content and connected integrations with advanced filtering options, date filters, and creator filters.',
+      )
+        .option('--query <query>', 'Natural language query text to search for')
+        .option('--limit [limit]', z.number().default(10).describe('Maximum number of results to return'))
+
+      cli.help()
+      cli.parse(['node', 'bin', '--help'], { run: false })
+
+      expect(stdout.text).toMatchInlineSnapshot(`
+        "mycli
+
+        Usage:
+          $ mycli <command> [options]
+
+        Commands:
+          notion-search  Perform a semantic search over Notion workspace content and connected integrations with advanced filtering options, date filters, and creator filters.
+            --query <query>  Natural language query text to search for
+            --limit [limit]  Maximum number of results to return (default: 10)
+
+        Options:
+          -h, --help  Display this message
+        "
+      `)
+    } finally {
+      Object.defineProperty(process.stdout, 'columns', {
+        configurable: true,
+        value: originalColumns,
+      })
+    }
+  })
+
   test('many subcommands all resolve correctly', () => {
     const cli = goke('deploy')
     let matched = ''

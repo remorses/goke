@@ -751,7 +751,7 @@ interface GokeOptions {
   stderr?: GokeOutputStream
   /** Custom argv array. Defaults to process.argv */
   argv?: string[]
-  /** Terminal width used to wrap help output. Defaults to process.stdout.columns or 80 */
+  /** Terminal width used to wrap help output. Defaults to process.stdout.columns, or Infinity when unavailable */
   columns?: number
 }
 
@@ -830,7 +830,7 @@ class Goke extends EventEmitter {
     this.stdout = options?.stdout ?? process.stdout
     this.stderr = options?.stderr ?? process.stderr
     this.console = createConsole(this.stdout, this.stderr)
-    this.columns = options?.columns ?? process.stdout.columns ?? 80
+    this.columns = options?.columns ?? process.stdout.columns ?? Number.POSITIVE_INFINITY
     this.#defaultArgv = options?.argv ?? processArgs
     this.globalCommand = new GlobalCommand(this)
     this.globalCommand.usage('<command> [options]')
