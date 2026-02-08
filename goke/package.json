@@ -5,7 +5,7 @@
   "description": "Simple yet powerful framework for building command-line apps. Inspired by cac.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/remorses/notion-mcp-cli"
+    "url": "https://github.com/remorses/goke"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -17,14 +17,15 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "src"
   ],
   "scripts": {
     "build": "tsc",
     "test": "vitest --run",
     "prepublishOnly": "pnpm build"
   },
-  "author": "egoist <0x142857@gmail.com>",
+  "author": "remorses, egoist <0x142857@gmail.com>",
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^25.2.2",
