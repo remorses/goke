@@ -23,23 +23,6 @@ npm install goke
 
 Use goke as simple argument parser:
 
-```ts
-import { goke } from 'goke'
-import { z } from 'zod'
-
-const cli = goke()
-
-cli.option(
-  '--type [type]',
-  z.string().default('node').describe('Choose a project type'),
-)
-
-const parsed = cli.parse()
-
-console.log(JSON.stringify(parsed, null, 2))
-```
-
-### Display Help Message and Version
 
 ```ts
 import { goke } from 'goke'
@@ -78,7 +61,10 @@ const cli = goke('deploy')
 // Root command — runs when user types just `deploy`
 cli
   .command('', 'Deploy the current project')
-  .option('--env <env>', z.string().default('production').describe('Target environment'))
+  .option(
+    '--env <env>',
+    z.string().default('production').describe('Target environment'),
+  )
   .option('--dry-run', 'Preview without deploying')
   .action((options) => {
     console.log(`Deploying to ${options.env}...`)
@@ -92,11 +78,9 @@ cli
     console.log('Initializing project...')
   })
 
-cli
-  .command('login', 'Authenticate with the server')
-  .action(() => {
-    console.log('Opening browser for login...')
-  })
+cli.command('login', 'Authenticate with the server').action(() => {
+  console.log('Opening browser for login...')
+})
 
 cli.command('logout', 'Clear saved credentials').action(() => {
   console.log('Logged out')
@@ -321,6 +305,7 @@ Create a command instance. Supports space-separated subcommands like `mcp login`
 - Type: `(name: string, descriptionOrSchema?: string | StandardJSONSchemaV1) => CLI`
 
 Add a global option. The second argument is either:
+
 - A **string** used as the description text
 - A **Standard Schema** (e.g. `z.number().describe('Port')`) — description and default are extracted from the schema automatically
 
