@@ -900,6 +900,35 @@ describe('space-separated subcommands', () => {
     // Should not show filtered help since "foo" is not a prefix of any command
     expect(stripAnsi(output)).not.toContain('Available "foo" commands')
   })
+
+  test('prefix --help shows filtered help for matching command group', () => {
+    let output = ''
+    const cli = goke('mycli', {
+      stdout: { write(data) { output += data } },
+    })
+
+    cli.command('mcp login', 'Login to MCP')
+    cli.command('mcp logout', 'Logout from MCP')
+    cli.command('mcp status', 'Show status')
+    cli.command('build', 'Build project')
+
+    cli.help()
+    cli.parse(['node', 'bin', 'mcp', '--help'], { run: true })
+
+    const normalizedOutput = stripAnsi(output)
+    expect(normalizedOutput).toMatchInlineSnapshot(`
+      "mycli
+
+      Available \"mcp\" commands:
+
+        mcp login   Login to MCP
+        mcp logout  Logout from MCP
+        mcp status  Show status
+
+      Run \"mycli <command> --help\" for more information.
+      "
+    `)
+  })
 })
 
 describe('many commands with root command (empty string)', () => {

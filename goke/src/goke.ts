@@ -915,15 +915,17 @@ class Goke extends EventEmitter {
    * Output help for commands matching a prefix.
    * Used when user types "mcp nonexistent" and we have "mcp login", "mcp status", etc.
    */
-  outputHelpForPrefix(prefix: string, matchingCommands: Command[]) {
+  outputHelpForPrefix(prefix: string, matchingCommands: Command[], fromHelpFlag = false) {
     const { versionNumber } = this.globalCommand
 
     this.console.log(`${this.name}${versionNumber ? `/${versionNumber}` : ''}`)
     this.console.log()
-    this.console.log(
-      `Unknown command: ${this.args.join(' ')}`
-    )
-    this.console.log()
+    if (!fromHelpFlag) {
+      this.console.log(
+        `Unknown command: ${this.args.join(' ')}`
+      )
+      this.console.log()
+    }
     this.console.log(`Available "${prefix}" commands:`)
     this.console.log()
 
@@ -1040,7 +1042,22 @@ class Goke extends EventEmitter {
     }
 
     if (this.options.help && this.showHelpOnExit) {
-      this.outputHelp()
+      if (!this.matchedCommand && this.args[0]) {
+        const firstArg = this.args[0]
+        const matchingCommands = this.commands.filter((cmd) => {
+          if (cmd.name === '') return false
+          const cmdParts = cmd.name.split(' ')
+          return cmdParts[0] === firstArg
+        })
+
+        if (matchingCommands.length > 0) {
+          this.outputHelpForPrefix(firstArg, matchingCommands, true)
+        } else {
+          this.outputHelp()
+        }
+      } else {
+        this.outputHelp()
+      }
       run = false
       this.unsetMatchedCommand()
     }
@@ -1057,7 +1074,7 @@ class Goke extends EventEmitter {
       this.runMatchedCommand()
     }
 
-    if (!this.matchedCommand && this.args[0]) {
+    if (!this.matchedCommand && this.args[0] && !(this.options.help && this.showHelpOnExit)) {
       this.emit('command:*')
 
       // If the first arg is a prefix of existing commands but no command matched,
