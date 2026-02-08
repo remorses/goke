@@ -559,6 +559,276 @@ describe('regression: oracle-found issues', () => {
   })
 })
 
+describe('edge cases: schema + defaults interaction', () => {
+  test('default value is preserved as-is, not coerced by schema', () => {
+    const cli = cac()
+
+    // default is string "3000" but schema says number — default should stay as-is
+    cli.option('--port <port>', 'Port', {
+      default: '3000',
+      schema: z.number(),
+    })
+
+    const { options } = cli.parse('node bin'.split(' '))
+    // Is default coerced? This test documents current behavior
+    expect(options.port).toBe('3000')
+  })
+
+  test('default value is used when option not passed, schema value when passed', () => {
+    const cli = cac()
+
+    cli.option('--port <port>', 'Port', {
+      default: 8080,
+      schema: z.number(),
+    })
+
+    const { options: opts1 } = cli.parse('node bin'.split(' '))
+    expect(opts1.port).toBe(8080)
+
+    const { options: opts2 } = cli.parse('node bin --port 3000'.split(' '))
+    expect(opts2.port).toBe(3000)
+  })
+
+  test('optional value + default + schema: three-way interaction', () => {
+    const cli = cac()
+
+    cli.option('--count [count]', 'Count', {
+      default: 10,
+      schema: z.number(),
+    })
+
+    // Not passed at all → default
+    const { options: opts1 } = cli.parse('node bin'.split(' '))
+    expect(opts1.count).toBe(10)
+
+    // Passed with value → coerced
+    const { options: opts2 } = cli.parse('node bin --count 42'.split(' '))
+    expect(opts2.count).toBe(42)
+
+    // Passed without value → undefined (sentinel replaced)
+    const { options: opts3 } = cli.parse('node bin --count'.split(' '))
+    expect(opts3.count).toBe(undefined)
+  })
+})
+
+describe('edge cases: negated options + schema', () => {
+  test('--no-debug sets value to false, no schema interaction', () => {
+    const cli = cac()
+
+    cli.option('--no-debug', 'Disable debug')
+
+    const { options } = cli.parse('node bin --no-debug'.split(' '))
+    expect(options.debug).toBe(false)
+  })
+
+  test('--config <path> + --no-config with schema on config', () => {
+    const cli = cac()
+
+    cli.option('--config <config>', 'Config file', {
+      schema: z.string(),
+    })
+    cli.option('--no-config', 'Disable config')
+
+    // --no-config sets config to false — schema should NOT coerce this
+    const { options } = cli.parse('node bin --no-config'.split(' '))
+    expect(options.config).toBe(false)
+  })
+
+  test('--config <path> with value + schema coerces normally', () => {
+    const cli = cac()
+
+    cli.option('--config <config>', 'Config file', {
+      schema: z.string(),
+    })
+    cli.option('--no-config', 'Disable config')
+
+    const { options } = cli.parse('node bin --config myfile.json'.split(' '))
+    expect(options.config).toBe('myfile.json')
+  })
+})
+
+describe('edge cases: boolean flags + schema', () => {
+  test('boolean flag (no brackets) with number schema — mri returns boolean', () => {
+    const cli = cac()
+
+    // This is a questionable usage: boolean flag + number schema
+    // mri returns true/false for boolean flags, schema tries to coerce boolean→number
+    cli.option('--verbose', 'Verbose', {
+      schema: z.number(),
+    })
+
+    const { options } = cli.parse('node bin --verbose'.split(' '))
+    // Boolean true → coerced to 1 by number schema
+    expect(options.verbose).toBe(1)
+  })
+
+  test('boolean string value with boolean schema on value option', () => {
+    const cli = cac()
+
+    cli.option('--flag <flag>', 'A flag', {
+      schema: z.boolean(),
+    })
+
+    const { options: opts1 } = cli.parse('node bin --flag true'.split(' '))
+    expect(opts1.flag).toBe(true)
+
+    const { options: opts2 } = cli.parse('node bin --flag false'.split(' '))
+    expect(opts2.flag).toBe(false)
+  })
+
+  test('invalid boolean string with boolean schema throws', () => {
+    const cli = cac()
+
+    cli.option('--flag <flag>', 'A flag', {
+      schema: z.boolean(),
+    })
+
+    expect(() => cli.parse('node bin --flag yes'.split(' ')))
+      .toThrow('expected true or false')
+  })
+})
+
+describe('edge cases: dot-nested options + schema', () => {
+  test('dot-nested option with number schema coerces value', () => {
+    const cli = cac()
+
+    cli.option('--config.port <port>', 'Port', {
+      schema: z.number(),
+    })
+
+    const { options } = cli.parse('node bin --config.port 3000'.split(' '))
+    expect(options.config).toEqual({ port: 3000 })
+  })
+
+  test('dot-nested default uses nested object shape', () => {
+    const cli = cac()
+
+    cli.option('--config.port <port>', 'Port', {
+      default: 8080,
+      schema: z.number(),
+    })
+
+    const { options } = cli.parse('node bin'.split(' '))
+    expect(options.config).toEqual({ port: 8080 })
+  })
+})
+
+describe('edge cases: kebab-case + schema', () => {
+  test('kebab-case option coerced via schema and accessible as camelCase', () => {
+    const cli = cac()
+
+    cli.option('--max-retries <count>', 'Max retries', {
+      schema: z.number(),
+    })
+
+    const { options } = cli.parse('node bin --max-retries 5'.split(' '))
+    expect(options.maxRetries).toBe(5)
+    expect(typeof options.maxRetries).toBe('number')
+  })
+})
+
+describe('edge cases: empty string values', () => {
+  test('empty string with string schema stays empty string', () => {
+    const cli = cac()
+
+    cli.option('--name <name>', 'Name', {
+      schema: z.string(),
+    })
+
+    const { options } = cli.parse(['node', 'bin', '--name', ''])
+    expect(options.name).toBe('')
+  })
+
+  test('empty string with number schema throws', () => {
+    const cli = cac()
+
+    cli.option('--port <port>', 'Port', {
+      schema: z.number(),
+    })
+
+    expect(() => cli.parse(['node', 'bin', '--port', '']))
+      .toThrow('expected number, got empty string')
+  })
+
+  test('empty string with nullable number schema returns null', () => {
+    const cli = cac()
+
+    cli.option('--timeout <timeout>', 'Timeout', {
+      schema: z.nullable(z.number()),
+    })
+
+    const { options } = cli.parse(['node', 'bin', '--timeout', ''])
+    expect(options.timeout).toBe(null)
+  })
+})
+
+describe('edge cases: global options with schema in subcommands', () => {
+  test('global option schema applies to subcommand parsing', () => {
+    const cli = cac()
+    let result: any = {}
+
+    cli.option('--port <port>', 'Port', {
+      schema: z.number(),
+    })
+
+    cli
+      .command('serve', 'Start server')
+      .action((options) => { result = options })
+
+    cli.parse('node bin serve --port 3000'.split(' '), { run: true })
+    expect(result.port).toBe(3000)
+    expect(typeof result.port).toBe('number')
+  })
+})
+
+describe('edge cases: short alias + schema', () => {
+  test('short alias repeated with array schema', () => {
+    const cli = cac()
+
+    cli.option('-t, --tag <tag>', 'Tags', {
+      schema: z.array(z.string()),
+    })
+
+    const { options } = cli.parse('node bin -t foo -t bar'.split(' '))
+    expect(options.tag).toEqual(['foo', 'bar'])
+    expect(options.t).toEqual(['foo', 'bar'])
+  })
+
+  test('short alias single value with array schema wraps', () => {
+    const cli = cac()
+
+    cli.option('-t, --tag <tag>', 'Tags', {
+      schema: z.array(z.string()),
+    })
+
+    const { options } = cli.parse('node bin -t foo'.split(' '))
+    expect(options.tag).toEqual(['foo'])
+  })
+
+  test('short alias with number schema coerces', () => {
+    const cli = cac()
+
+    cli.option('-p, --port <port>', 'Port', {
+      schema: z.number(),
+    })
+
+    const { options } = cli.parse('node bin -p 8080'.split(' '))
+    expect(options.port).toBe(8080)
+    expect(options.p).toBe(8080)
+  })
+
+  test('short alias repeated with non-array schema throws', () => {
+    const cli = cac()
+
+    cli.option('-p, --port <port>', 'Port', {
+      schema: z.number(),
+    })
+
+    expect(() => cli.parse('node bin -p 3000 -p 4000'.split(' ')))
+      .toThrow('does not accept multiple values')
+  })
+})
+
 test('throw on unknown options', () => {
   const cli = cac()
 
