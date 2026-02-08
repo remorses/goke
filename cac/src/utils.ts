@@ -116,23 +116,6 @@ export const setDotProp = (
   }
 }
 
-export const setByType = (
-  obj: { [k: string]: any },
-  transforms: { [k: string]: any }
-) => {
-  for (const key of Object.keys(transforms)) {
-    const transform = transforms[key]
-
-    if (transform.shouldTransform) {
-      obj[key] = Array.prototype.concat.call([], obj[key])
-
-      if (typeof transform.transformFunction === 'function') {
-        obj[key] = obj[key].map(transform.transformFunction)
-      }
-    }
-  }
-}
-
 export const getFileName = (input: string) => {
   const m = /([^\\\/]+)$/.exec(input)
   return m ? m[1] : ''

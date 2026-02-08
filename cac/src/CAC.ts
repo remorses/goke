@@ -10,11 +10,12 @@ import { OptionConfig } from "./Option.js"
 import {
   getMriOptions,
   setDotProp,
-  setByType,
   getFileName,
   camelcaseOptionName,
+  CACError,
 } from "./utils.js"
 import { processArgs } from "./node.js"
+import { coerceBySchema, extractJsonSchema } from "./coerce.js"
 
 interface ParsedArgv {
   args: ReadonlyArray<string>
@@ -345,7 +346,8 @@ class CAC extends EventEmitter {
         ? command.config.ignoreOptionDefaultValue
         : this.globalCommand.config.ignoreOptionDefaultValue
 
-    let transforms = Object.create(null)
+    // Build a map of option name → JSON Schema for schema-backed options
+    const schemaMap = new Map<string, { jsonSchema: Record<string, unknown>; optionName: string }>()
 
     for (const cliOption of cliOptions) {
       if (!ignoreDefault && cliOption.config.default !== undefined) {
@@ -354,24 +356,51 @@ class CAC extends EventEmitter {
         }
       }
 
-      // If options type is defined
-      if (Array.isArray(cliOption.config.type)) {
-        if (transforms[cliOption.name] === undefined) {
-          transforms[cliOption.name] = Object.create(null)
+      // Extract JSON Schema from StandardJSONSchemaV1-compatible schema
+      if (cliOption.config.schema) {
+        const jsonSchema = extractJsonSchema(cliOption.config.schema)
+        if (jsonSchema) {
+          schemaMap.set(cliOption.name, { jsonSchema, optionName: cliOption.name })
+          // Also register aliases so we can look up by any name
+          for (const alias of cliOption.names) {
+            schemaMap.set(alias, { jsonSchema, optionName: cliOption.name })
+          }
+        }
+      }
+    }
 
-          transforms[cliOption.name]['shouldTransform'] = true
-          transforms[cliOption.name]['transformFunction'] =
-            cliOption.config.type[0]
+    // Build a set of option names that require a value (<...> syntax).
+    // When mri returns `true` for these, it means "flag present, no value given" —
+    // a sentinel that checkOptionValue() uses to throw "value is missing".
+    // We must NOT coerce this sentinel, or it becomes a valid value (e.g. true→1).
+    const requiredValueOptions = new Set<string>()
+    for (const cliOption of cliOptions) {
+      if (cliOption.required === true) {
+        for (const name of cliOption.names) {
+          requiredValueOptions.add(name)
         }
       }
     }
 
     // Set option values (support dot-nested property name)
+    // Apply schema-based coercion for options with schemas
     for (const key of Object.keys(parsed)) {
       if (key !== '_') {
         const keys = key.split('.')
-        setDotProp(options, keys, parsed[key])
-        setByType(options, transforms)
+        let value = parsed[key]
+
+        // Apply schema coercion if this option has a schema.
+        // Skip coercion when value is boolean `true` and the option requires a value —
+        // that's mri's sentinel for "flag present but no value given".
+        const schemaInfo = schemaMap.get(key)
+        if (schemaInfo && value !== undefined) {
+          const isMissingSentinel = value === true && requiredValueOptions.has(key)
+          if (!isMissingSentinel) {
+            value = coerceBySchema(value, schemaInfo.jsonSchema, schemaInfo.optionName)
+          }
+        }
+
+        setDotProp(options, keys, value)
       }
     }
 

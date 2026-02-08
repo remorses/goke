@@ -1,5 +1,7 @@
 import { describe, test, expect } from 'vitest'
 import cac from '../index.js'
+import { wrapJsonSchema } from '../wrap-json-schema.js'
+import { coerceBySchema } from '../coerce.js'
 
 test('negated option', () => {
   const cli = cac()
@@ -55,51 +57,450 @@ test('negated option validation', () => {
   expect(options.config).toBe(false)
 })
 
-test('array types without transformFunction', () => {
+test('dot-nested options', () => {
   const cli = cac()
 
   cli
-    .option(
-      '--externals <external>',
-      'Add externals(can be used for multiple times',
-      {
-        type: [],
-      }
-    )
+    .option('--externals <external>', 'Add externals')
     .option('--scale [level]', 'Scaling level')
 
   const { options: options1 } = cli.parse(
     `node bin --externals.env.prod production --scale`.split(' ')
   )
-  expect(options1.externals).toEqual([{ env: { prod: 'production' } }])
+  expect(options1.externals).toEqual({ env: { prod: 'production' } })
   expect(options1.scale).toEqual(true)
-
-  const { options: options2 } = cli.parse(
-    `node bin --externals foo --externals bar`.split(' ')
-  )
-  expect(options2.externals).toEqual(['foo', 'bar'])
-
-  const { options: options3 } = cli.parse(
-    `node bin --externals.env foo --externals.env bar`.split(' ')
-  )
-  expect(options3.externals).toEqual([{ env: ['foo', 'bar'] }])
 })
 
-test('array types with transformFunction', () => {
-  const cli = cac()
+describe('schema-based options', () => {
+  test('schema coerces string to number', () => {
+    const cli = cac()
 
-  cli
-    .command('build [entry]', 'Build your app')
-    .option('--config <configFlie>', 'Use config file for building', {
-      type: [String],
+    cli.option('--port <port>', 'Port number', {
+      schema: wrapJsonSchema({ type: 'number' }),
     })
-    .option('--scale [level]', 'Scaling level')
 
-  const { options } = cli.parse(
-    `node bin build app.js --config config.js --scale`.split(' ')
-  )
-  expect(options.config).toEqual(['config.js'])
-  expect(options.scale).toEqual(true)
+    const { options } = cli.parse('node bin --port 3000'.split(' '))
+    expect(options.port).toBe(3000)
+    expect(typeof options.port).toBe('number')
+  })
+
+  test('schema preserves string (no auto-conversion to number)', () => {
+    const cli = cac()
+
+    cli.option('--id <id>', 'ID', {
+      schema: wrapJsonSchema({ type: 'string' }),
+    })
+
+    const { options } = cli.parse('node bin --id 00123'.split(' '))
+    expect(options.id).toBe('00123')
+    expect(typeof options.id).toBe('string')
+  })
+
+  test('schema coerces string to integer', () => {
+    const cli = cac()
+
+    cli.option('--count <count>', 'Count', {
+      schema: wrapJsonSchema({ type: 'integer' }),
+    })
+
+    const { options } = cli.parse('node bin --count 42'.split(' '))
+    expect(options.count).toBe(42)
+  })
+
+  test('schema parses JSON object', () => {
+    const cli = cac()
+
+    cli.option('--config <config>', 'Config', {
+      schema: wrapJsonSchema({ type: 'object' }),
+    })
+
+    const { options } = cli.parse(['node', 'bin', '--config', '{"a":1}'])
+    expect(options.config).toEqual({ a: 1 })
+  })
+
+  test('schema parses JSON array', () => {
+    const cli = cac()
+
+    cli.option('--items <items>', 'Items', {
+      schema: wrapJsonSchema({ type: 'array' }),
+    })
+
+    const { options } = cli.parse(['node', 'bin', '--items', '[1,2,3]'])
+    expect(options.items).toEqual([1, 2, 3])
+  })
+
+  test('schema throws on invalid number', () => {
+    const cli = cac()
+
+    cli.option('--port <port>', 'Port number', {
+      schema: wrapJsonSchema({ type: 'number' }),
+    })
+
+    expect(() => cli.parse('node bin --port abc'.split(' ')))
+      .toThrow('expected number, got "abc"')
+  })
+
+  test('schema with union type ["number", "string"]', () => {
+    const cli = cac()
+
+    cli.option('--val <val>', 'Value', {
+      schema: wrapJsonSchema({ type: ['number', 'string'] }),
+    })
+
+    const { options: opts1 } = cli.parse('node bin --val 123'.split(' '))
+    expect(opts1.val).toBe(123)
+
+    const { options: opts2 } = cli.parse('node bin --val abc'.split(' '))
+    expect(opts2.val).toBe('abc')
+  })
+
+  test('options without schema keep values as strings', () => {
+    const cli = cac()
+
+    cli.option('--port <port>', 'Port number')
+
+    // Without schema, mri no longer auto-converts — value stays as string.
+    // Use a schema to get typed values.
+    const { options } = cli.parse('node bin --port 3000'.split(' '))
+    expect(options.port).toBe('3000')
+    expect(typeof options.port).toBe('string')
+  })
+
+  test('schema with default value', () => {
+    const cli = cac()
+
+    cli.option('--port <port>', 'Port number', {
+      default: 8080,
+      schema: wrapJsonSchema({ type: 'number' }),
+    })
+
+    const { options } = cli.parse('node bin'.split(' '))
+    expect(options.port).toBe(8080)
+  })
+
+  test('schema on subcommand options', () => {
+    const cli = cac()
+    let result: any = {}
+
+    cli
+      .command('serve', 'Start server')
+      .option('--port <port>', 'Port', {
+        schema: wrapJsonSchema({ type: 'number' }),
+      })
+      .option('--host <host>', 'Host', {
+        schema: wrapJsonSchema({ type: 'string' }),
+      })
+      .action((options) => {
+        result = options
+      })
+
+    cli.parse('node bin serve --port 3000 --host localhost'.split(' '), { run: true })
+    expect(result.port).toBe(3000)
+    expect(result.host).toBe('localhost')
+  })
+})
+
+describe('no-schema behavior (mri no longer auto-converts)', () => {
+  test('numeric string stays as string without schema', () => {
+    const cli = cac()
+    cli.option('--port <port>', 'Port')
+    const { options } = cli.parse('node bin --port 3000'.split(' '))
+    expect(options.port).toBe('3000')
+  })
+
+  test('leading zeros preserved without schema', () => {
+    const cli = cac()
+    cli.option('--id <id>', 'ID')
+    const { options } = cli.parse('node bin --id 00123'.split(' '))
+    expect(options.id).toBe('00123')
+  })
+
+  test('phone number preserved without schema', () => {
+    const cli = cac()
+    cli.option('--phone <phone>', 'Phone')
+    const { options } = cli.parse('node bin --phone +1234567890'.split(' '))
+    expect(options.phone).toBe('+1234567890')
+  })
+
+  test('boolean flags still work without schema', () => {
+    const cli = cac()
+    cli.option('--verbose', 'Verbose')
+    cli.option('--no-color', 'No color')
+    const { options } = cli.parse('node bin --verbose --no-color'.split(' '))
+    expect(options.verbose).toBe(true)
+    expect(options.color).toBe(false)
+  })
+
+  test('optional value flag returns true when no value given', () => {
+    const cli = cac()
+    cli.option('--format [fmt]', 'Format')
+    const { options } = cli.parse('node bin --format'.split(' '))
+    expect(options.format).toBe(true)
+  })
+
+  test('optional value flag returns string when value given', () => {
+    const cli = cac()
+    cli.option('--format [fmt]', 'Format')
+    const { options } = cli.parse('node bin --format json'.split(' '))
+    expect(options.format).toBe('json')
+  })
+
+  test('hex string stays as string without schema', () => {
+    const cli = cac()
+    cli.option('--color <color>', 'Color')
+    const { options } = cli.parse('node bin --color 0xff00ff'.split(' '))
+    expect(options.color).toBe('0xff00ff')
+  })
+
+  test('scientific notation stays as string without schema', () => {
+    const cli = cac()
+    cli.option('--val <val>', 'Value')
+    const { options } = cli.parse('node bin --val 1e10'.split(' '))
+    expect(options.val).toBe('1e10')
+  })
+})
+
+describe('typical CLI usage examples', () => {
+  test('web server CLI with typed options', () => {
+    const cli = cac('myserver')
+    let config: any = {}
+
+    cli
+      .command('start', 'Start the web server')
+      .option('--port <port>', 'Port to listen on', {
+        default: 3000,
+        schema: wrapJsonSchema({ type: 'number' }),
+      })
+      .option('--host <host>', 'Hostname to bind', {
+        default: 'localhost',
+        schema: wrapJsonSchema({ type: 'string' }),
+      })
+      .option('--workers <workers>', 'Number of worker threads', {
+        schema: wrapJsonSchema({ type: 'integer' }),
+      })
+      .option('--cors', 'Enable CORS')
+      .option('--no-log', 'Disable logging')
+      .action((options) => { config = options })
+
+    cli.parse('node bin start --port 8080 --host 0.0.0.0 --workers 4 --cors --no-log'.split(' '), { run: true })
+
+    expect(config.port).toBe(8080)
+    expect(typeof config.port).toBe('number')
+    expect(config.host).toBe('0.0.0.0')
+    expect(config.workers).toBe(4)
+    expect(typeof config.workers).toBe('number')
+    expect(config.cors).toBe(true)
+    expect(config.log).toBe(false)
+  })
+
+  test('web server CLI with defaults (no args)', () => {
+    const cli = cac('myserver')
+    let config: any = {}
+
+    cli
+      .command('start', 'Start the web server')
+      .option('--port <port>', 'Port', {
+        default: 3000,
+        schema: wrapJsonSchema({ type: 'number' }),
+      })
+      .option('--host <host>', 'Host', {
+        default: 'localhost',
+        schema: wrapJsonSchema({ type: 'string' }),
+      })
+      .action((options) => { config = options })
+
+    cli.parse('node bin start'.split(' '), { run: true })
+
+    expect(config.port).toBe(3000)
+    expect(config.host).toBe('localhost')
+  })
+
+  test('database CLI with JSON config option', () => {
+    const cli = cac('dbcli')
+    let config: any = {}
+
+    cli
+      .command('migrate', 'Run database migrations')
+      .option('--connection <conn>', 'Connection config (JSON)', {
+        schema: wrapJsonSchema({ type: 'object', properties: { host: { type: 'string' }, port: { type: 'number' } } }),
+      })
+      .option('--dry-run', 'Preview without executing')
+      .action((options) => { config = options })
+
+    cli.parse(['node', 'bin', 'migrate', '--connection', '{"host":"localhost","port":5432}', '--dry-run'], { run: true })
+
+    expect(config.connection).toEqual({ host: 'localhost', port: 5432 })
+    expect(config.dryRun).toBe(true)
+  })
+
+  test('file processing CLI with positional args + typed options', () => {
+    const cli = cac('fileproc')
+    let result: any = {}
+
+    cli
+      .command('convert <input> <output>', 'Convert file format')
+      .option('--quality <quality>', 'Quality (0-100)', {
+        schema: wrapJsonSchema({ type: 'integer' }),
+      })
+      .option('--format <format>', 'Output format', {
+        schema: wrapJsonSchema({ type: 'string', enum: ['png', 'jpg', 'webp'] }),
+      })
+      .action((input, output, options) => {
+        result = { input, output, ...options }
+      })
+
+    cli.parse('node bin convert photo.bmp photo.jpg --quality 85 --format jpg'.split(' '), { run: true })
+
+    expect(result.input).toBe('photo.bmp')
+    expect(result.output).toBe('photo.jpg')
+    expect(result.quality).toBe(85)
+    expect(typeof result.quality).toBe('number')
+    expect(result.format).toBe('jpg')
+  })
+
+  test('API client CLI preserving string IDs', () => {
+    const cli = cac('apicli')
+    let result: any = {}
+
+    cli
+      .command('get-user <userId>', 'Get user by ID')
+      .option('--fields <fields>', 'Fields to return (JSON array)', {
+        schema: wrapJsonSchema({ type: 'array' }),
+      })
+      .action((userId, options) => {
+        result = { userId, ...options }
+      })
+
+    // userId "00123" should NOT be coerced to number 123
+    cli.parse(['node', 'bin', 'get-user', '00123', '--fields', '["name","email"]'], { run: true })
+
+    expect(result.userId).toBe('00123')
+    expect(result.fields).toEqual(['name', 'email'])
+  })
+
+  test('nullable option with union type', () => {
+    const cli = cac()
+    cli.option('--timeout <timeout>', 'Timeout', {
+      schema: wrapJsonSchema({ type: ['number', 'null'] }),
+    })
+
+    const { options: opts1 } = cli.parse('node bin --timeout 5000'.split(' '))
+    expect(opts1.timeout).toBe(5000)
+
+    // Empty string coerces to null for null type
+    const { options: opts2 } = cli.parse(['node', 'bin', '--timeout', ''])
+    expect(opts2.timeout).toBe(null)
+  })
+})
+
+describe('regression: oracle-found issues', () => {
+  test('required option with schema still throws when value missing', () => {
+    const cli = cac()
+    let actionCalled = false
+
+    cli
+      .command('serve', 'Start server')
+      .option('--port <port>', 'Port', {
+        schema: wrapJsonSchema({ type: 'number' }),
+      })
+      .action(() => { actionCalled = true })
+
+    // --port without a value should throw "value is missing"
+    expect(() => {
+      cli.parse('node bin serve --port'.split(' '), { run: true })
+    }).toThrow('value is missing')
+    expect(actionCalled).toBe(false)
+  })
+
+  test('repeated flags with non-array schema throws', () => {
+    const cli = cac()
+
+    cli.option('--tag <tag>', 'Tags', {
+      schema: wrapJsonSchema({ type: 'string' }),
+    })
+
+    expect(() => cli.parse('node bin --tag foo --tag bar'.split(' ')))
+      .toThrow('does not accept multiple values')
+  })
+
+  test('repeated flags with number schema throws', () => {
+    const cli = cac()
+
+    cli.option('--id <id>', 'ID', {
+      schema: wrapJsonSchema({ type: 'number' }),
+    })
+
+    expect(() => cli.parse('node bin --id 1 --id 2'.split(' ')))
+      .toThrow('does not accept multiple values')
+  })
+
+  test('repeated flags with array schema collects values', () => {
+    const cli = cac()
+
+    cli.option('--tag <tag>', 'Tags', {
+      schema: wrapJsonSchema({ type: 'array', items: { type: 'string' } }),
+    })
+
+    const { options } = cli.parse('node bin --tag foo --tag bar'.split(' '))
+    expect(options.tag).toEqual(['foo', 'bar'])
+  })
+
+  test('repeated flags with array+items schema coerces each element', () => {
+    const cli = cac()
+
+    cli.option('--id <id>', 'IDs', {
+      schema: wrapJsonSchema({ type: 'array', items: { type: 'number' } }),
+    })
+
+    const { options } = cli.parse('node bin --id 1 --id 2 --id 3'.split(' '))
+    expect(options.id).toEqual([1, 2, 3])
+  })
+
+  test('single value with array schema wraps in array', () => {
+    const cli = cac()
+
+    cli.option('--tag <tag>', 'Tags', {
+      schema: wrapJsonSchema({ type: 'array', items: { type: 'string' } }),
+    })
+
+    const { options } = cli.parse('node bin --tag foo'.split(' '))
+    expect(options.tag).toEqual(['foo'])
+  })
+
+  test('single value with array+number items schema wraps and coerces', () => {
+    const cli = cac()
+
+    cli.option('--id <id>', 'IDs', {
+      schema: wrapJsonSchema({ type: 'array', items: { type: 'number' } }),
+    })
+
+    const { options } = cli.parse('node bin --id 42'.split(' '))
+    expect(options.id).toEqual([42])
+  })
+
+  test('JSON array string with array schema parses correctly', () => {
+    const cli = cac()
+
+    cli.option('--ids <ids>', 'IDs', {
+      schema: wrapJsonSchema({ type: 'array', items: { type: 'number' } }),
+    })
+
+    const { options } = cli.parse(['node', 'bin', '--ids', '[1,2,3]'])
+    expect(options.ids).toEqual([1, 2, 3])
+  })
+
+  test('repeated flags without schema still produce array (no schema = no restriction)', () => {
+    const cli = cac()
+
+    cli.option('--tag <tag>', 'Tags')
+
+    const { options } = cli.parse('node bin --tag foo --tag bar'.split(' '))
+    expect(options.tag).toEqual(['foo', 'bar'])
+  })
+
+  test('const null coercion works', () => {
+    expect(coerceBySchema('', { const: null }, 'val')).toBe(null)
+  })
 })
 
 test('throw on unknown options', () => {

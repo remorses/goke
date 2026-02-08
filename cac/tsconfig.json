@@ -11,6 +11,5 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src"],
-  "exclude": ["src/__test__"]
+  "include": ["src"]
 }

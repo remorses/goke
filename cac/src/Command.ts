@@ -8,6 +8,59 @@ import {
   CACError,
 } from "./utils.js"
 import { platformInfo } from "./node.js"
+import type { StandardTypedV1, StandardJSONSchemaV1 } from "./standard-schema.js"
+
+// ─── Type-level helpers for inferring option names and types ───
+
+/**
+ * Converts a kebab-case string to camelCase at the type level.
+ * "--foo-bar <val>" → name "foo-bar" → camelCase "fooBar"
+ */
+type CamelCase<S extends string> =
+  S extends `${infer L}-${infer R}`
+    ? `${L}${CamelCase<Capitalize<R>>}`
+    : S
+
+/**
+ * Extracts the long option name from a raw option string.
+ * "-p, --port <port>"   → "port"
+ * "--foo-bar <val>"     → "fooBar"
+ * "--verbose"           → "verbose"
+ * "--no-debug"          → "debug"
+ */
+type ExtractOptionName<S extends string> =
+  // Match: --no-name <value>
+  S extends `${string}--no-${infer Name} <${string}>` ? CamelCase<Name> :
+  S extends `${string}--no-${infer Name} [${string}]` ? CamelCase<Name> :
+  S extends `${string}--no-${infer Name}` ? CamelCase<Name> :
+  // Match: --name <value> or --name [value] or --name
+  S extends `${string}--${infer Name} <${string}>` ? CamelCase<Name> :
+  S extends `${string}--${infer Name} [${string}]` ? CamelCase<Name> :
+  S extends `${string}--${infer Name}` ? CamelCase<Name> :
+  string
+
+/**
+ * Determines if an option takes a required value (<...>) vs optional ([...]) vs boolean flag.
+ */
+type IsOptionalOption<S extends string> =
+  S extends `${string}<${string}>` ? false :
+  true
+
+/**
+ * Infer the output type from a StandardTypedV1-compatible schema.
+ */
+type InferSchemaOutput<S> =
+  S extends StandardTypedV1<any, infer O> ? O : unknown
+
+/**
+ * Build the option type entry for a single .option() call.
+ * Required options (<...>) produce a required key.
+ * Optional options ([...]) and boolean flags produce an optional key.
+ */
+type OptionEntry<RawName extends string, Schema> =
+  IsOptionalOption<RawName> extends true
+    ? { [K in ExtractOptionName<RawName>]?: InferSchemaOutput<Schema> }
+    : { [K in ExtractOptionName<RawName>]: InferSchemaOutput<Schema> }
 
 interface CommandArg {
   required: boolean
@@ -82,12 +135,26 @@ class Command {
   }
 
   /**
-   * Add a option for this command
-   * @param rawName Raw option name(s)
-   * @param description Option description
-   * @param config Option config
+   * Add an option for this command.
+   *
+   * When a `schema` implementing StandardJSONSchemaV1 is provided, the option's
+   * type is inferred from the schema and the option name is extracted from rawName.
+   *
+   * @example
+   * ```ts
+   * // With Zod v4.2+ (implements StandardJSONSchemaV1):
+   * cmd.option('--port <port>', 'Port number', { schema: z.number() })
+   *
+   * // Without schema (no type inference, values are raw strings/booleans):
+   * cmd.option('--verbose', 'Verbose output')
+   * ```
    */
-  option(rawName: string, description: string, config?: OptionConfig) {
+  option<
+    RawName extends string,
+    S extends StandardJSONSchemaV1
+  >(rawName: RawName, description: string, config: OptionConfig & { schema: S }): Command & { __opts: OptionEntry<RawName, S> }
+  option(rawName: string, description: string, config?: OptionConfig): this
+  option(rawName: string, description: string, config?: OptionConfig): any {
     const option = new Option(rawName, description, config)
     this.options.push(option)
     return this

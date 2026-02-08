@@ -52,6 +52,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { CAC } from "@xmorse/cac";
+import { wrapJsonSchema } from "@xmorse/cac";
 import yaml from "js-yaml";
 import { FileOAuthProvider } from "./oauth-provider.js";
 import { startOAuthFlow, isAuthRequiredError } from "./auth.js";
@@ -145,37 +146,16 @@ interface JsonSchemaProperty {
 }
 
 /**
- * Check if a type field contains object or array.
- * Handles both string ("object") and array (["object", "null"]) formats.
- */
-function typeIncludesComplex(type: string | string[] | undefined): boolean {
-  if (!type) {
-    return false;
-  }
-  if (Array.isArray(type)) {
-    return type.some((t) => t === "object" || t === "array");
-  }
-  return type === "object" || type === "array";
-}
-
-/**
- * Check if a schema represents a complex type that should be parsed as JSON.
- * Handles: direct type, type arrays, anyOf/oneOf/allOf, and implicit object/array schemas.
+ * Check if a schema represents a complex type (object/array) for help text display.
  */
 function isComplexJsonSchema(schema: JsonSchemaProperty): boolean {
-  // Direct type declaration: "object", "array", or ["object", "null"], etc.
-  if (typeIncludesComplex(schema.type)) {
-    return true;
+  const type = schema.type;
+  if (type) {
+    const types = Array.isArray(type) ? type : [type];
+    if (types.some((t) => t === "object" || t === "array")) return true;
   }
-  // Implicit object: has properties or additionalProperties without explicit type
-  if (schema.properties || schema.additionalProperties) {
-    return true;
-  }
-  // Implicit array: has items without explicit type
-  if (schema.items) {
-    return true;
-  }
-  // Check anyOf/oneOf/allOf for complex types (recursive)
+  if (schema.properties || schema.additionalProperties) return true;
+  if (schema.items) return true;
   const unionTypes = [...(schema.anyOf || []), ...(schema.oneOf || []), ...(schema.allOf || [])];
   return unionTypes.some((s) => isComplexJsonSchema(s));
 }
@@ -196,20 +176,11 @@ function schemaToString(schema: JsonSchemaProperty): string {
 }
 
 /**
- * Check if a type field includes a specific type.
- * Handles both string and array formats.
+ * Extract tool arguments from CLI options.
+ * CAC now handles all type coercion via schemas, so this just picks
+ * the relevant keys from the parsed options.
  */
-function typeIncludes(type: string | string[] | undefined, target: string): boolean {
-  if (!type) {
-    return false;
-  }
-  if (Array.isArray(type)) {
-    return type.includes(target);
-  }
-  return type === target;
-}
-
-function parseToolArguments(
+function extractToolArguments(
   options: Record<string, unknown>,
   inputSchema: InputSchema | undefined,
 ): Record<string, unknown> {
@@ -217,34 +188,9 @@ function parseToolArguments(
   if (!inputSchema?.properties) {
     return args;
   }
-  for (const [name, schema] of Object.entries(inputSchema.properties)) {
-    let value = options[name];
-    if (value === undefined) {
-      continue;
-    }
-    // Unwrap single-element arrays (cac sometimes wraps values)
-    if (Array.isArray(value) && value.length === 1) {
-      value = value[0];
-    }
-    const schemaType = schema.type;
-    if (isComplexJsonSchema(schema) && typeof value === "string") {
-      try {
-        args[name] = JSON.parse(value);
-      } catch {
-        console.error(`Invalid JSON for --${name}: ${value}`);
-        process.exit(1);
-      }
-    } else if ((typeIncludes(schemaType, "number") || typeIncludes(schemaType, "integer")) && typeof value === "string") {
-      const num = Number(value);
-      if (Number.isNaN(num)) {
-        console.error(`Invalid number for --${name}: ${value}`);
-        process.exit(1);
-      }
-      args[name] = num;
-    } else if (typeIncludes(schemaType, "string") && typeof value === "number") {
-      // cac auto-converts digit-like strings to numbers, convert back
-      args[name] = String(value);
-    } else {
+  for (const name of Object.keys(inputSchema.properties)) {
+    const value = options[name];
+    if (value !== undefined) {
       args[name] = value;
     }
   }
@@ -462,8 +408,9 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
       for (const [propName, propSchema] of Object.entries(inputSchema.properties)) {
         const isRequired = inputSchema.required?.includes(propName) ?? false;
         const schemaType = propSchema.type;
-        const isBooleanType = schemaType === "boolean" || 
-          (Array.isArray(schemaType) && schemaType.includes("boolean"));
+        // Only treat as boolean flag if type is exclusively "boolean".
+        // Union types like ["boolean", "string"] should take a value.
+        const isBooleanType = schemaType === "boolean";
 
         const optionStr =
           isBooleanType ? `--${propName}` : `--${propName} <${propName}>`;
@@ -476,11 +423,15 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
           optionDesc += ` (JSON: ${schemaToString(propSchema)})`;
         }
 
-        // Don't use cac's type option - it has a bug where type: [String] causes
-        // unprovided options to be set to ["undefined"] instead of being omitted
-        const optionConfig: { default?: unknown } = {};
+        // Wrap the MCP tool's JSON Schema property into a StandardJSONSchemaV1
+        // object so CAC can use it for type coercion (string → typed value).
+        // Boolean flags don't need schema coercion — mri handles them natively.
+        const optionConfig: { default?: unknown; schema?: ReturnType<typeof wrapJsonSchema> } = {};
         if (propSchema.default !== undefined) {
           optionConfig.default = propSchema.default;
+        }
+        if (!isBooleanType) {
+          optionConfig.schema = wrapJsonSchema(propSchema as Record<string, unknown>);
         }
 
         cmd.option(optionStr, optionDesc, optionConfig);
@@ -488,7 +439,8 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
     }
 
     cmd.action(async (cliOptions: Record<string, unknown>) => {
-      const parsedArgs = parseToolArguments(cliOptions, inputSchema);
+      // CAC already coerced all values via schemas — just extract the relevant keys
+      const parsedArgs = extractToolArguments(cliOptions, inputSchema);
 
       const executeWithRetry = async (isRetry = false): Promise<void> => {
         const transport = await getTransport(isRetry ? undefined : cachedSessionId);

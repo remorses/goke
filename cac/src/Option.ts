@@ -1,8 +1,22 @@
 import { removeBrackets, camelcaseOptionName } from "./utils.js"
+import type { StandardJSONSchemaV1 } from "./standard-schema.js"
 
 interface OptionConfig {
   default?: any
-  type?: any[]
+  /**
+   * A Standard JSON Schema V1-compatible object for this option.
+   * Used for both runtime coercion (string→typed value) and TypeScript type inference.
+   *
+   * Accepts any object implementing StandardJSONSchemaV1, e.g.:
+   * - Zod schemas: z.number() (Zod v4.2+ implements StandardJSONSchemaV1)
+   * - Valibot: toStandardJsonSchema(v.number())
+   * - ArkType: type("number")
+   * - Plain wrapper: wrapJsonSchema({ type: "number" })
+   *
+   * At runtime, JSON Schema is extracted via schema['~standard'].jsonSchema.input()
+   * and used by coerceBySchema() to convert CLI strings to typed values.
+   */
+  schema?: StandardJSONSchemaV1
 }
 
 export default class Option {

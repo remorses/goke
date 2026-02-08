@@ -21,13 +21,16 @@ function toArr(any: Arrayable<string> | undefined): string[] {
   return any == null ? [] : Array.isArray(any) ? any : [any]
 }
 
+// Automatic number coercion is intentionally disabled.
+// All non-boolean values are kept as strings. Type conversion is handled
+// by coerceBySchema() using JSON Schema after mri parsing is complete.
+// This prevents silent data loss (e.g. "00123" → 123, "+1234567890" → 1234567890).
 function toVal(
   out: Record<string, any>,
   key: string,
   val: any,
   opts: { string: string[]; boolean: string[]; _: string[] }
 ): void {
-  let x: number
   const old = out[key]
   const nxt =
     !!~opts.string.indexOf(key)
@@ -40,10 +43,8 @@ function toVal(
           ? val === 'false'
             ? false
             : val === 'true' ||
-              (out._.push(((x = +val), x * 0 === 0) ? x : val), !!val)
-          : ((x = +val), x * 0 === 0)
-            ? x
-            : val
+              (out._.push(val), !!val)
+          : val
   out[key] = old == null ? nxt : Array.isArray(old) ? old.concat(nxt) : [old, nxt]
 }
 
