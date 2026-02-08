@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events'
-import mri from 'mri'
+import mri from './mri'
 import Command, {
   GlobalCommand,
   CommandConfig,
