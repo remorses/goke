@@ -1,20 +1,612 @@
+/**
+ * Goke — a cac-inspired CLI framework.
+ *
+ * This file contains the entire core framework:
+ * - GokeError: custom error class
+ * - Option: CLI option parsing (flags, required/optional values)
+ * - Command / GlobalCommand: command definition, help/version output
+ * - Goke: main CLI class with parsing, matching, and execution
+ * - GokeOutputStream / GokeConsole / GokeOptions: injectable I/O
+ * - createConsole: factory for console-like objects from output streams
+ * - Utility functions: string helpers, bracket parsing, dot-prop access
+ */
+
 import { EventEmitter } from 'events'
 import mri from "./mri.js"
-import Command, {
-  GlobalCommand,
-  CommandConfig,
-  HelpCallback,
-  CommandExample,
-} from "./Command.js"
-import { OptionConfig } from "./Option.js"
-import {
-  getMriOptions,
-  setDotProp,
-  getFileName,
-  camelcaseOptionName,
-} from "./utils.js"
-import { processArgs } from "./node.js"
 import { coerceBySchema, extractJsonSchema } from "./coerce.js"
+import type { StandardJSONSchemaV1 } from "./coerce.js"
+
+// ─── Node.js platform constants ───
+
+const processArgs = process.argv
+const platformInfo = `${process.platform}-${process.arch} node-${process.version}`
+
+// ─── Utility functions ───
+
+const removeBrackets = (v: string) => v.replace(/[<[].+/, '').trim()
+
+const findAllBrackets = (v: string) => {
+  const ANGLED_BRACKET_RE_GLOBAL = /<([^>]+)>/g
+  const SQUARE_BRACKET_RE_GLOBAL = /\[([^\]]+)\]/g
+
+  const res: CommandArg[] = []
+
+  const parse = (match: string[]) => {
+    let variadic = false
+    let value = match[1]
+    if (value.startsWith('...')) {
+      value = value.slice(3)
+      variadic = true
+    }
+    return {
+      required: match[0].startsWith('<'),
+      value,
+      variadic
+    }
+  }
+
+  let angledMatch
+  while ((angledMatch = ANGLED_BRACKET_RE_GLOBAL.exec(v))) {
+    res.push(parse(angledMatch))
+  }
+
+  let squareMatch
+  while ((squareMatch = SQUARE_BRACKET_RE_GLOBAL.exec(v))) {
+    res.push(parse(squareMatch))
+  }
+
+  return res
+}
+
+interface MriOptionsConfig {
+  alias: { [k: string]: string[] }
+  boolean: string[]
+}
+
+const getMriOptions = (options: Option[]) => {
+  const result: MriOptionsConfig = { alias: {}, boolean: [] }
+
+  for (const option of options) {
+    // We do not set default values in mri options
+    // Since its type (typeof) will be used to cast parsed arguments.
+    // Which mean `--foo foo` will be parsed as `{foo: true}` if we have `{default:{foo: true}}`
+
+    // Set alias
+    if (option.names.length > 1) {
+      result.alias[option.names[0]] = option.names.slice(1)
+    }
+    // Set boolean
+    if (option.isBoolean) {
+      result.boolean.push(option.names[0])
+    }
+  }
+
+  return result
+}
+
+const findLongest = (arr: string[]) => {
+  return arr.sort((a, b) => {
+    return a.length > b.length ? -1 : 1
+  })[0]
+}
+
+const padRight = (str: string, length: number) => {
+  return str.length >= length ? str : `${str}${' '.repeat(length - str.length)}`
+}
+
+const camelcase = (input: string) => {
+  return input.replace(/([a-z])-([a-z])/g, (_, p1, p2) => {
+    return p1 + p2.toUpperCase()
+  })
+}
+
+const setDotProp = (
+  obj: { [k: string]: any },
+  keys: string[],
+  val: any
+) => {
+  let i = 0
+  let length = keys.length
+  let t = obj
+  let x
+  for (; i < length; ++i) {
+    x = t[keys[i]]
+    t = t[keys[i]] =
+      i === length - 1
+        ? val
+        : x != null
+        ? x
+        : !!~keys[i + 1].indexOf('.') || !(+keys[i + 1] > -1)
+        ? {}
+        : []
+  }
+}
+
+const getFileName = (input: string) => {
+  const m = /([^\\\/]+)$/.exec(input)
+  return m ? m[1] : ''
+}
+
+const camelcaseOptionName = (name: string) => {
+  // Camelcase the option name
+  // Don't camelcase anything after the dot `.`
+  return name
+    .split('.')
+    .map((v, i) => {
+      return i === 0 ? camelcase(v) : v
+    })
+    .join('.')
+}
+
+// ─── GokeError ───
+
+class GokeError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = this.constructor.name
+    if (typeof Error.captureStackTrace === 'function') {
+      Error.captureStackTrace(this, this.constructor)
+    } else {
+      this.stack = new Error(message).stack
+    }
+  }
+}
+
+// ─── Option ───
+
+interface OptionConfig {
+  default?: unknown
+  /**
+   * A Standard JSON Schema V1-compatible object for this option.
+   * Used for both runtime coercion (string→typed value) and TypeScript type inference.
+   *
+   * Accepts any object implementing StandardJSONSchemaV1, e.g.:
+   * - Zod schemas: z.number() (Zod v4.2+ implements StandardJSONSchemaV1)
+   * - Valibot: toStandardJsonSchema(v.number())
+   * - ArkType: type("number")
+   * - Plain wrapper: wrapJsonSchema({ type: "number" })
+   *
+   * At runtime, JSON Schema is extracted via schema['~standard'].jsonSchema.input()
+   * and used by coerceBySchema() to convert CLI strings to typed values.
+   */
+  schema?: StandardJSONSchemaV1
+}
+
+class Option {
+  /** Option name */
+  name: string
+  /** Option name and aliases */
+  names: string[]
+  isBoolean?: boolean
+  // `required` will be a boolean for options with brackets
+  required?: boolean
+  config: OptionConfig
+  constructor(
+    public rawName: string,
+    public description: string,
+    config?: OptionConfig
+  ) {
+    this.config = Object.assign({}, config)
+
+    // You may use cli.option('--env.* [value]', 'desc') to denote a dot-nested option
+    rawName = rawName.replace(/\.\*/g, '')
+
+    this.names = removeBrackets(rawName)
+      .split(',')
+      .map((v: string) => {
+        let name = v.trim().replace(/^-{1,2}/, '')
+        return camelcaseOptionName(name)
+      })
+      .sort((a, b) => (a.length > b.length ? 1 : -1)) // Sort names
+
+    // Use the longest name (last one) as actual option name
+    this.name = this.names[this.names.length - 1]
+
+    if (rawName.includes('<')) {
+      this.required = true
+    } else if (rawName.includes('[')) {
+      this.required = false
+    } else {
+      // No arg needed, it's boolean flag
+      this.isBoolean = true
+    }
+  }
+}
+
+// ─── Command ───
+
+// Type-level helpers for inferring option names and types
+
+/**
+ * Converts a kebab-case string to camelCase at the type level.
+ * "--foo-bar <val>" → name "foo-bar" → camelCase "fooBar"
+ */
+type CamelCase<S extends string> =
+  S extends `${infer L}-${infer R}`
+    ? `${L}${CamelCase<Capitalize<R>>}`
+    : S
+
+/**
+ * Extracts the long option name from a raw option string.
+ * "-p, --port <port>"   → "port"
+ * "--foo-bar <val>"     → "fooBar"
+ * "--verbose"           → "verbose"
+ */
+type ExtractOptionName<S extends string> =
+  // Match: --name <value> or --name [value] or --name
+  S extends `${string}--${infer Name} <${string}>` ? CamelCase<Name> :
+  S extends `${string}--${infer Name} [${string}]` ? CamelCase<Name> :
+  S extends `${string}--${infer Name}` ? CamelCase<Name> :
+  string
+
+/**
+ * Determines if an option takes a required value (<...>) vs optional ([...]) vs boolean flag.
+ */
+type IsOptionalOption<S extends string> =
+  S extends `${string}<${string}>` ? false :
+  true
+
+/**
+ * Infer the output type from a StandardTypedV1-compatible schema.
+ */
+type InferSchemaOutput<S> =
+  S extends { readonly "~standard": { readonly types?: { readonly output: infer O } } } ? O : unknown
+
+/**
+ * Build the option type entry for a single .option() call.
+ * Required options (<...>) produce a required key.
+ * Optional options ([...]) and boolean flags produce an optional key.
+ */
+type OptionEntry<RawName extends string, Schema> =
+  IsOptionalOption<RawName> extends true
+    ? { [K in ExtractOptionName<RawName>]?: InferSchemaOutput<Schema> }
+    : { [K in ExtractOptionName<RawName>]: InferSchemaOutput<Schema> }
+
+interface CommandArg {
+  required: boolean
+  value: string
+  variadic: boolean
+}
+
+interface HelpSection {
+  title?: string
+  body: string
+}
+
+interface CommandConfig {
+  allowUnknownOptions?: boolean
+  ignoreOptionDefaultValue?: boolean
+}
+
+type HelpCallback = (sections: HelpSection[]) => void | HelpSection[]
+
+type CommandExample = ((bin: string) => string) | string
+
+class Command {
+  options: Option[]
+  aliasNames: string[]
+  /* Parsed command name */
+  name: string
+  args: CommandArg[]
+  commandAction?: (...args: any[]) => any
+  usageText?: string
+  versionNumber?: string
+  examples: CommandExample[]
+  helpCallback?: HelpCallback
+  globalCommand?: GlobalCommand
+
+  constructor(
+    public rawName: string,
+    public description: string,
+    public config: CommandConfig = {},
+    public cli: Goke
+  ) {
+    this.options = []
+    this.aliasNames = []
+    this.name = removeBrackets(rawName)
+    this.args = findAllBrackets(rawName)
+    this.examples = []
+  }
+
+  usage(text: string) {
+    this.usageText = text
+    return this
+  }
+
+  allowUnknownOptions() {
+    this.config.allowUnknownOptions = true
+    return this
+  }
+
+  ignoreOptionDefaultValue() {
+    this.config.ignoreOptionDefaultValue = true
+    return this
+  }
+
+  version(version: string, customFlags = '-v, --version') {
+    this.versionNumber = version
+    this.option(customFlags, 'Display version number')
+    return this
+  }
+
+  example(example: CommandExample) {
+    this.examples.push(example)
+    return this
+  }
+
+  /**
+   * Add an option for this command.
+   *
+   * When a `schema` implementing StandardJSONSchemaV1 is provided, the option's
+   * type is inferred from the schema and the option name is extracted from rawName.
+   *
+   * @example
+   * ```ts
+   * // With Zod v4.2+ (implements StandardJSONSchemaV1):
+   * cmd.option('--port <port>', 'Port number', { schema: z.number() })
+   *
+   * // Without schema (no type inference, values are raw strings/booleans):
+   * cmd.option('--verbose', 'Verbose output')
+   * ```
+   */
+  option<
+    RawName extends string,
+    S extends StandardJSONSchemaV1
+  >(rawName: RawName, description: string, config: OptionConfig & { schema: S }): Command & { __opts: OptionEntry<RawName, S> }
+  option(rawName: string, description: string, config?: OptionConfig): this
+  option(rawName: string, description: string, config?: OptionConfig): any {
+    const option = new Option(rawName, description, config)
+    this.options.push(option)
+    return this
+  }
+
+  alias(name: string) {
+    this.aliasNames.push(name)
+    return this
+  }
+
+  action(callback: (...args: any[]) => any) {
+    this.commandAction = callback
+    return this
+  }
+
+  isMatched(args: string[]): { matched: boolean; consumedArgs: number } {
+    const nameParts = this.name.split(' ').filter(Boolean)
+
+    if (nameParts.length === 0) {
+      return { matched: false, consumedArgs: 0 }
+    }
+
+    if (args.length < nameParts.length) {
+      return { matched: false, consumedArgs: 0 }
+    }
+
+    for (let i = 0; i < nameParts.length; i++) {
+      if (nameParts[i] !== args[i]) {
+        if (i === 0 && this.aliasNames.includes(args[i])) {
+          continue
+        }
+        return { matched: false, consumedArgs: 0 }
+      }
+    }
+
+    return { matched: true, consumedArgs: nameParts.length }
+  }
+
+  get isDefaultCommand() {
+    return this.name === '' || this.aliasNames.includes('!')
+  }
+
+  get isGlobalCommand(): boolean {
+    return this instanceof GlobalCommand
+  }
+
+  /**
+   * Check if an option is registered in this command
+   * @param name Option name
+   */
+  hasOption(name: string) {
+    name = name.split('.')[0]
+    return this.options.find((option) => {
+      return option.names.includes(name)
+    })
+  }
+
+  outputHelp() {
+    const { name, commands } = this.cli
+    const {
+      versionNumber,
+      options: globalOptions,
+      helpCallback,
+    } = this.cli.globalCommand
+
+    let sections: HelpSection[] = [
+      {
+        body: `${name}${versionNumber ? `/${versionNumber}` : ''}`,
+      },
+    ]
+
+    sections.push({
+      title: 'Usage',
+      body: `  $ ${name} ${this.usageText || this.rawName}`,
+    })
+
+    const showCommands =
+      (this.isGlobalCommand || this.isDefaultCommand) && commands.length > 0
+
+    if (showCommands) {
+      const longestCommandName = findLongest(
+        commands.map((command) => command.rawName)
+      )
+      sections.push({
+        title: 'Commands',
+        body: commands
+          .map((command) => {
+            // Only show first line of description in commands listing
+            const firstLine = command.description.split('\n')[0].trim()
+            return `  ${padRight(
+              command.rawName,
+              longestCommandName.length
+            )}  ${firstLine}`
+          })
+          .join('\n'),
+      })
+      sections.push({
+        title: `For more info, run any command with the \`--help\` flag`,
+        body: commands
+          .map(
+            (command) =>
+              `  $ ${name}${
+                command.name === '' ? '' : ` ${command.name}`
+              } --help`
+          )
+          .join('\n'),
+      })
+    }
+
+    let options = this.isGlobalCommand
+      ? globalOptions
+      : [...this.options, ...(globalOptions || [])]
+    if (!this.isGlobalCommand && !this.isDefaultCommand) {
+      options = options.filter((option) => option.name !== 'version')
+    }
+    if (options.length > 0) {
+      const longestOptionName = findLongest(
+        options.map((option) => option.rawName)
+      )
+      sections.push({
+        title: 'Options',
+        body: options
+          .map((option) => {
+            return `  ${padRight(option.rawName, longestOptionName.length)}  ${
+              option.description
+            } ${
+              option.config.default === undefined
+                ? ''
+                : `(default: ${option.config.default})`
+            }`
+          })
+          .join('\n'),
+      })
+    }
+
+    // Show full description for specific commands (not global/default)
+    if (!this.isGlobalCommand && !this.isDefaultCommand && this.description) {
+      sections.push({
+        title: 'Description',
+        body: this.description
+          .split('\n')
+          .map((line) => `  ${line}`)
+          .join('\n'),
+      })
+    }
+
+    if (this.examples.length > 0) {
+      sections.push({
+        title: 'Examples',
+        body: this.examples
+          .map((example) => {
+            if (typeof example === 'function') {
+              return example(name)
+            }
+            return example
+          })
+          .join('\n'),
+      })
+    }
+
+    if (helpCallback) {
+      sections = helpCallback(sections) || sections
+    }
+
+    this.cli.console.log(
+      sections
+        .map((section) => {
+          return section.title
+            ? `${section.title}:\n${section.body}`
+            : section.body
+        })
+        .join('\n\n')
+    )
+  }
+
+  outputVersion() {
+    const { name } = this.cli
+    const { versionNumber } = this.cli.globalCommand
+    if (versionNumber) {
+      this.cli.console.log(`${name}/${versionNumber} ${platformInfo}`)
+    }
+  }
+
+  checkRequiredArgs() {
+    const minimalArgsCount = this.args.filter((arg) => arg.required).length
+
+    if (this.cli.args.length < minimalArgsCount) {
+      throw new GokeError(
+        `missing required args for command \`${this.rawName}\``
+      )
+    }
+  }
+
+  /**
+   * Check if the parsed options contain any unknown options
+   *
+   * Exit and output error when true
+   */
+  checkUnknownOptions() {
+    const { options, globalCommand } = this.cli
+
+    if (!this.config.allowUnknownOptions) {
+      for (const name of Object.keys(options)) {
+        if (
+          name !== '--' &&
+          !this.hasOption(name) &&
+          !globalCommand.hasOption(name)
+        ) {
+          throw new GokeError(
+            `Unknown option \`${name.length > 1 ? `--${name}` : `-${name}`}\``
+          )
+        }
+      }
+    }
+  }
+
+  /**
+   * Check if the required string-type options exist
+   */
+  checkOptionValue() {
+    const { options: parsedOptions, globalCommand } = this.cli
+    const options = [...globalCommand.options, ...this.options]
+    for (const option of options) {
+      // Resolve the full dot-path to get the actual value.
+      // For "config.port", traverse parsedOptions.config.port instead of just parsedOptions.config.
+      const keys = option.name.split('.')
+      let value: unknown = parsedOptions
+      for (const key of keys) {
+        if (value != null && typeof value === 'object') {
+          value = (value as Record<string, unknown>)[key]
+        } else {
+          value = undefined
+          break
+        }
+      }
+      // Check required option value
+      if (option.required) {
+        if (value === true || value === false) {
+          throw new GokeError(`option \`${option.rawName}\` value is missing`)
+        }
+      }
+    }
+  }
+}
+
+class GlobalCommand extends Command {
+  constructor(cli: Goke) {
+    super('@@global@@', '', {}, cli)
+  }
+}
+
+// ─── I/O interfaces ───
 
 /**
  * Output stream interface, modeled after Node's process.stdout / process.stderr.
@@ -63,6 +655,8 @@ function createConsole(stdout: GokeOutputStream, stderr: GokeOutputStream): Goke
     },
   }
 }
+
+// ─── Goke (main CLI class) ───
 
 interface ParsedArgv {
   args: ReadonlyArray<string>
@@ -464,7 +1058,7 @@ class Goke extends EventEmitter {
         // for "flag present, no value given":
         //   - Required options (<...>): preserve `true` so checkOptionValue() throws
         //   - Optional options ([...]) with schema: replace with `undefined` (no typed value)
-         //   - Optional options ([...]) without schema: preserve `true` (original goke behavior)
+        //   - Optional options ([...]) without schema: preserve `true` (original goke behavior)
         const schemaInfo = schemaMap.get(key)
         if (schemaInfo && value !== undefined) {
           if (value === true && requiredValueOptions.has(key)) {
@@ -511,6 +1105,8 @@ class Goke extends EventEmitter {
   }
 }
 
-export type { GokeOutputStream, GokeConsole, GokeOptions }
-export { createConsole }
+// ─── Exports ───
+
+export type { GokeOutputStream, GokeConsole, GokeOptions, OptionConfig }
+export { createConsole, Command }
 export default Goke

@@ -6,7 +6,7 @@
  * These use expectTypeOf from vitest for compile-time type assertions.
  */
 import { describe, test, expectTypeOf } from 'vitest'
-import type { StandardTypedV1 } from '../standard-schema.js'
+import type { StandardTypedV1 } from '../coerce.js'
 
 // ─── Import type helpers from Command.ts ───
 // We can't import the private types directly, so we reconstruct them here
