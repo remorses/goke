@@ -27,7 +27,7 @@
   "keywords": [
     "mcp",
     "cli",
-    "cac"
+    "goke"
   ],
   "author": "Tommaso De Rossi, morse <beats.by.morse@gmail.com>",
   "license": "MIT",
@@ -36,11 +36,11 @@
     "js-yaml": "^4.1.1"
   },
   "peerDependencies": {
-    "@xmorse/cac": "*"
+    "goke": "*"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.19.7",
-    "@xmorse/cac": "workspace:*"
+    "goke": "workspace:*"
   }
 }

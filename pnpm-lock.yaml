@@ -12,7 +12,7 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  cac:
+  goke:
     devDependencies:
       '@types/node':
         specifier: ^25.2.2
@@ -23,6 +23,9 @@ importers:
       vitest:
         specifier: ^3.1.0
         version: 3.2.4(@types/node@25.2.2)(tsx@4.21.0)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
 
   mcpcac:
     dependencies:
@@ -39,15 +42,15 @@ importers:
       '@types/node':
         specifier: ^22.19.7
         version: 22.19.7
-      '@xmorse/cac':
+      goke:
         specifier: workspace:*
-        version: link:../cac
+        version: link:../goke
 
   notion-mcp-cli:
     dependencies:
-      '@xmorse/cac':
+      goke:
         specifier: workspace:*
-        version: link:../cac
+        version: link:../goke
       mcpcac:
         specifier: workspace:*
         version: link:../mcpcac

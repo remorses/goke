@@ -39,17 +39,17 @@ This monorepo contains:
 |---------|-------------|
 | [notion-mcp-cli](./notion-mcp-cli) | CLI for Notion MCP |
 | [mcpcac](./mcpcac) | Generate CLI commands from any MCP server |
-| [@xmorse/cac](./cac) | Fork of cac with space-separated subcommands |
+| [goke](./goke) | cac-inspired CLI framework with space-separated subcommands |
 
 ## mcpcac
 
 Use `mcpcac` to build your own MCP CLI:
 
 ```ts
-import { cac } from '@xmorse/cac'
+import { goke } from 'goke'
 import { addMcpCommands } from 'mcpcac'
 
-const cli = cac('mycli')
+const cli = goke('mycli')
 
 await addMcpCommands({
   cli,

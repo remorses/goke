@@ -29,7 +29,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@xmorse/cac": "workspace:*",
+    "goke": "workspace:*",
     "mcpcac": "workspace:*"
   },
   "devDependencies": {

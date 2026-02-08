@@ -1,8 +1,8 @@
 {
-  "name": "@xmorse/cac",
+  "name": "goke",
   "version": "6.0.7",
   "type": "module",
-  "description": "Simple yet powerful framework for building command-line apps.",
+  "description": "Simple yet powerful framework for building command-line apps. Inspired by cac.",
   "repository": {
     "type": "git",
     "url": "https://github.com/remorses/notion-mcp-cli"

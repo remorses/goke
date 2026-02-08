@@ -23,7 +23,7 @@ interface ParsedArgv {
   }
 }
 
-class CAC extends EventEmitter {
+class Goke extends EventEmitter {
   /** The program name to display in help and version message */
   name: string
   commands: Command[]
@@ -402,7 +402,7 @@ class CAC extends EventEmitter {
         // for "flag present, no value given":
         //   - Required options (<...>): preserve `true` so checkOptionValue() throws
         //   - Optional options ([...]) with schema: replace with `undefined` (no typed value)
-        //   - Optional options ([...]) without schema: preserve `true` (original cac behavior)
+         //   - Optional options ([...]) without schema: preserve `true` (original goke behavior)
         const schemaInfo = schemaMap.get(key)
         if (schemaInfo && value !== undefined) {
           if (value === true && requiredValueOptions.has(key)) {
@@ -449,4 +449,4 @@ class CAC extends EventEmitter {
   }
 }
 
-export default CAC
+export default Goke

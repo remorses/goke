@@ -10,7 +10,7 @@
  *   notion-mcp-cli logout         # Clear OAuth tokens
  */
 
-import { cac } from "@xmorse/cac";
+import { goke } from "goke";
 import { addMcpCommands } from "mcpcac";
 import type { McpOAuthState, CachedMcpTools } from "mcpcac";
 import fs from "node:fs";
@@ -46,7 +46,7 @@ function saveConfig(config: Partial<NotionCliConfig>): void {
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2));
 }
 
-const cli = cac("notion-mcp-cli");
+const cli = goke("notion-mcp-cli");
 
 // Add MCP commands with OAuth support (no prefix - commands are top-level)
 await addMcpCommands({

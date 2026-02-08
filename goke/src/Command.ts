@@ -1,11 +1,11 @@
-import CAC from "./CAC.js"
+import Goke from "./goke.js"
 import Option, { OptionConfig } from "./Option.js"
 import {
   removeBrackets,
   findAllBrackets,
   findLongest,
   padRight,
-  CACError,
+  GokeError,
 } from "./utils.js"
 import { platformInfo } from "./node.js"
 import type { StandardTypedV1, StandardJSONSchemaV1 } from "./standard-schema.js"
@@ -94,7 +94,7 @@ class Command {
     public rawName: string,
     public description: string,
     public config: CommandConfig = {},
-    public cli: CAC
+    public cli: Goke
   ) {
     this.options = []
     this.aliasNames = []
@@ -337,7 +337,7 @@ class Command {
     const minimalArgsCount = this.args.filter((arg) => arg.required).length
 
     if (this.cli.args.length < minimalArgsCount) {
-      throw new CACError(
+      throw new GokeError(
         `missing required args for command \`${this.rawName}\``
       )
     }
@@ -358,7 +358,7 @@ class Command {
           !this.hasOption(name) &&
           !globalCommand.hasOption(name)
         ) {
-          throw new CACError(
+          throw new GokeError(
             `Unknown option \`${name.length > 1 ? `--${name}` : `-${name}`}\``
           )
         }
@@ -388,7 +388,7 @@ class Command {
       // Check required option value
       if (option.required) {
         if (value === true || value === false) {
-          throw new CACError(`option \`${option.rawName}\` value is missing`)
+          throw new GokeError(`option \`${option.rawName}\` value is missing`)
         }
       }
     }
@@ -396,7 +396,7 @@ class Command {
 }
 
 class GlobalCommand extends Command {
-  constructor(cli: CAC) {
+  constructor(cli: Goke) {
     super('@@global@@', '', {}, cli)
   }
 }

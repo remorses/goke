@@ -3,7 +3,7 @@
  * https://github.com/standard-schema/standard-schema
  *
  * We vendor these ~80 lines of pure types instead of adding a runtime dependency.
- * CAC uses StandardJSONSchemaV1 to accept schemas from Zod, Valibot, ArkType, etc.
+ * Goke uses StandardJSONSchemaV1 to accept schemas from Zod, Valibot, ArkType, etc.
  * and extract JSON Schema for CLI argument coercion + TypeScript type inference.
  */
 

@@ -1,10 +1,10 @@
 import { describe, test, expect } from 'vitest'
-import cac from '../index.js'
+import goke from '../index.js'
 import { coerceBySchema } from '../coerce.js'
 import { z } from 'zod'
 
 test('double dashes', () => {
-  const cli = cac()
+  const cli = goke()
 
   const { args, options } = cli.parse([
     'node',
@@ -21,7 +21,7 @@ test('double dashes', () => {
 })
 
 test('dot-nested options', () => {
-  const cli = cac()
+  const cli = goke()
 
   cli
     .option('--externals <external>', 'Add externals')
@@ -36,7 +36,7 @@ test('dot-nested options', () => {
 
 describe('schema-based options', () => {
   test('schema coerces string to number', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--port <port>', 'Port number', {
       schema: z.number(),
@@ -48,7 +48,7 @@ describe('schema-based options', () => {
   })
 
   test('schema preserves string (no auto-conversion to number)', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--id <id>', 'ID', {
       schema: z.string(),
@@ -60,7 +60,7 @@ describe('schema-based options', () => {
   })
 
   test('schema coerces string to integer', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--count <count>', 'Count', {
       schema: z.int(),
@@ -71,7 +71,7 @@ describe('schema-based options', () => {
   })
 
   test('schema parses JSON object', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--config <config>', 'Config', {
       schema: z.looseObject({}),
@@ -82,7 +82,7 @@ describe('schema-based options', () => {
   })
 
   test('schema parses JSON array', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--items <items>', 'Items', {
       schema: z.array(z.unknown()),
@@ -93,7 +93,7 @@ describe('schema-based options', () => {
   })
 
   test('schema throws on invalid number', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--port <port>', 'Port number', {
       schema: z.number(),
@@ -104,7 +104,7 @@ describe('schema-based options', () => {
   })
 
   test('schema with union type ["number", "string"]', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--val <val>', 'Value', {
       schema: z.union([z.number(), z.string()]),
@@ -118,7 +118,7 @@ describe('schema-based options', () => {
   })
 
   test('options without schema keep values as strings', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--port <port>', 'Port number')
 
@@ -130,7 +130,7 @@ describe('schema-based options', () => {
   })
 
   test('schema with default value', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--port <port>', 'Port number', {
       default: 8080,
@@ -142,7 +142,7 @@ describe('schema-based options', () => {
   })
 
   test('schema on subcommand options', () => {
-    const cli = cac()
+    const cli = goke()
     let result: any = {}
 
     cli
@@ -165,56 +165,56 @@ describe('schema-based options', () => {
 
 describe('no-schema behavior (mri no longer auto-converts)', () => {
   test('numeric string stays as string without schema', () => {
-    const cli = cac()
+    const cli = goke()
     cli.option('--port <port>', 'Port')
     const { options } = cli.parse('node bin --port 3000'.split(' '))
     expect(options.port).toBe('3000')
   })
 
   test('leading zeros preserved without schema', () => {
-    const cli = cac()
+    const cli = goke()
     cli.option('--id <id>', 'ID')
     const { options } = cli.parse('node bin --id 00123'.split(' '))
     expect(options.id).toBe('00123')
   })
 
   test('phone number preserved without schema', () => {
-    const cli = cac()
+    const cli = goke()
     cli.option('--phone <phone>', 'Phone')
     const { options } = cli.parse('node bin --phone +1234567890'.split(' '))
     expect(options.phone).toBe('+1234567890')
   })
 
   test('boolean flags still work without schema', () => {
-    const cli = cac()
+    const cli = goke()
     cli.option('--verbose', 'Verbose')
     const { options } = cli.parse('node bin --verbose'.split(' '))
     expect(options.verbose).toBe(true)
   })
 
   test('optional value flag returns true when no value given', () => {
-    const cli = cac()
+    const cli = goke()
     cli.option('--format [fmt]', 'Format')
     const { options } = cli.parse('node bin --format'.split(' '))
     expect(options.format).toBe(true)
   })
 
   test('optional value flag returns string when value given', () => {
-    const cli = cac()
+    const cli = goke()
     cli.option('--format [fmt]', 'Format')
     const { options } = cli.parse('node bin --format json'.split(' '))
     expect(options.format).toBe('json')
   })
 
   test('hex string stays as string without schema', () => {
-    const cli = cac()
+    const cli = goke()
     cli.option('--color <color>', 'Color')
     const { options } = cli.parse('node bin --color 0xff00ff'.split(' '))
     expect(options.color).toBe('0xff00ff')
   })
 
   test('scientific notation stays as string without schema', () => {
-    const cli = cac()
+    const cli = goke()
     cli.option('--val <val>', 'Value')
     const { options } = cli.parse('node bin --val 1e10'.split(' '))
     expect(options.val).toBe('1e10')
@@ -223,7 +223,7 @@ describe('no-schema behavior (mri no longer auto-converts)', () => {
 
 describe('typical CLI usage examples', () => {
   test('web server CLI with typed options', () => {
-    const cli = cac('myserver')
+    const cli = goke('myserver')
     let config: any = {}
 
     cli
@@ -254,7 +254,7 @@ describe('typical CLI usage examples', () => {
   })
 
   test('web server CLI with defaults (no args)', () => {
-    const cli = cac('myserver')
+    const cli = goke('myserver')
     let config: any = {}
 
     cli
@@ -276,7 +276,7 @@ describe('typical CLI usage examples', () => {
   })
 
   test('database CLI with JSON config option', () => {
-    const cli = cac('dbcli')
+    const cli = goke('dbcli')
     let config: any = {}
 
     cli
@@ -294,7 +294,7 @@ describe('typical CLI usage examples', () => {
   })
 
   test('file processing CLI with positional args + typed options', () => {
-    const cli = cac('fileproc')
+    const cli = goke('fileproc')
     let result: any = {}
 
     cli
@@ -319,7 +319,7 @@ describe('typical CLI usage examples', () => {
   })
 
   test('API client CLI preserving string IDs', () => {
-    const cli = cac('apicli')
+    const cli = goke('apicli')
     let result: any = {}
 
     cli
@@ -339,7 +339,7 @@ describe('typical CLI usage examples', () => {
   })
 
   test('nullable option with union type', () => {
-    const cli = cac()
+    const cli = goke()
     cli.option('--timeout <timeout>', 'Timeout', {
       schema: z.nullable(z.number()),
     })
@@ -355,7 +355,7 @@ describe('typical CLI usage examples', () => {
 
 describe('regression: oracle-found issues', () => {
   test('required option with schema still throws when value missing', () => {
-    const cli = cac()
+    const cli = goke()
     let actionCalled = false
 
     cli
@@ -373,7 +373,7 @@ describe('regression: oracle-found issues', () => {
   })
 
   test('repeated flags with non-array schema throws', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--tag <tag>', 'Tags', {
       schema: z.string(),
@@ -384,7 +384,7 @@ describe('regression: oracle-found issues', () => {
   })
 
   test('repeated flags with number schema throws', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--id <id>', 'ID', {
       schema: z.number(),
@@ -395,7 +395,7 @@ describe('regression: oracle-found issues', () => {
   })
 
   test('repeated flags with array schema collects values', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--tag <tag>', 'Tags', {
       schema: z.array(z.string()),
@@ -406,7 +406,7 @@ describe('regression: oracle-found issues', () => {
   })
 
   test('repeated flags with array+items schema coerces each element', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--id <id>', 'IDs', {
       schema: z.array(z.number()),
@@ -417,7 +417,7 @@ describe('regression: oracle-found issues', () => {
   })
 
   test('single value with array schema wraps in array', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--tag <tag>', 'Tags', {
       schema: z.array(z.string()),
@@ -428,7 +428,7 @@ describe('regression: oracle-found issues', () => {
   })
 
   test('single value with array+number items schema wraps and coerces', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--id <id>', 'IDs', {
       schema: z.array(z.number()),
@@ -439,7 +439,7 @@ describe('regression: oracle-found issues', () => {
   })
 
   test('JSON array string with array schema parses correctly', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--ids <ids>', 'IDs', {
       schema: z.array(z.number()),
@@ -450,7 +450,7 @@ describe('regression: oracle-found issues', () => {
   })
 
   test('repeated flags without schema still produce array (no schema = no restriction)', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--tag <tag>', 'Tags')
 
@@ -463,7 +463,7 @@ describe('regression: oracle-found issues', () => {
   })
 
   test('optional value option with schema returns undefined when no value given', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--count [count]', 'Count', {
       schema: z.number(),
@@ -475,17 +475,17 @@ describe('regression: oracle-found issues', () => {
   })
 
   test('optional value option without schema preserves true sentinel', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--count [count]', 'Count')
 
-    // Without schema, original cac behavior: true means "flag present"
+    // Without schema, original goke behavior: true means "flag present"
     const { options } = cli.parse('node bin --count'.split(' '))
     expect(options.count).toBe(true)
   })
 
   test('optional value option with schema coerces when value given', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--count [count]', 'Count', {
       schema: z.number(),
@@ -496,7 +496,7 @@ describe('regression: oracle-found issues', () => {
   })
 
   test('alias + schema coercion works', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('-p, --port <port>', 'Port', {
       schema: z.number(),
@@ -508,7 +508,7 @@ describe('regression: oracle-found issues', () => {
   })
 
   test('union type ["array", "null"] with repeated flags', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--tags <tags>', 'Tags', {
       schema: z.nullable(z.array(z.string())),
@@ -521,7 +521,7 @@ describe('regression: oracle-found issues', () => {
 
 describe('edge cases: schema + defaults interaction', () => {
   test('default value is preserved as-is, not coerced by schema', () => {
-    const cli = cac()
+    const cli = goke()
 
     // default is string "3000" but schema says number — default should stay as-is
     cli.option('--port <port>', 'Port', {
@@ -535,7 +535,7 @@ describe('edge cases: schema + defaults interaction', () => {
   })
 
   test('default value is used when option not passed, schema value when passed', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--port <port>', 'Port', {
       default: 8080,
@@ -550,7 +550,7 @@ describe('edge cases: schema + defaults interaction', () => {
   })
 
   test('optional value + default + schema: three-way interaction', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--count [count]', 'Count', {
       default: 10,
@@ -573,7 +573,7 @@ describe('edge cases: schema + defaults interaction', () => {
 
 describe('edge cases: boolean flags + schema', () => {
   test('boolean flag (no brackets) with number schema — mri returns boolean', () => {
-    const cli = cac()
+    const cli = goke()
 
     // This is a questionable usage: boolean flag + number schema
     // mri returns true/false for boolean flags, schema tries to coerce boolean→number
@@ -587,7 +587,7 @@ describe('edge cases: boolean flags + schema', () => {
   })
 
   test('boolean string value with boolean schema on value option', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--flag <flag>', 'A flag', {
       schema: z.boolean(),
@@ -601,7 +601,7 @@ describe('edge cases: boolean flags + schema', () => {
   })
 
   test('invalid boolean string with boolean schema throws', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--flag <flag>', 'A flag', {
       schema: z.boolean(),
@@ -614,7 +614,7 @@ describe('edge cases: boolean flags + schema', () => {
 
 describe('edge cases: dot-nested options + schema', () => {
   test('dot-nested option with number schema coerces value', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--config.port <port>', 'Port', {
       schema: z.number(),
@@ -625,7 +625,7 @@ describe('edge cases: dot-nested options + schema', () => {
   })
 
   test('dot-nested default uses nested object shape', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--config.port <port>', 'Port', {
       default: 8080,
@@ -639,7 +639,7 @@ describe('edge cases: dot-nested options + schema', () => {
 
 describe('edge cases: kebab-case + schema', () => {
   test('kebab-case option coerced via schema and accessible as camelCase', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--max-retries <count>', 'Max retries', {
       schema: z.number(),
@@ -653,7 +653,7 @@ describe('edge cases: kebab-case + schema', () => {
 
 describe('edge cases: empty string values', () => {
   test('empty string with string schema stays empty string', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--name <name>', 'Name', {
       schema: z.string(),
@@ -664,7 +664,7 @@ describe('edge cases: empty string values', () => {
   })
 
   test('empty string with number schema throws', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--port <port>', 'Port', {
       schema: z.number(),
@@ -675,7 +675,7 @@ describe('edge cases: empty string values', () => {
   })
 
   test('empty string with nullable number schema returns null', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('--timeout <timeout>', 'Timeout', {
       schema: z.nullable(z.number()),
@@ -688,7 +688,7 @@ describe('edge cases: empty string values', () => {
 
 describe('edge cases: global options with schema in subcommands', () => {
   test('global option schema applies to subcommand parsing', () => {
-    const cli = cac()
+    const cli = goke()
     let result: any = {}
 
     cli.option('--port <port>', 'Port', {
@@ -707,7 +707,7 @@ describe('edge cases: global options with schema in subcommands', () => {
 
 describe('edge cases: short alias + schema', () => {
   test('short alias repeated with array schema', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('-t, --tag <tag>', 'Tags', {
       schema: z.array(z.string()),
@@ -719,7 +719,7 @@ describe('edge cases: short alias + schema', () => {
   })
 
   test('short alias single value with array schema wraps', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('-t, --tag <tag>', 'Tags', {
       schema: z.array(z.string()),
@@ -730,7 +730,7 @@ describe('edge cases: short alias + schema', () => {
   })
 
   test('short alias with number schema coerces', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('-p, --port <port>', 'Port', {
       schema: z.number(),
@@ -742,7 +742,7 @@ describe('edge cases: short alias + schema', () => {
   })
 
   test('short alias repeated with non-array schema throws', () => {
-    const cli = cac()
+    const cli = goke()
 
     cli.option('-p, --port <port>', 'Port', {
       schema: z.number(),
@@ -754,7 +754,7 @@ describe('edge cases: short alias + schema', () => {
 })
 
 test('throw on unknown options', () => {
-  const cli = cac()
+  const cli = goke()
 
   cli
     .command('build [entry]', 'Build your app')
@@ -769,7 +769,7 @@ test('throw on unknown options', () => {
 
 describe('space-separated subcommands', () => {
   test('basic subcommand matching', () => {
-    const cli = cac()
+    const cli = goke()
     let matched = ''
 
     cli.command('mcp login', 'Login to MCP').action(() => {
@@ -782,7 +782,7 @@ describe('space-separated subcommands', () => {
   })
 
   test('subcommand with positional args', () => {
-    const cli = cac()
+    const cli = goke()
     let receivedId = ''
 
     cli.command('mcp getNodeXml <id>', 'Get XML for a node').action((id) => {
@@ -795,7 +795,7 @@ describe('space-separated subcommands', () => {
   })
 
   test('subcommand with options', () => {
-    const cli = cac()
+    const cli = goke()
     let result: any = {}
 
     cli
@@ -812,7 +812,7 @@ describe('space-separated subcommands', () => {
   })
 
   test('greedy matching - longer commands match first', () => {
-    const cli = cac()
+    const cli = goke()
     let matched = ''
 
     cli.command('mcp', 'MCP base command').action(() => {
@@ -828,7 +828,7 @@ describe('space-separated subcommands', () => {
   })
 
   test('three-level subcommand', () => {
-    const cli = cac()
+    const cli = goke()
     let matched = ''
 
     cli.command('git remote add', 'Add a remote').action(() => {
@@ -841,7 +841,7 @@ describe('space-separated subcommands', () => {
   })
 
   test('single-word commands still work (backward compatibility)', () => {
-    const cli = cac()
+    const cli = goke()
     let matched = ''
 
     cli.command('build', 'Build the project').action(() => {
@@ -854,7 +854,7 @@ describe('space-separated subcommands', () => {
   })
 
   test('subcommand does not match when args are insufficient', () => {
-    const cli = cac()
+    const cli = goke()
     let matched = ''
 
     cli.command('mcp login', 'Login to MCP').action(() => {
@@ -870,7 +870,7 @@ describe('space-separated subcommands', () => {
   })
 
   test('default command should not match if args are prefix of another command', () => {
-    const cli = cac()
+    const cli = goke()
     let matched = ''
 
     cli.command('mcp login', 'Login to MCP').action(() => {
@@ -887,7 +887,7 @@ describe('space-separated subcommands', () => {
   })
 
   test('default command should match when args do not prefix any command', () => {
-    const cli = cac()
+    const cli = goke()
     let matched = ''
     let receivedArg = ''
 
@@ -906,7 +906,7 @@ describe('space-separated subcommands', () => {
   })
 
   test('help output with subcommands', () => {
-    const cli = cac('mycli')
+    const cli = goke('mycli')
 
     cli.command('mcp login <url>', 'Login to MCP server')
     cli.command('mcp logout', 'Logout from MCP server')
@@ -955,7 +955,7 @@ describe('space-separated subcommands', () => {
   })
 
   test('unknown subcommand shows filtered help for prefix', () => {
-    const cli = cac('mycli')
+    const cli = goke('mycli')
 
     cli.command('mcp login', 'Login to MCP')
     cli.command('mcp logout', 'Logout from MCP')
@@ -985,7 +985,7 @@ describe('space-separated subcommands', () => {
   })
 
   test('unknown command without prefix does not show filtered help', () => {
-    const cli = cac('mycli')
+    const cli = goke('mycli')
 
     cli.command('mcp login', 'Login to MCP')
     cli.command('build', 'Build project')

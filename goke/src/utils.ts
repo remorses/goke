@@ -117,7 +117,7 @@ export const camelcaseOptionName = (name: string) => {
     .join('.')
 }
 
-export class CACError extends Error {
+export class GokeError extends Error {
   constructor(message: string) {
     super(message)
     this.name = this.constructor.name

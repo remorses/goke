@@ -17,10 +17,10 @@
  * ## Example Usage
  *
  * ```ts
- * import { cac } from '@xmorse/cac'
+ * import { goke } from 'goke'
  * import { addMcpCommands } from 'mcpcac'
  *
- * const cli = cac('mycli')
+ * const cli = goke('mycli')
  *
  * await addMcpCommands({
  *   cli,
@@ -32,8 +32,8 @@
  *     load: () => loadConfig().mcpOauth,
  *     save: (state) => saveConfig({ mcpOauth: state }),
  *   },
- *   loadCache: () => loadConfig().cachedMcpTools,
- *   saveCache: (cache) => saveConfig({ cachedMcpTools: cache }),
+ *   loadCache: () => loadConfig().cache,
+ *   saveCache: (cache) => saveConfig({ cache }),
  * })
  *
  * // Login command just saves URL - no auth check, fast!
@@ -51,8 +51,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { CAC } from "@xmorse/cac";
-import { wrapJsonSchema } from "@xmorse/cac";
+import type { Goke } from "goke";
+import { wrapJsonSchema } from "goke";
 import yaml from "js-yaml";
 import { FileOAuthProvider } from "./oauth-provider.js";
 import { startOAuthFlow, isAuthRequiredError } from "./auth.js";
@@ -75,7 +75,7 @@ export interface CachedMcpTools {
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 export interface AddMcpCommandsOptions {
-  cli: CAC;
+  cli: Goke;
   /**
    * Prefix for all MCP tool commands.
    * Set to empty string '' for no prefix (e.g., 'notion-search' instead of 'mcp notion-search').
@@ -177,7 +177,7 @@ function schemaToString(schema: JsonSchemaProperty): string {
 
 /**
  * Extract tool arguments from CLI options.
- * CAC now handles all type coercion via schemas, so this just picks
+ * Goke now handles all type coercion via schemas, so this just picks
  * the relevant keys from the parsed options.
  */
 function extractToolArguments(
@@ -270,7 +270,7 @@ function normalizeUrl(mcpUrl: string): URL {
 }
 
 /**
- * Adds MCP tool commands to a cac CLI instance.
+ * Adds MCP tool commands to a goke CLI instance.
  * 
  * Tools are cached for 1 hour to avoid connecting on every CLI invocation.
  * Session ID is also cached to skip MCP initialization handshake.
@@ -424,7 +424,7 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
         }
 
         // Wrap the MCP tool's JSON Schema property into a StandardJSONSchemaV1
-        // object so CAC can use it for type coercion (string → typed value).
+        // object so Goke can use it for type coercion (string → typed value).
         // Boolean flags don't need schema coercion — mri handles them natively.
         const optionConfig: { default?: unknown; schema?: ReturnType<typeof wrapJsonSchema> } = {};
         if (propSchema.default !== undefined) {
@@ -439,7 +439,7 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
     }
 
     cmd.action(async (cliOptions: Record<string, unknown>) => {
-      // CAC already coerced all values via schemas — just extract the relevant keys
+      // Goke already coerced all values via schemas — just extract the relevant keys
       const parsedArgs = extractToolArguments(cliOptions, inputSchema);
 
       const executeWithRetry = async (isRetry = false): Promise<void> => {
