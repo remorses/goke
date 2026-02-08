@@ -44,9 +44,10 @@ import { goke } from 'goke'
 
 const cli = goke()
 
-cli.option('--type [type]', 'Choose a project type', {
-  default: 'node',
-})
+cli.option(
+  '--type [type]',
+  z.string().default('node').describe('Choose a project type'),
+)
 cli.option('--name <name>', 'Provide your name')
 
 cli.command('lint [...files]', 'Lint files').action((files, options) => {
@@ -99,9 +100,11 @@ cli.command('mcp logout', 'Logout from MCP server').action(() => {
   console.log('Logged out')
 })
 
-cli.command('git remote add <name> <url>', 'Add a git remote').action((name, url) => {
-  console.log('Adding remote', name, url)
-})
+cli
+  .command('git remote add <name> <url>', 'Add a git remote')
+  .action((name, url) => {
+    console.log('Adding remote', name, url)
+  })
 
 cli.help()
 cli.parse()
@@ -133,6 +136,7 @@ cli.parse()
 ```
 
 The `schema` option accepts any object implementing [Standard JSON Schema V1](https://github.com/standard-schema/standard-schema), including:
+
 - **Zod** v4.2+ (e.g. `z.number()`, `z.string()`, `z.array(z.number())`)
 - **Valibot**, **ArkType**, and other Standard Schema-compatible libraries
 - **Plain JSON Schema** via `wrapJsonSchema({ type: "number" })`
