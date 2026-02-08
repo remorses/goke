@@ -1,6 +1,6 @@
 {
   "name": "@goke/mcp",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Dynamically generate CLI commands from MCP server tools",
   "type": "module",
   "main": "dist/index.js",

@@ -1,5 +1,11 @@
 # @goke/mcp
 
+## 0.0.4
+
+- Fix: preserve boolean defaults in MCP tools
+- Refactor: adapt to new Goke option API
+- Chore: rename from mcpcac to @goke/mcp
+
 ## 0.0.3
 
 - Format JSON outputs as YAML for better readability using js-yaml

@@ -1,5 +1,10 @@
 # notion-mcp-cli
 
+## 0.0.5
+
+- Fix: fix login --url required argument regression
+- Refactor: update to use new Goke option API
+
 ## 0.0.4
 
 - JSON outputs are now formatted as YAML for better readability

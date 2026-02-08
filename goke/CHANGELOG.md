@@ -1,5 +1,11 @@
 # goke
 
+## 6.1.0
+
+- Feat: redesign help rendering with wrapped full descriptions and colorized sections
+- Feat: support prefix-scoped help for partial subcommands
+- Refactor: simplify option API to accept schema as second argument (Breaking Change)
+
 ## 6.0.7
 
 - Fix: default command should not match when args prefix another command
