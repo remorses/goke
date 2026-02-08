@@ -502,14 +502,24 @@ describe('regression: oracle-found issues', () => {
     expect(coerceBySchema('', { const: null }, 'val')).toBe(null)
   })
 
-  test('optional value option with schema preserves true sentinel', () => {
+  test('optional value option with schema returns undefined when no value given', () => {
     const cli = cac()
 
     cli.option('--count [count]', 'Count', {
       schema: z.number(),
     })
 
-    // --count without value → mri returns true → should NOT coerce to 1
+    // --count without value → schema expects number, none given → undefined
+    const { options } = cli.parse('node bin --count'.split(' '))
+    expect(options.count).toBe(undefined)
+  })
+
+  test('optional value option without schema preserves true sentinel', () => {
+    const cli = cac()
+
+    cli.option('--count [count]', 'Count')
+
+    // Without schema, original cac behavior: true means "flag present"
     const { options } = cli.parse('node bin --count'.split(' '))
     expect(options.count).toBe(true)
   })

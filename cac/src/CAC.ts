@@ -372,18 +372,22 @@ class CAC extends EventEmitter {
       }
     }
 
-    // Build a set of option names that take a value (<...> or [...] syntax).
+    // Build sets of option names that take a value (<...> or [...] syntax).
     // When mri returns `true` for these, it means "flag present, no value given".
-    // For required options (<...>), checkOptionValue() throws "value is missing".
-    // For optional options ([...]), we skip schema coercion so `true` is preserved
-    // (not silently coerced to 1, "true", etc.) — the user intended a flag, not a value.
-    const valueTakingOptions = new Set<string>()
+    // For required options (<...>), the sentinel is preserved so checkOptionValue()
+    // can throw "value is missing".
+    // For optional options ([...]) with a schema, we replace `true` with `undefined`
+    // since no typed value was provided — not silently coerced to 1, "true", etc.
+    const requiredValueOptions = new Set<string>()
+    const optionalValueOptions = new Set<string>()
     for (const cliOption of cliOptions) {
-      if (cliOption.required === true || cliOption.required === false) {
-        // required=true means <...>, required=false means [...]
-        // Both take values — only isBoolean options (no brackets) are pure flags
+      if (cliOption.required === true) {
         for (const name of cliOption.names) {
-          valueTakingOptions.add(name)
+          requiredValueOptions.add(name)
+        }
+      } else if (cliOption.required === false) {
+        for (const name of cliOption.names) {
+          optionalValueOptions.add(name)
         }
       }
     }
@@ -396,12 +400,19 @@ class CAC extends EventEmitter {
         let value = parsed[key]
 
         // Apply schema coercion if this option has a schema.
-        // Skip coercion when value is boolean `true` and the option requires a value —
-        // that's mri's sentinel for "flag present but no value given".
+        // When value is boolean `true` and the option takes a value, it's mri's sentinel
+        // for "flag present, no value given":
+        //   - Required options (<...>): preserve `true` so checkOptionValue() throws
+        //   - Optional options ([...]) with schema: replace with `undefined` (no typed value)
+        //   - Optional options ([...]) without schema: preserve `true` (original cac behavior)
         const schemaInfo = schemaMap.get(key)
         if (schemaInfo && value !== undefined) {
-          const isMissingSentinel = value === true && valueTakingOptions.has(key)
-          if (!isMissingSentinel) {
+          if (value === true && requiredValueOptions.has(key)) {
+            // Keep sentinel for checkOptionValue() to detect
+          } else if (value === true && optionalValueOptions.has(key)) {
+            // Optional value not given — schema expects a typed value, so return undefined
+            value = undefined
+          } else {
             value = coerceBySchema(value, schemaInfo.jsonSchema, schemaInfo.optionName)
           }
         }
