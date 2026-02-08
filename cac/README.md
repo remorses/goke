@@ -28,7 +28,7 @@
   - [Variadic Arguments](#variadic-arguments)
   - [Dot-nested Options](#dot-nested-options)
   - [Default Command](#default-command)
-  - [Supply an array as option value](#supply-an-array-as-option-value)
+  - [Schema-based Type Coercion](#schema-based-type-coercion)
   - [Error Handling](#error-handling)
   - [With TypeScript](#with-typescript)
   - [With Deno](#with-deno)
@@ -254,17 +254,53 @@ cli
 cli.parse()
 ```
 
-### Supply an array as option value
+### Schema-based Type Coercion
+
+By default, option values are kept as raw strings. Use the `schema` config to get typed values with automatic coercion:
+
+```ts
+import { cac } from 'cac'
+import { z } from 'zod'
+
+const cli = cac()
+
+cli
+  .command('serve', 'Start server')
+  .option('--port <port>', 'Port number', { schema: z.number() })
+  .option('--host <host>', 'Hostname', { schema: z.string() })
+  .option('--workers <workers>', 'Worker count', { schema: z.int() })
+  .option('--tags <tag>', 'Tags (repeatable)', { schema: z.array(z.string()) })
+  .option('--verbose', 'Verbose output')
+  .action((options) => {
+    // options.port is number, options.host is string, etc.
+    console.log(options)
+  })
+
+cli.parse()
+```
+
+The `schema` option accepts any object implementing [Standard JSON Schema V1](https://github.com/standard-schema/standard-schema), including:
+- **Zod** v4.2+ (e.g. `z.number()`, `z.string()`, `z.array(z.number())`)
+- **Valibot**, **ArkType**, and other Standard Schema-compatible libraries
+- **Plain JSON Schema** via `wrapJsonSchema({ type: "number" })`
+
+**Array options** require an array schema to accept repeated flags:
 
 ```bash
-node cli.js --include project-a
-# The parsed options will be:
-# { include: 'project-a' }
+# With schema: z.array(z.string())
+node cli.js --tags foo --tags bar
+# { tags: ['foo', 'bar'] }
 
-node cli.js --include project-a --include project-b
-# The parsed options will be:
-# { include: ['project-a', 'project-b'] }
+# Single values are auto-wrapped into arrays:
+node cli.js --tags foo
+# { tags: ['foo'] }
+
+# Without any schema, repeated flags still produce arrays (raw strings):
+node cli.js --include a --include b
+# { include: ['a', 'b'] }
 ```
+
+Non-array schemas reject repeated flags with an error.
 
 ### Error Handling
 
@@ -364,7 +400,7 @@ Add a global option.
 The option also accepts a third argument `config` for additional option config:
 
 - `config.default`: Default value for the option.
-- `config.type`: `any[]` When set to `[]`, the option value returns an array type. You can also use a conversion function such as `[String]`, which will invoke the option value with `String`.
+- `config.schema`: A [Standard JSON Schema V1](https://github.com/standard-schema/standard-schema) object (e.g. `z.number()` from Zod) for automatic type coercion and TypeScript type inference. See [Schema-based Type Coercion](#schema-based-type-coercion).
 
 #### cli.parse(argv?)
 

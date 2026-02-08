@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'vitest'
 import cac from '../index.js'
-import { wrapJsonSchema } from '../wrap-json-schema.js'
 import { coerceBySchema } from '../coerce.js'
+import { z } from 'zod'
 
 test('negated option', () => {
   const cli = cac()
@@ -76,7 +76,7 @@ describe('schema-based options', () => {
     const cli = cac()
 
     cli.option('--port <port>', 'Port number', {
-      schema: wrapJsonSchema({ type: 'number' }),
+      schema: z.number(),
     })
 
     const { options } = cli.parse('node bin --port 3000'.split(' '))
@@ -88,7 +88,7 @@ describe('schema-based options', () => {
     const cli = cac()
 
     cli.option('--id <id>', 'ID', {
-      schema: wrapJsonSchema({ type: 'string' }),
+      schema: z.string(),
     })
 
     const { options } = cli.parse('node bin --id 00123'.split(' '))
@@ -100,7 +100,7 @@ describe('schema-based options', () => {
     const cli = cac()
 
     cli.option('--count <count>', 'Count', {
-      schema: wrapJsonSchema({ type: 'integer' }),
+      schema: z.int(),
     })
 
     const { options } = cli.parse('node bin --count 42'.split(' '))
@@ -111,7 +111,7 @@ describe('schema-based options', () => {
     const cli = cac()
 
     cli.option('--config <config>', 'Config', {
-      schema: wrapJsonSchema({ type: 'object' }),
+      schema: z.looseObject({}),
     })
 
     const { options } = cli.parse(['node', 'bin', '--config', '{"a":1}'])
@@ -122,7 +122,7 @@ describe('schema-based options', () => {
     const cli = cac()
 
     cli.option('--items <items>', 'Items', {
-      schema: wrapJsonSchema({ type: 'array' }),
+      schema: z.array(z.unknown()),
     })
 
     const { options } = cli.parse(['node', 'bin', '--items', '[1,2,3]'])
@@ -133,7 +133,7 @@ describe('schema-based options', () => {
     const cli = cac()
 
     cli.option('--port <port>', 'Port number', {
-      schema: wrapJsonSchema({ type: 'number' }),
+      schema: z.number(),
     })
 
     expect(() => cli.parse('node bin --port abc'.split(' ')))
@@ -144,7 +144,7 @@ describe('schema-based options', () => {
     const cli = cac()
 
     cli.option('--val <val>', 'Value', {
-      schema: wrapJsonSchema({ type: ['number', 'string'] }),
+      schema: z.union([z.number(), z.string()]),
     })
 
     const { options: opts1 } = cli.parse('node bin --val 123'.split(' '))
@@ -171,7 +171,7 @@ describe('schema-based options', () => {
 
     cli.option('--port <port>', 'Port number', {
       default: 8080,
-      schema: wrapJsonSchema({ type: 'number' }),
+      schema: z.number(),
     })
 
     const { options } = cli.parse('node bin'.split(' '))
@@ -185,10 +185,10 @@ describe('schema-based options', () => {
     cli
       .command('serve', 'Start server')
       .option('--port <port>', 'Port', {
-        schema: wrapJsonSchema({ type: 'number' }),
+        schema: z.number(),
       })
       .option('--host <host>', 'Host', {
-        schema: wrapJsonSchema({ type: 'string' }),
+        schema: z.string(),
       })
       .action((options) => {
         result = options
@@ -269,14 +269,14 @@ describe('typical CLI usage examples', () => {
       .command('start', 'Start the web server')
       .option('--port <port>', 'Port to listen on', {
         default: 3000,
-        schema: wrapJsonSchema({ type: 'number' }),
+        schema: z.number(),
       })
       .option('--host <host>', 'Hostname to bind', {
         default: 'localhost',
-        schema: wrapJsonSchema({ type: 'string' }),
+        schema: z.string(),
       })
       .option('--workers <workers>', 'Number of worker threads', {
-        schema: wrapJsonSchema({ type: 'integer' }),
+        schema: z.int(),
       })
       .option('--cors', 'Enable CORS')
       .option('--no-log', 'Disable logging')
@@ -301,11 +301,11 @@ describe('typical CLI usage examples', () => {
       .command('start', 'Start the web server')
       .option('--port <port>', 'Port', {
         default: 3000,
-        schema: wrapJsonSchema({ type: 'number' }),
+        schema: z.number(),
       })
       .option('--host <host>', 'Host', {
         default: 'localhost',
-        schema: wrapJsonSchema({ type: 'string' }),
+        schema: z.string(),
       })
       .action((options) => { config = options })
 
@@ -322,7 +322,7 @@ describe('typical CLI usage examples', () => {
     cli
       .command('migrate', 'Run database migrations')
       .option('--connection <conn>', 'Connection config (JSON)', {
-        schema: wrapJsonSchema({ type: 'object', properties: { host: { type: 'string' }, port: { type: 'number' } } }),
+        schema: z.object({ host: z.string(), port: z.number() }),
       })
       .option('--dry-run', 'Preview without executing')
       .action((options) => { config = options })
@@ -340,10 +340,10 @@ describe('typical CLI usage examples', () => {
     cli
       .command('convert <input> <output>', 'Convert file format')
       .option('--quality <quality>', 'Quality (0-100)', {
-        schema: wrapJsonSchema({ type: 'integer' }),
+        schema: z.int(),
       })
       .option('--format <format>', 'Output format', {
-        schema: wrapJsonSchema({ type: 'string', enum: ['png', 'jpg', 'webp'] }),
+        schema: z.enum(['png', 'jpg', 'webp']),
       })
       .action((input, output, options) => {
         result = { input, output, ...options }
@@ -365,7 +365,7 @@ describe('typical CLI usage examples', () => {
     cli
       .command('get-user <userId>', 'Get user by ID')
       .option('--fields <fields>', 'Fields to return (JSON array)', {
-        schema: wrapJsonSchema({ type: 'array' }),
+        schema: z.array(z.unknown()),
       })
       .action((userId, options) => {
         result = { userId, ...options }
@@ -381,7 +381,7 @@ describe('typical CLI usage examples', () => {
   test('nullable option with union type', () => {
     const cli = cac()
     cli.option('--timeout <timeout>', 'Timeout', {
-      schema: wrapJsonSchema({ type: ['number', 'null'] }),
+      schema: z.nullable(z.number()),
     })
 
     const { options: opts1 } = cli.parse('node bin --timeout 5000'.split(' '))
@@ -401,7 +401,7 @@ describe('regression: oracle-found issues', () => {
     cli
       .command('serve', 'Start server')
       .option('--port <port>', 'Port', {
-        schema: wrapJsonSchema({ type: 'number' }),
+        schema: z.number(),
       })
       .action(() => { actionCalled = true })
 
@@ -416,7 +416,7 @@ describe('regression: oracle-found issues', () => {
     const cli = cac()
 
     cli.option('--tag <tag>', 'Tags', {
-      schema: wrapJsonSchema({ type: 'string' }),
+      schema: z.string(),
     })
 
     expect(() => cli.parse('node bin --tag foo --tag bar'.split(' ')))
@@ -427,7 +427,7 @@ describe('regression: oracle-found issues', () => {
     const cli = cac()
 
     cli.option('--id <id>', 'ID', {
-      schema: wrapJsonSchema({ type: 'number' }),
+      schema: z.number(),
     })
 
     expect(() => cli.parse('node bin --id 1 --id 2'.split(' ')))
@@ -438,7 +438,7 @@ describe('regression: oracle-found issues', () => {
     const cli = cac()
 
     cli.option('--tag <tag>', 'Tags', {
-      schema: wrapJsonSchema({ type: 'array', items: { type: 'string' } }),
+      schema: z.array(z.string()),
     })
 
     const { options } = cli.parse('node bin --tag foo --tag bar'.split(' '))
@@ -449,7 +449,7 @@ describe('regression: oracle-found issues', () => {
     const cli = cac()
 
     cli.option('--id <id>', 'IDs', {
-      schema: wrapJsonSchema({ type: 'array', items: { type: 'number' } }),
+      schema: z.array(z.number()),
     })
 
     const { options } = cli.parse('node bin --id 1 --id 2 --id 3'.split(' '))
@@ -460,7 +460,7 @@ describe('regression: oracle-found issues', () => {
     const cli = cac()
 
     cli.option('--tag <tag>', 'Tags', {
-      schema: wrapJsonSchema({ type: 'array', items: { type: 'string' } }),
+      schema: z.array(z.string()),
     })
 
     const { options } = cli.parse('node bin --tag foo'.split(' '))
@@ -471,7 +471,7 @@ describe('regression: oracle-found issues', () => {
     const cli = cac()
 
     cli.option('--id <id>', 'IDs', {
-      schema: wrapJsonSchema({ type: 'array', items: { type: 'number' } }),
+      schema: z.array(z.number()),
     })
 
     const { options } = cli.parse('node bin --id 42'.split(' '))
@@ -482,7 +482,7 @@ describe('regression: oracle-found issues', () => {
     const cli = cac()
 
     cli.option('--ids <ids>', 'IDs', {
-      schema: wrapJsonSchema({ type: 'array', items: { type: 'number' } }),
+      schema: z.array(z.number()),
     })
 
     const { options } = cli.parse(['node', 'bin', '--ids', '[1,2,3]'])
@@ -506,7 +506,7 @@ describe('regression: oracle-found issues', () => {
     const cli = cac()
 
     cli.option('--count [count]', 'Count', {
-      schema: wrapJsonSchema({ type: 'number' }),
+      schema: z.number(),
     })
 
     // --count without value → mri returns true → should NOT coerce to 1
@@ -518,7 +518,7 @@ describe('regression: oracle-found issues', () => {
     const cli = cac()
 
     cli.option('--count [count]', 'Count', {
-      schema: wrapJsonSchema({ type: 'number' }),
+      schema: z.number(),
     })
 
     const { options } = cli.parse('node bin --count 42'.split(' '))
@@ -529,7 +529,7 @@ describe('regression: oracle-found issues', () => {
     const cli = cac()
 
     cli.option('-p, --port <port>', 'Port', {
-      schema: wrapJsonSchema({ type: 'number' }),
+      schema: z.number(),
     })
 
     const { options } = cli.parse('node bin -p 3000'.split(' '))
@@ -541,7 +541,7 @@ describe('regression: oracle-found issues', () => {
     const cli = cac()
 
     cli.option('--tags <tags>', 'Tags', {
-      schema: wrapJsonSchema({ type: ['array', 'null'], items: { type: 'string' } }),
+      schema: z.nullable(z.array(z.string())),
     })
 
     const { options } = cli.parse('node bin --tags foo --tags bar'.split(' '))

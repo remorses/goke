@@ -102,6 +102,18 @@ export function coerceBySchema(
       }
       return value
     }
+    // Check anyOf/oneOf — if any variant is an array schema, accept repeated flags
+    const unionVariants = schema.anyOf || schema.oneOf
+    if (unionVariants) {
+      const arrayVariant = unionVariants.find(v => schemaIsArray(v))
+      if (arrayVariant) {
+        const itemsSchema = arrayVariant.items
+        if (itemsSchema) {
+          return value.map((v) => coerceBySchema(v, itemsSchema, optionName))
+        }
+        return value
+      }
+    }
     // Schema does NOT expect array — repeated flags are not allowed
     throw new Error(
       `Option --${optionName} does not accept multiple values. ` +
