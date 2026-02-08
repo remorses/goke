@@ -1,5 +1,5 @@
 {
-  "name": "notion-mcp-cli-monorepo",
+  "name": "goke",
   "private": true,
   "scripts": {
     "build": "pnpm -r build",
