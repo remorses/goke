@@ -85,22 +85,24 @@ const getMriOptions = (options: Option[]) => {
   return result
 }
 
-const findLongest = (arr: string[]) => {
-  return arr.sort((a, b) => {
-    return a.length > b.length ? -1 : 1
-  })[0]
+const maxVisibleLength = (arr: string[]) => {
+  return arr.reduce((max, value) => {
+    return Math.max(max, visibleLength(value))
+  }, 0)
 }
 
 const ANSI_RE = /\x1B\[[0-9;]*m/g
 
 const visibleLength = (value: string) => value.replace(ANSI_RE, '').length
 
-const orange = (value: string) => {
+const commandOrange = (value: string) => {
   if (!pc.isColorSupported) {
     return value
   }
   return `\x1b[38;5;208m${value}\x1b[39m`
 }
+
+const optionYellow = (value: string) => pc.yellow(value)
 
 const padRight = (str: string, length: number) => {
   return visibleLength(str) >= length ? str : `${str}${' '.repeat(length - visibleLength(str))}`
@@ -524,32 +526,33 @@ class Command {
     const terminalWidth = Math.max(this.cli.columns, 40)
 
     if (showCommands) {
-      const longestCommandName = findLongest(
+      const longestCommandNameLength = maxVisibleLength(
         commands.map((command) => command.rawName)
       )
       const longestCommandOptions = commands
         .flatMap((command) => command.options.map((option) => option.rawName))
-      const longestCommandOptionName = longestCommandOptions.length > 0
-        ? findLongest(longestCommandOptions)
-        : ''
-      const commandDescriptionColumn = 2 + longestCommandName.length + 2
-      const commandDescriptionWidth = terminalWidth - commandDescriptionColumn
-      const optionDescriptionColumn = 4 + longestCommandOptionName.length + 2
-      const optionDescriptionWidth = terminalWidth - optionDescriptionColumn
+      const longestCommandOptionNameLength = maxVisibleLength(longestCommandOptions)
+      const commandDescriptionColumn = 2 + longestCommandNameLength + 2
+      const optionDescriptionColumn = 4 + longestCommandOptionNameLength + 2
+      const sharedDescriptionColumn = Math.max(commandDescriptionColumn, optionDescriptionColumn)
+      const descriptionWidth = terminalWidth - sharedDescriptionColumn
 
       sections.push({
         title: 'Commands',
-        body: commands
+          body: commands
           .map((command) => {
-            const commandLabel = padRight(command.rawName, longestCommandName.length)
             const commandDescription = formatWrappedDescription(
               command.description,
-              commandDescriptionWidth,
-              commandDescriptionColumn,
+              descriptionWidth,
+              sharedDescriptionColumn,
+            )
+            const commandPrefix = `  ${pc.bold(commandOrange(command.rawName))}`
+            const commandPadding = ' '.repeat(
+              Math.max(2, sharedDescriptionColumn - (2 + visibleLength(command.rawName)))
             )
             const headerLine = commandDescription
-              ? `  ${pc.bold(pc.blue(commandLabel))}  ${commandDescription}`
-              : `  ${pc.bold(pc.blue(commandLabel))}`
+              ? `${commandPrefix}${commandPadding}${commandDescription}`
+              : commandPrefix
 
             if (command.options.length === 0) {
               return headerLine
@@ -557,15 +560,18 @@ class Command {
 
             const optionLines = command.options
               .map((option) => {
-                const optionLabel = padRight(option.rawName, longestCommandOptionName.length)
                 const optionDescription = formatWrappedDescription(
                   optionDescriptionText(option),
-                  optionDescriptionWidth,
-                  optionDescriptionColumn,
+                  descriptionWidth,
+                  sharedDescriptionColumn,
+                )
+                const optionPrefix = `    ${optionYellow(option.rawName)}`
+                const optionPadding = ' '.repeat(
+                  Math.max(2, sharedDescriptionColumn - (4 + visibleLength(option.rawName)))
                 )
                 return optionDescription
-                  ? `    ${orange(optionLabel)}  ${optionDescription}`
-                  : `    ${orange(optionLabel)}`
+                  ? `${optionPrefix}${optionPadding}${optionDescription}`
+                  : optionPrefix
               })
               .join('\n')
 
@@ -582,24 +588,24 @@ class Command {
       options = options.filter((option) => option.name !== 'version')
     }
     if (options.length > 0) {
-      const longestOptionName = findLongest(
+      const longestOptionNameLength = maxVisibleLength(
         options.map((option) => option.rawName)
       )
-      const descriptionColumn = 2 + longestOptionName.length + 2
+      const descriptionColumn = 2 + longestOptionNameLength + 2
       const descriptionWidth = terminalWidth - descriptionColumn
       sections.push({
         title: 'Options',
         body: options
           .map((option) => {
-            const optionLabel = padRight(option.rawName, longestOptionName.length)
+            const optionLabel = padRight(option.rawName, longestOptionNameLength)
             const description = formatWrappedDescription(
               optionDescriptionText(option),
               descriptionWidth,
               descriptionColumn,
             )
             return description
-              ? `  ${orange(optionLabel)}  ${description}`
-              : `  ${orange(optionLabel)}`
+              ? `  ${optionYellow(optionLabel)}  ${description}`
+              : `  ${optionYellow(optionLabel)}`
           })
           .join('\n'),
       })

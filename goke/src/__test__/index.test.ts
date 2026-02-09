@@ -849,7 +849,7 @@ describe('space-separated subcommands', () => {
         git remote remove <name>     Remove a git remote
 
         build                        Build the project
-          --watch  Watch mode
+          --watch                    Watch mode
 
       Options:
         -h, --help  Display this message
@@ -1089,21 +1089,56 @@ describe('many commands with root command (empty string)', () => {
         $ mycli <command> [options]
 
       Commands:
-        notion-search  Perform a semantic search over Notion
-                       workspace content and connected
-                       integrations with advanced filtering
-                       options, date filters, and creator
-                       filters.
+        notion-search      Perform a semantic search over
+                           Notion workspace content and
+                           connected integrations with
+                           advanced filtering options, date
+                           filters, and creator filters.
           --query <query>  Natural language query text to
                            search for
           --limit [limit]  Maximum number of results to return
                            (default: 10)
 
-        notion-fetch   Retrieve a Notion page or database by
-                       URL or ID and render the result in
-                       enhanced markdown format for terminal
-                       output.
+        notion-fetch       Retrieve a Notion page or database
+                           by URL or ID and render the result
+                           in enhanced markdown format for
+                           terminal output.
           --id <id>        Notion URL or UUID to fetch
+
+      Options:
+        -h, --help  Display this message
+      "
+    `)
+  })
+
+  test('root help aligns command descriptions with mixed command lengths', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('gtui', { stdout, columns: 120 })
+
+    cli.command('auth login', 'Authenticate with Google (opens browser)')
+    cli.command('auth logout', 'Remove stored credentials').option('--force', 'Skip confirmation')
+    cli.command('mail list', 'List email threads').option('--folder [folder]', 'Folder to list')
+    cli.command('attachment get <messageId> <attachmentId>', 'Download an attachment')
+
+    cli.help()
+    cli.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toMatchInlineSnapshot(`
+      "gtui
+
+      Usage:
+        $ gtui <command> [options]
+
+      Commands:
+        auth login                                 Authenticate with Google (opens browser)
+
+        auth logout                                Remove stored credentials
+          --force                                  Skip confirmation
+
+        mail list                                  List email threads
+          --folder [folder]                        Folder to list
+
+        attachment get <messageId> <attachmentId>  Download an attachment
 
       Options:
         -h, --help  Display this message
@@ -1155,7 +1190,7 @@ describe('many commands with root command (empty string)', () => {
           $ mycli <command> [options]
 
         Commands:
-          notion-search  Perform a semantic search over Notion workspace content and connected integrations with advanced filtering options, date filters, and creator filters.
+          notion-search      Perform a semantic search over Notion workspace content and connected integrations with advanced filtering options, date filters, and creator filters.
             --query <query>  Natural language query text to search for
             --limit [limit]  Maximum number of results to return (default: 10)
 
