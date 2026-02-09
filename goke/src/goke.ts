@@ -1129,8 +1129,20 @@ class Goke extends EventEmitter {
         if (matchingCommands.length > 0) {
           // Show help for commands starting with this prefix
           this.outputHelpForPrefix(firstArg, matchingCommands)
+        } else {
+          // Unknown command with no matching prefix: show root help
+          this.outputHelp()
         }
       }
+    }
+
+    if (
+      !this.matchedCommand &&
+      this.args.length === 0 &&
+      this.showHelpOnExit &&
+      !(this.options.help && this.showHelpOnExit)
+    ) {
+      this.outputHelp()
     }
 
     return parsedArgv

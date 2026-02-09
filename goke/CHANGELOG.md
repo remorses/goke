@@ -1,5 +1,11 @@
 # goke
 
+## 6.1.3
+
+- Fix: show root help when the CLI is invoked with no args and no default `''` command is defined
+- Fix: show root help for unknown commands that do not match any command-prefix help group
+- Test: add regression coverage for empty invocation and unknown non-prefix command help behavior
+
 ## 6.1.2
 
 - Build: clean `dist` before compiling to prevent stale declaration artifacts

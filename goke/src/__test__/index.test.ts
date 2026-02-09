@@ -901,6 +901,43 @@ describe('space-separated subcommands', () => {
     expect(stripAnsi(output)).not.toContain('Available "foo" commands')
   })
 
+  test('unknown command without prefix outputs root help', () => {
+    let output = ''
+    const cli = goke('mycli', {
+      stdout: { write(data) { output += data } },
+    })
+
+    cli.command('mcp login', 'Login to MCP')
+    cli.command('build', 'Build project')
+
+    cli.help()
+
+    // User types an unknown command that does not match any prefix group
+    cli.parse(['node', 'bin', 'something'], { run: true })
+
+    expect(cli.matchedCommand).toBeUndefined()
+    expect(stripAnsi(output)).toContain('Usage:')
+    expect(stripAnsi(output)).toContain('$ mycli <command> [options]')
+    expect(stripAnsi(output)).toContain('mcp login')
+    expect(stripAnsi(output)).toContain('build')
+  })
+
+  test('no args without default command outputs root help', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout })
+
+    cli.command('mcp login', 'Login to MCP')
+    cli.command('build', 'Build project')
+    cli.help()
+
+    cli.parse(['node', 'bin'], { run: true })
+
+    expect(stdout.text).toContain('Usage:')
+    expect(stdout.text).toContain('$ mycli <command> [options]')
+    expect(stdout.text).toContain('mcp login')
+    expect(stdout.text).toContain('build')
+  })
+
   test('prefix --help shows filtered help for matching command group', () => {
     let output = ''
     const cli = goke('mycli', {
