@@ -518,7 +518,7 @@ class Command {
 
     sections.push({
       title: 'Usage',
-      body: `  ${pc.green('$')} ${pc.bold(name)} ${this.usageText || this.rawName}`,
+      body: `  ${pc.green('$')} ${pc.bold(name)} ${this.usageText || this.rawName || '[options]'}`,
     })
 
     const showCommands =
@@ -526,11 +526,21 @@ class Command {
     const terminalWidth = Math.max(this.cli.columns, 40)
 
     if (showCommands) {
+      const commandRows = commands.map((command) => {
+        const displayName = command.rawName.trim() === '' ? name : command.rawName
+        const displayOptions = command.isDefaultCommand ? [] : command.options
+        return {
+          command,
+          displayName,
+          displayOptions,
+        }
+      })
+
       const longestCommandNameLength = maxVisibleLength(
-        commands.map((command) => command.rawName)
+        commandRows.map((row) => row.displayName)
       )
-      const longestCommandOptions = commands
-        .flatMap((command) => command.options.map((option) => option.rawName))
+      const longestCommandOptions = commandRows
+        .flatMap((row) => row.displayOptions.map((option) => option.rawName))
       const longestCommandOptionNameLength = maxVisibleLength(longestCommandOptions)
       const commandDescriptionColumn = 2 + longestCommandNameLength + 2
       const optionDescriptionColumn = 4 + longestCommandOptionNameLength + 2
@@ -539,26 +549,26 @@ class Command {
 
       sections.push({
         title: 'Commands',
-          body: commands
-          .map((command) => {
+          body: commandRows
+          .map(({ command, displayName, displayOptions }) => {
             const commandDescription = formatWrappedDescription(
               command.description,
               descriptionWidth,
               sharedDescriptionColumn,
             )
-            const commandPrefix = `  ${pc.bold(commandOrange(command.rawName))}`
+            const commandPrefix = `  ${pc.bold(commandOrange(displayName))}`
             const commandPadding = ' '.repeat(
-              Math.max(2, sharedDescriptionColumn - (2 + visibleLength(command.rawName)))
+              Math.max(2, sharedDescriptionColumn - (2 + visibleLength(displayName)))
             )
             const headerLine = commandDescription
               ? `${commandPrefix}${commandPadding}${commandDescription}`
               : commandPrefix
 
-            if (command.options.length === 0) {
+            if (displayOptions.length === 0) {
               return headerLine
             }
 
-            const optionLines = command.options
+            const optionLines = displayOptions
               .map((option) => {
                 const optionDescription = formatWrappedDescription(
                   optionDescriptionText(option),
@@ -581,9 +591,33 @@ class Command {
       })
     }
 
+    const defaultCommandOptions = this.isGlobalCommand
+      ? commands
+        .filter((command) => command.isDefaultCommand)
+        .flatMap((command) => command.options)
+      : []
+
+    const mergedGlobalAndDefaultOptions = [...globalOptions]
+    const mergedOptionNames = new Set(globalOptions.map((option) => option.name))
+    for (const option of defaultCommandOptions) {
+      if (!mergedOptionNames.has(option.name)) {
+        mergedGlobalAndDefaultOptions.push(option)
+        mergedOptionNames.add(option.name)
+      }
+    }
+
+    const mergedCommandAndGlobalOptions = [...this.options]
+    const mergedCommandOptionNames = new Set(this.options.map((option) => option.name))
+    for (const option of globalOptions || []) {
+      if (!mergedCommandOptionNames.has(option.name)) {
+        mergedCommandAndGlobalOptions.push(option)
+        mergedCommandOptionNames.add(option.name)
+      }
+    }
+
     let options = this.isGlobalCommand
-      ? globalOptions
-      : [...this.options, ...(globalOptions || [])]
+      ? mergedGlobalAndDefaultOptions
+      : mergedCommandAndGlobalOptions
     if (!this.isGlobalCommand && !this.isDefaultCommand) {
       options = options.filter((option) => option.name !== 'version')
     }

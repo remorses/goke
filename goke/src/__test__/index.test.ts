@@ -1063,6 +1063,40 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toContain('Stream logs for a deployment')
   })
 
+  test('root help labels default command with cli name and does not duplicate global options', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('deploy', { stdout })
+
+    cli.option('--env <env>', 'Target environment')
+    cli
+      .command('', 'Deploy the current project')
+      .option('--env <env>', 'Target environment')
+      .option('--dry-run', 'Preview without deploying')
+
+    cli.command('status', 'Show deployment status')
+
+    cli.help()
+    cli.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toMatchInlineSnapshot(`
+      "deploy
+
+      Usage:
+        $ deploy [options]
+
+      Commands:
+        deploy  Deploy the current project
+
+        status  Show deployment status
+
+      Options:
+        --env <env>  Target environment
+        --dry-run    Preview without deploying
+        -h, --help   Display this message
+      "
+    `)
+  })
+
   test('root help wraps long command descriptions snapshot', () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout, columns: 56 })
