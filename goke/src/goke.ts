@@ -102,7 +102,7 @@ const commandOrange = (value: string) => {
   return `\x1b[38;5;208m${value}\x1b[39m`
 }
 
-const optionYellow = (value: string) => pc.yellow(value)
+const optionYellow = (value: string) => pc.bold(pc.yellow(value))
 
 const padRight = (str: string, length: number) => {
   return visibleLength(str) >= length ? str : `${str}${' '.repeat(length - visibleLength(str))}`
