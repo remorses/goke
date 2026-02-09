@@ -317,6 +317,26 @@ import { goke } from 'goke'
 const cli = goke('my-program')
 ```
 
+Do not manually type `action` callback arguments. goke infers argument and option types automatically from the command signature and option schemas.
+
+```ts
+import { goke } from 'goke'
+import { z } from 'zod'
+
+const cli = goke('my-program')
+
+cli
+  .command('serve <entry>', 'Start the app')
+  .option('--port <port>', z.number().default(3000).describe('Port number'))
+  .option('--watch', 'Watch files')
+  .action((entry, options) => {
+    // entry: string
+    // options.port: number
+    // options.watch: boolean
+    console.log(entry, options.port, options.watch)
+  })
+```
+
 ## References
 
 ### CLI Instance
