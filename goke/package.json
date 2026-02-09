@@ -1,6 +1,6 @@
 {
   "name": "goke",
-  "version": "6.1.1",
+  "version": "6.1.2",
   "type": "module",
   "description": "Simple yet powerful framework for building command-line apps. Inspired by cac.",
   "repository": {
@@ -21,7 +21,8 @@
     "src"
   ],
   "scripts": {
-    "build": "tsc",
+    "clean": "rm -rf dist",
+    "build": "pnpm clean && tsc",
     "test": "vitest --run",
     "prepublishOnly": "pnpm build"
   },

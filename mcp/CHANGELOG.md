@@ -1,5 +1,10 @@
 # @goke/mcp
 
+## 0.0.5
+
+- Build: clean `dist` before `tsc` to remove stale generated files
+- Publish: route `prepublishOnly` through `pnpm build` so publish artifacts are rebuilt from scratch
+
 ## 0.0.4
 
 - Fix: preserve boolean defaults in MCP tools

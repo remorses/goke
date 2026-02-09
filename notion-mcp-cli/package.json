@@ -1,6 +1,6 @@
 {
   "name": "notion-mcp-cli",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "type": "module",
   "description": "CLI for Notion MCP with OAuth support",
   "bin": {
@@ -13,10 +13,11 @@
     "bin.js"
   ],
   "scripts": {
-    "build": "tsc",
+    "clean": "rm -rf dist",
+    "build": "pnpm clean && tsc",
     "dev": "tsx src/cli.ts",
     "watch": "tsc -w",
-    "prepublishOnly": "tsc"
+    "prepublishOnly": "pnpm build"
   },
   "keywords": [
     "notion",

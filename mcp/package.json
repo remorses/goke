@@ -1,6 +1,6 @@
 {
   "name": "@goke/mcp",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Dynamically generate CLI commands from MCP server tools",
   "type": "module",
   "main": "dist/index.js",
@@ -20,9 +20,10 @@
     "src"
   ],
   "scripts": {
-    "build": "tsc",
+    "clean": "rm -rf dist",
+    "build": "pnpm clean && tsc",
     "watch": "tsc -w",
-    "prepublishOnly": "tsc"
+    "prepublishOnly": "pnpm build"
   },
   "keywords": [
     "mcp",

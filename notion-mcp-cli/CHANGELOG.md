@@ -1,5 +1,10 @@
 # notion-mcp-cli
 
+## 0.0.6
+
+- Build: clean `dist` before compiling to avoid stale declaration files in published output
+- Publish: run `prepublishOnly` via `pnpm build` to guarantee fresh artifacts on release
+
 ## 0.0.5
 
 - Fix: fix login --url required argument regression

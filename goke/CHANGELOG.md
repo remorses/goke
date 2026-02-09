@@ -1,5 +1,10 @@
 # goke
 
+## 6.1.2
+
+- Build: clean `dist` before compiling to prevent stale declaration artifacts
+- Publish: run `prepublishOnly` through the build pipeline so publish always starts from a clean output directory
+
 ## 6.1.1
 
 - Fix: use Infinity as default help width fallback when terminal columns are unavailable, avoiding forced wrapping in non-TTY environments
