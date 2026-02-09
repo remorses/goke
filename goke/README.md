@@ -46,11 +46,46 @@ cli.command('lint [...files]', 'Lint files').action((files, options) => {
   console.log(files, options)
 })
 
+cli
+  .command('build [entry]', 'Build your app')
+  .option('--minify', 'Minify output')
+  .example('build src/index.ts')
+  .example('build src/index.ts --minify')
+  .action((entry, options) => {
+    console.log(entry, options)
+  })
+
+cli.example((bin) => `${bin} lint src/**/*.ts`)
+
 // Display help message when `-h` or `--help` appears
 cli.help()
 // Display version number when `-v` or `--version` appears
 cli.version('0.0.0')
 
+cli.parse()
+```
+
+When examples are defined, help output includes an **Examples** section.
+
+### Command Examples in Help
+
+Use `.example(...)` on a command (or on `cli`) to show usage snippets in help:
+
+```ts
+import { goke } from 'goke'
+
+const cli = goke('mycli')
+
+cli
+  .command('deploy', 'Deploy current app')
+  .option('--env <env>', 'Target environment')
+  .example('mycli deploy --env production')
+  .example('mycli deploy --env staging')
+  .action(() => {})
+
+cli.example((bin) => `${bin} deploy --env production`)
+
+cli.help()
 cli.parse()
 ```
 
@@ -334,6 +369,10 @@ Add a global option. The second argument is either:
 #### cli.usage(text)
 
 - Type: `(text: string) => CLI`
+
+#### cli.example(example)
+
+- Type: `(example: CommandExample) => CLI`
 
 ### Command Instance
 
