@@ -1,0 +1,9 @@
+{
+  "extends": "mklabs",
+
+  "rules": {
+    "no-param-reassign": "off",
+    "no-console": "off",
+    "consistent-return": "off"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "updatedAt": "2026-02-09T14:08:03.272Z",
+  "packages": [
+    {
+      "name": "@pnpm/tabtab",
+      "version": "0.5.4",
+      "registry": "npm",
+      "path": "repos/github.com/pnpm/tabtab",
+      "fetchedAt": "2026-02-09T14:08:03.271Z"
+    },
+    {
+      "name": "omelette",
+      "version": "0.4.17",
+      "registry": "npm",
+      "path": "repos/github.com/f/omelette",
+      "fetchedAt": "2026-02-09T14:08:03.271Z"
+    }
+  ]
+}

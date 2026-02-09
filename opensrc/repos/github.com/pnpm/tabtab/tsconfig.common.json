@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "module": "Node16",
+    "strictNullChecks": true,
+    "target": "ES2022",
+  }
+}

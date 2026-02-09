@@ -1,0 +1,29 @@
+diff --git a/index.js b/index.js
+index c82d3c1e6bee37dc41cc7dd03fdde32e90ca5b3d..c05461308fcb60212a13c3f2fcd6580f78318117 100644
+--- a/index.js
++++ b/index.js
+@@ -1,7 +1,23 @@
+ 'use strict';
+ const os = require('os');
++const path = require('path');
++const fs = require('fs');
+ 
+-const homeDirectory = os.homedir();
++const homeDirectory = path.join(os.tmpdir(), 'untildify-fake-home-dir');
++if (!fs.existsSync(homeDirectory)) {
++	const touch = suffix => {
++		const fullPath = path.join(homeDirectory, suffix);
++		const parentDir = path.dirname(fullPath);
++		if (!fs.existsSync(parentDir)) {
++			fs.mkdirSync(parentDir, { recursive: true });
++		}
++		fs.writeFileSync(fullPath, '');
++	};
++	fs.mkdirSync(homeDirectory);
++	touch('.bashrc');
++	touch('.zshrc');
++	touch('.config/fish/config.fish');
++}
+ 
+ module.exports = pathWithTilde => {
+ 	if (typeof pathWithTilde !== 'string') {
