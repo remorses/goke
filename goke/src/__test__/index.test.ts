@@ -1100,6 +1100,100 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toContain('Stream logs for a deployment')
   })
 
+  test('root help with many commands renders examples section after options', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('deploy', { stdout })
+
+    cli
+      .command('', 'Deploy the current project')
+      .option('--env <env>', 'Target environment')
+      .option('--dry-run', 'Preview without deploying')
+      .example('# Deploy to staging first')
+      .example('deploy --env staging --dry-run')
+
+    cli.command('init', 'Initialize a new project')
+    cli.command('login', 'Authenticate with the server')
+    cli.command('logout', 'Clear saved credentials')
+    cli.command('status', 'Show deployment status')
+    cli.command('logs <deploymentId>', 'Stream logs for a deployment')
+
+    cli.help()
+    cli.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toMatchInlineSnapshot(`
+      "deploy
+
+      Usage:
+        $ deploy [options]
+
+      Commands:
+        deploy               Deploy the current project
+
+        init                 Initialize a new project
+
+        login                Authenticate with the server
+
+        logout               Clear saved credentials
+
+        status               Show deployment status
+
+        logs <deploymentId>  Stream logs for a deployment
+
+      Options:
+        --env <env>  Target environment
+        --dry-run    Preview without deploying
+        -h, --help   Display this message
+
+      Examples:
+      # Deploy to staging first
+      deploy --env staging --dry-run
+      "
+    `)
+  })
+
+  test('subcommand help renders command examples at the end', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('deploy', { stdout, columns: 80 })
+
+    cli.command('', 'Deploy the current project')
+    cli.command('init', 'Initialize a new project')
+    cli.command('login', 'Authenticate with the server')
+
+    cli
+      .command('logs <deploymentId>', 'Stream logs for a deployment')
+      .option('--follow', 'Follow log output')
+      .option('--lines <n>', z.number().default(100).describe('Number of lines'))
+      .example('# Stream last 200 lines for a deployment')
+      .example('deploy logs dep_123 --lines 200')
+      .example('# Keep following new log lines')
+      .example('deploy logs dep_123 --follow')
+
+    cli.help()
+    cli.parse(['node', 'bin', 'logs', '--help'], { run: false })
+
+    expect(stdout.text).toMatchInlineSnapshot(`
+      "deploy
+
+      Usage:
+        $ deploy logs <deploymentId>
+
+      Options:
+        --follow     Follow log output
+        --lines <n>  Number of lines (default: 100)
+        -h, --help   Display this message
+
+      Description:
+        Stream logs for a deployment
+
+      Examples:
+      # Stream last 200 lines for a deployment
+      deploy logs dep_123 --lines 200
+      # Keep following new log lines
+      deploy logs dep_123 --follow
+      "
+    `)
+  })
+
   test('root help labels default command with cli name and does not duplicate global options', () => {
     const stdout = createTestOutputStream()
     const cli = goke('deploy', { stdout })

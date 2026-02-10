@@ -89,6 +89,196 @@ cli.help()
 cli.parse()
 ```
 
+### Rich Multi-line Command Descriptions (`string-dedent`)
+
+When a command needs a long description (with bullets, quotes, inline code, and
+multiple examples), use [`string-dedent`](https://www.npmjs.com/package/string-dedent)
+to keep the source readable while preserving clean help output.
+
+Install:
+
+```bash
+npm install string-dedent
+```
+
+Example with detailed command descriptions:
+
+```ts
+import { goke } from 'goke'
+import dedent from 'string-dedent'
+
+const cli = goke('acme')
+
+cli
+  .command(
+    'release <version>',
+    dedent`
+      Publish a versioned release to your distribution channels.
+
+      - **Validates** release metadata and changelog before publishing.
+      - **Builds** production artifacts with reproducible settings.
+      - **Tags** git history using semantic version format.
+      - **Publishes** to npm and creates release notes.
+
+      > Recommended flow: run with \`--dry-run\` first in CI to verify output.
+
+      Examples:
+      - \`acme release 2.4.0 --channel stable\`
+      - \`acme release 2.5.0-rc.1 --channel beta --dry-run\`
+      - \`acme release 3.0.0 --notes-file ./docs/releases/3.0.0.md\`
+    `,
+  )
+  .option('--channel <name>', 'Target channel: stable, beta, alpha')
+  .option('--notes-file <path>', 'Markdown file used as release notes')
+  .option('--dry-run', 'Preview every step without publishing')
+  .action((version, options) => {
+    console.log('release', version, options)
+  })
+
+cli
+  .command(
+    'db migrate',
+    dedent`
+      Apply pending database migrations in a controlled sequence.
+
+      - Runs migrations in timestamp order.
+      - Stops immediately on first failure.
+      - Prints SQL statements when \`--verbose\` is enabled.
+      - Supports smoke-testing with \`--dry-run\`.
+
+      > Safety: always run this command against staging before production.
+
+      Examples:
+      - \`acme db migrate\`
+      - \`acme db migrate --target 20260210120000_add_users\`
+      - \`acme db migrate --dry-run --verbose\`
+    `,
+  )
+  .option('--target <migration>', 'Apply up to a specific migration id')
+  .option('--dry-run', 'Print plan only, do not execute SQL')
+  .option('--verbose', 'Show each executed statement')
+  .action((options) => {
+    console.log('migrate', options)
+  })
+
+cli.help()
+cli.parse()
+```
+
+Why this pattern works well:
+
+- `dedent` keeps template literals readable in source files.
+- Help text stays aligned without extra leading whitespace.
+- You can include rich formatting patterns users already recognize:
+  lists, quotes, and inline command snippets.
+- Long descriptions remain maintainable as your CLI grows.
+
+### Rich `.example(...)` Blocks with `dedent`
+
+You can also use `dedent` in `.example(...)` so examples stay readable in code and
+render nicely in help output. A useful pattern is to make the **first line a `#`
+comment** that explains the scenario.
+
+```ts
+import { goke } from 'goke'
+import dedent from 'string-dedent'
+
+const cli = goke('tuistory')
+
+cli
+  .command('start', 'Start an interactive session')
+  .example(dedent`
+    # Launch and immediately check what the app shows
+    tuistory launch "claude" -s ai && tuistory -s ai snapshot --trim
+  `)
+  .example(dedent`
+    # Start a focused coding session with explicit context
+    tuistory start --agent code --context "Fix OAuth callback timeout"
+  `)
+  .example(dedent`
+    # Recover recent activity and inspect the latest run details
+    tuistory runs list --limit 5 && tuistory runs show --latest
+  `)
+  .action(() => {
+    // command implementation
+  })
+
+cli
+  .command('deploy', 'Deploy current workspace')
+  .example(dedent`
+    # Dry-run deployment first to validate plan
+    tuistory deploy --env staging --dry-run
+  `)
+  .example(dedent`
+    # Deploy production with release notes attached
+    tuistory deploy --env production --notes ./docs/release.md
+  `)
+  .action(() => {
+    // command implementation
+  })
+
+cli.help()
+cli.parse()
+```
+
+Notes:
+
+- Keep each example focused on one workflow.
+- Use the first `#` line as a human-readable intent label.
+- Keep command lines copy-pastable (avoid placeholder-heavy examples).
+
+Where examples are rendered today:
+
+- For root help (`deploy --help`), examples from the root/default command appear in an **Examples** section at the end.
+- For subcommand help (`deploy logs --help`), examples from that specific subcommand appear in its own **Examples** section at the end.
+
+Inline snapshot-style output (many commands):
+
+```txt
+deploy
+
+Usage:
+  $ deploy [options]
+
+Commands:
+  deploy               Deploy the current project
+  init                 Initialize a new project
+  login                Authenticate with the server
+  logout               Clear saved credentials
+  status               Show deployment status
+  logs <deploymentId>  Stream logs for a deployment
+
+Options:
+  --env <env>  Target environment
+  --dry-run    Preview without deploying
+  -h, --help   Display this message
+
+Examples:
+# Deploy to staging first
+deploy --env staging --dry-run
+```
+
+```txt
+deploy
+
+Usage:
+  $ deploy logs <deploymentId>
+
+Options:
+  --follow     Follow log output
+  --lines <n>  Number of lines (default: 100)
+  -h, --help   Display this message
+
+Description:
+  Stream logs for a deployment
+
+Examples:
+# Stream last 200 lines for a deployment
+deploy logs dep_123 --lines 200
+# Keep following new log lines
+deploy logs dep_123 --follow
+```
+
 ### Many Commands with a Root Command
 
 Use `''` as the command name to define a root command that runs when no subcommand is given. This is useful for CLIs that have a primary action alongside several subcommands:
