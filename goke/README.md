@@ -51,7 +51,7 @@ cli
   .option('--minify', 'Minify output')
   .example('build src/index.ts')
   .example('build src/index.ts --minify')
-  .action((entry, options) => {
+  .action((entry, options) => { // options is type safe! no need to type it
     console.log(entry, options)
   })
 
