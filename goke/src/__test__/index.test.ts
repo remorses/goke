@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest'
-import goke, { createConsole } from '../index.js'
-import type { GokeOutputStream } from '../index.js'
+import goke, { createConsole, wrapJsonSchema } from '../index.js'
+import type { GokeOutputStream, GokeOptions } from '../index.js'
 import { coerceBySchema } from '../coerce.js'
 import { z } from 'zod'
 
@@ -20,6 +20,142 @@ function createTestOutputStream(): GokeOutputStream & { lines: string[]; readonl
     write(data: string) { lines.push(data) },
   }
 }
+
+/**
+ * Helper: creates a goke instance with exit overridden to a no-op.
+ * This prevents process.exit(1) from killing the test runner while
+ * still allowing the original error to propagate (the framework
+ * re-throws after calling exit when exit doesn't halt execution).
+ *
+ * Tests can still use .toThrow() to assert CLI errors normally.
+ */
+function gokeTestable(name = '', options?: Partial<GokeOptions>) {
+  return goke(name, {
+    ...options,
+    exit: () => {},
+  })
+}
+
+/**
+ * Strip stack trace lines for stable snapshots.
+ * Keeps the error message and help hint, removes all "    at ..." lines
+ * and the blank line before them, since those contain machine-specific paths.
+ */
+function stripStackTrace(text: string): string {
+  return text
+    .split('\n')
+    .filter(line => !line.match(/^\s+at /))
+    .join('\n')
+    .replace(/\n{2,}/g, '\n')
+    .trim()
+}
+
+describe('error formatting', () => {
+  test('unknown option prints formatted error to stderr', () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+
+    cli
+      .command('build', 'Build your app')
+      .option('--port <port>', 'Port')
+      .action(() => {})
+
+    try {
+      cli.parse('node bin build --unknown'.split(' '))
+    } catch {}
+
+    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: Unknown option \`--unknown\`"`)
+  })
+
+  test('missing required option value prints formatted error to stderr', () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+
+    cli
+      .command('serve', 'Start server')
+      .option('--port <port>', 'Port')
+      .action(() => {})
+
+    try {
+      cli.parse('node bin serve --port'.split(' '))
+    } catch {}
+
+    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: option \`--port <port>\` value is missing"`)
+  })
+
+  test('schema coercion error prints formatted error to stderr', () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+
+    cli.option('--port <port>', wrapJsonSchema({ type: 'number', description: 'Port' }))
+
+    try {
+      cli.parse('node bin --port abc'.split(' '))
+    } catch {}
+
+    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: Invalid value for --port: expected number, got "abc""`)
+  })
+
+  test('error includes help hint when help is enabled', () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+
+    cli.help()
+
+    cli
+      .command('serve', 'Start server')
+      .option('--port <port>', 'Port')
+      .action(() => {})
+
+    try {
+      cli.parse('node bin serve --port'.split(' '))
+    } catch {}
+
+    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`
+      "error: option \`--port <port>\` value is missing
+      Run "mycli serve --help" for usage information."
+    `)
+  })
+
+  test('async action error prints formatted error to stderr', async () => {
+    const stderr = createTestOutputStream()
+    let exitCode: number | undefined
+    const cli = goke('mycli', { stderr, exit: (code) => { exitCode = code } })
+
+    cli
+      .command('deploy', 'Deploy app')
+      .action(async () => {
+        throw new Error('connection refused')
+      })
+
+    cli.parse('node bin deploy'.split(' '))
+
+    // Wait for the async rejection to be handled
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    expect(exitCode).toBe(1)
+    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: connection refused"`)
+  })
+
+  test('error output includes stack trace', () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+
+    cli
+      .command('build', 'Build app')
+      .action(() => {})
+
+    try {
+      cli.parse('node bin build --unknown'.split(' '))
+    } catch {}
+
+    // Verify that stderr contains "error:" prefix and a stack trace with "at" lines
+    const text = stderr.text
+    expect(text).toContain('error:')
+    expect(text).toContain('Unknown option `--unknown`')
+    expect(text).toMatch(/at /)
+  })
+})
 
 test('double dashes', () => {
   const cli = goke()
@@ -101,7 +237,7 @@ describe('schema-based options', () => {
   })
 
   test('schema throws on invalid number', () => {
-    const cli = goke()
+    const cli = gokeTestable()
 
     cli.option('--port <port>', z.number().describe('Port number'))
 
@@ -328,7 +464,7 @@ describe('typical CLI usage examples', () => {
 
 describe('regression: oracle-found issues', () => {
   test('required option with schema still throws when value missing', () => {
-    const cli = goke()
+    const cli = gokeTestable()
     let actionCalled = false
 
     cli
@@ -344,7 +480,7 @@ describe('regression: oracle-found issues', () => {
   })
 
   test('repeated flags with non-array schema throws', () => {
-    const cli = goke()
+    const cli = gokeTestable()
 
     cli.option('--tag <tag>', z.string().describe('Tags'))
 
@@ -353,7 +489,7 @@ describe('regression: oracle-found issues', () => {
   })
 
   test('repeated flags with number schema throws', () => {
-    const cli = goke()
+    const cli = gokeTestable()
 
     cli.option('--id <id>', z.number().describe('ID'))
 
@@ -535,7 +671,7 @@ describe('edge cases: boolean flags + schema', () => {
   })
 
   test('invalid boolean string with boolean schema throws', () => {
-    const cli = goke()
+    const cli = gokeTestable()
 
     cli.option('--flag <flag>', z.boolean().describe('A flag'))
 
@@ -587,7 +723,7 @@ describe('edge cases: empty string values', () => {
   })
 
   test('empty string with number schema throws', () => {
-    const cli = goke()
+    const cli = gokeTestable()
 
     cli.option('--port <port>', z.number().describe('Port'))
 
@@ -653,7 +789,7 @@ describe('edge cases: short alias + schema', () => {
   })
 
   test('short alias repeated with non-array schema throws', () => {
-    const cli = goke()
+    const cli = gokeTestable()
 
     cli.option('-p, --port <port>', z.number().describe('Port'))
 
@@ -663,7 +799,7 @@ describe('edge cases: short alias + schema', () => {
 })
 
 test('throw on unknown options', () => {
-  const cli = goke()
+  const cli = gokeTestable()
 
   cli
     .command('build [entry]', 'Build your app')

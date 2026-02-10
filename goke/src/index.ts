@@ -13,4 +13,4 @@ export { goke, Goke, Command }
 export { createConsole } from "./goke.js"
 export type { GokeOutputStream, GokeConsole, GokeOptions } from "./goke.js"
 export type { StandardTypedV1, StandardJSONSchemaV1, JsonSchema } from "./coerce.js"
-export { coerceBySchema, extractJsonSchema, wrapJsonSchema, isStandardSchema, extractSchemaMetadata } from "./coerce.js"
+export { GokeError, coerceBySchema, extractJsonSchema, wrapJsonSchema, isStandardSchema, extractSchemaMetadata } from "./coerce.js"

@@ -29,6 +29,25 @@
  *   Tries each type in order, returns first successful coercion.
  */
 
+// ─── GokeError ───
+
+/**
+ * Custom error class for CLI usage errors (unknown options, missing values,
+ * invalid types, etc.). Used by both the coercion layer and the framework
+ * to distinguish user-facing errors from unexpected failures.
+ */
+export class GokeError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = this.constructor.name
+    if (typeof Error.captureStackTrace === 'function') {
+      Error.captureStackTrace(this, this.constructor)
+    } else {
+      this.stack = new Error(message).stack
+    }
+  }
+}
+
 // ─── Standard Schema types (vendored from @standard-schema/spec v1.1.0) ───
 // https://github.com/standard-schema/standard-schema
 //
@@ -236,7 +255,7 @@ export function coerceBySchema(
       }
     }
     // Schema does NOT expect array — repeated flags are not allowed
-    throw new Error(
+    throw new GokeError(
       `Option --${optionName} does not accept multiple values. ` +
       `Use an array schema (e.g. { type: "array" }) to allow repeated flags.`
     )
@@ -289,7 +308,7 @@ export function coerceBySchema(
         return allowed
       }
     }
-    throw new Error(
+    throw new GokeError(
       `Invalid value for --${optionName}: expected one of ${schema.enum.map(v => JSON.stringify(v)).join(', ')}, got ${JSON.stringify(value)}`
     )
   }
@@ -301,7 +320,7 @@ export function coerceBySchema(
     const targetType = constVal === null ? 'null' : typeof constVal as string
     const coerced = coerceToSingleType(value, targetType, optionName)
     if (coerced === constVal) return coerced
-    throw new Error(
+    throw new GokeError(
       `Invalid value for --${optionName}: expected ${JSON.stringify(constVal)}, got ${JSON.stringify(value)}`
     )
   }
@@ -316,7 +335,7 @@ export function coerceBySchema(
         // Try next variant
       }
     }
-    throw new Error(
+    throw new GokeError(
       `Invalid value for --${optionName}: ${JSON.stringify(value)} does not match any allowed type`
     )
   }
@@ -351,7 +370,7 @@ export function coerceBySchema(
         // Try next type
       }
     }
-    throw new Error(
+    throw new GokeError(
       `Invalid value for --${optionName}: expected ${schemaType.join(' or ')}, got ${JSON.stringify(value)}`
     )
   }
@@ -401,11 +420,11 @@ function coerceToNumber(value: string | boolean, optionName: string): number {
     return value ? 1 : 0
   }
   if (value === '') {
-    throw new Error(`Invalid value for --${optionName}: expected number, got empty string`)
+    throw new GokeError(`Invalid value for --${optionName}: expected number, got empty string`)
   }
   const num = +value
   if (!Number.isFinite(num)) {
-    throw new Error(`Invalid value for --${optionName}: expected number, got ${JSON.stringify(value)}`)
+    throw new GokeError(`Invalid value for --${optionName}: expected number, got ${JSON.stringify(value)}`)
   }
   return num
 }
@@ -413,7 +432,7 @@ function coerceToNumber(value: string | boolean, optionName: string): number {
 function coerceToInteger(value: string | boolean, optionName: string): number {
   const num = coerceToNumber(value, optionName)
   if (num % 1 !== 0) {
-    throw new Error(`Invalid value for --${optionName}: expected integer, got ${JSON.stringify(value)}`)
+    throw new GokeError(`Invalid value for --${optionName}: expected integer, got ${JSON.stringify(value)}`)
   }
   return num
 }
@@ -424,21 +443,21 @@ function coerceToBoolean(value: string | boolean, optionName: string): boolean {
   }
   if (value === 'true') return true
   if (value === 'false') return false
-  throw new Error(
+  throw new GokeError(
     `Invalid value for --${optionName}: expected true or false, got ${JSON.stringify(value)}`
   )
 }
 
 function coerceToNull(value: string | boolean, optionName: string): null {
   if (typeof value === 'string' && value === '') return null
-  throw new Error(
+  throw new GokeError(
     `Invalid value for --${optionName}: expected empty string for null, got ${JSON.stringify(value)}`
   )
 }
 
 function coerceToObject(value: string | boolean, optionName: string): Record<string, unknown> {
   if (typeof value !== 'string') {
-    throw new Error(`Invalid value for --${optionName}: expected JSON object, got ${typeof value}`)
+    throw new GokeError(`Invalid value for --${optionName}: expected JSON object, got ${typeof value}`)
   }
   try {
     const parsed = JSON.parse(value)
@@ -447,7 +466,7 @@ function coerceToObject(value: string | boolean, optionName: string): Record<str
     }
     return parsed as Record<string, unknown>
   } catch {
-    throw new Error(
+    throw new GokeError(
       `Invalid value for --${optionName}: expected valid JSON object, got ${JSON.stringify(value)}`
     )
   }
@@ -455,7 +474,7 @@ function coerceToObject(value: string | boolean, optionName: string): Record<str
 
 function coerceToArray(value: string | boolean, optionName: string): unknown[] {
   if (typeof value !== 'string') {
-    throw new Error(`Invalid value for --${optionName}: expected JSON array, got ${typeof value}`)
+    throw new GokeError(`Invalid value for --${optionName}: expected JSON array, got ${typeof value}`)
   }
   try {
     const parsed = JSON.parse(value)
@@ -464,7 +483,7 @@ function coerceToArray(value: string | boolean, optionName: string): unknown[] {
     }
     return parsed
   } catch {
-    throw new Error(
+    throw new GokeError(
       `Invalid value for --${optionName}: expected valid JSON array, got ${JSON.stringify(value)}`
     )
   }

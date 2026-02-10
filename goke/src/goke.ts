@@ -2,7 +2,6 @@
  * Goke — a cac-inspired CLI framework.
  *
  * This file contains the entire core framework:
- * - GokeError: custom error class
  * - Option: CLI option parsing (flags, required/optional values)
  * - Command / GlobalCommand: command definition, help/version output
  * - Goke: main CLI class with parsing, matching, and execution
@@ -14,7 +13,7 @@
 import { EventEmitter } from 'events'
 import pc from 'picocolors'
 import mri from "./mri.js"
-import { coerceBySchema, extractJsonSchema, extractSchemaMetadata, isStandardSchema } from "./coerce.js"
+import { GokeError, coerceBySchema, extractJsonSchema, extractSchemaMetadata, isStandardSchema } from "./coerce.js"
 import type { StandardJSONSchemaV1 } from "./coerce.js"
 
 // ─── Node.js platform constants ───
@@ -221,20 +220,6 @@ const camelcaseOptionName = (name: string) => {
       return i === 0 ? camelcase(v) : v
     })
     .join('.')
-}
-
-// ─── GokeError ───
-
-class GokeError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = this.constructor.name
-    if (typeof Error.captureStackTrace === 'function') {
-      Error.captureStackTrace(this, this.constructor)
-    } else {
-      this.stack = new Error(message).stack
-    }
-  }
 }
 
 // ─── Option ───
@@ -793,6 +778,11 @@ interface GokeOptions {
   argv?: string[]
   /** Terminal width used to wrap help output. Defaults to process.stdout.columns, or Infinity when unavailable */
   columns?: number
+  /**
+   * Custom exit function called on CLI errors (unknown option, missing value, etc.).
+   * Defaults to process.exit. Set to a no-op or throw to prevent exit in tests.
+   */
+  exit?: (code: number) => void
 }
 
 /**
@@ -811,6 +801,26 @@ function createConsole(stdout: GokeOutputStream, stderr: GokeOutputStream): Goke
       stderr.write(args.map(String).join(' ') + '\n')
     },
   }
+}
+
+// ─── Error formatting ───
+
+/**
+ * Format an error for CLI output.
+ * Prints a red "error:" prefix with the message, followed by a dimmed stack trace.
+ */
+function formatCliError(err: Error): string {
+  const lines: string[] = []
+  lines.push(`${pc.red(pc.bold('error:'))} ${err.message}`)
+  if (err.stack) {
+    // Extract just the stack frames (skip the first line which is the message)
+    const stackLines = err.stack.split('\n').slice(1)
+    if (stackLines.length > 0) {
+      lines.push('')
+      lines.push(pc.red(pc.dim(stackLines.join('\n'))))
+    }
+  }
+  return lines.join('\n')
 }
 
 // ─── Goke (main CLI class) ───
@@ -853,6 +863,8 @@ class Goke extends EventEmitter {
   readonly console: GokeConsole
   /** Terminal width used to wrap help output text */
   readonly columns: number
+  /** Exit function called on CLI errors. Defaults to process.exit */
+  readonly exit: (code: number) => void
 
   #defaultArgv: string[]
 
@@ -871,6 +883,7 @@ class Goke extends EventEmitter {
     this.stderr = options?.stderr ?? process.stderr
     this.console = createConsole(this.stdout, this.stderr)
     this.columns = options?.columns ?? process.stdout.columns ?? Number.POSITIVE_INFINITY
+    this.exit = options?.exit ?? ((code: number) => process.exit(code))
     this.#defaultArgv = options?.argv ?? processArgs
     this.globalCommand = new GlobalCommand(this)
     this.globalCommand.usage('<command> [options]')
@@ -1009,6 +1022,22 @@ class Goke extends EventEmitter {
   }
 
   /**
+   * Handle a CLI error by formatting it and writing to stderr.
+   * For GokeError / coercion errors, also includes a help hint.
+   */
+  private handleCliError(err: Error): void {
+    this.console.error(formatCliError(err))
+
+    // Add help hint when help is enabled
+    if (this.showHelpOnExit) {
+      const cmdName = this.matchedCommandName
+        ? `${this.name} ${this.matchedCommandName} --help`
+        : `${this.name} --help`
+      this.console.error(`\nRun "${cmdName}" for usage information.`)
+    }
+  }
+
+  /**
    * Parse argv
    */
   parse(
@@ -1032,53 +1061,61 @@ class Goke extends EventEmitter {
       return bLength - aLength
     })
 
-    // Search sub-commands
-    for (const command of sortedCommands) {
-      const parsed = this.mri(argv.slice(2), command)
+    // Search sub-commands — mri() can throw coercion errors, catch them
+    try {
+      for (const command of sortedCommands) {
+        const parsed = this.mri(argv.slice(2), command)
 
-      const result = command.isMatched(parsed.args as string[])
-      if (result.matched) {
-        shouldParse = false
-        const matchedCommandName = parsed.args.slice(0, result.consumedArgs).join(' ')
-        const parsedInfo = {
-          ...parsed,
-          args: parsed.args.slice(result.consumedArgs),
-        }
-        this.setParsedInfo(parsedInfo, command, matchedCommandName)
-        this.emit(`command:${matchedCommandName}`, command)
-        break // Stop after first match (greedy matching)
-      }
-    }
-
-    if (shouldParse) {
-      // Search the default command
-      for (const command of this.commands) {
-        if (command.name === '') {
-          // Check if any argument is a prefix of an existing command
-          // If so, don't match the default command (user probably mistyped a subcommand)
-          const parsed = this.mri(argv.slice(2), command)
-          const firstArg = parsed.args[0]
-          if (firstArg) {
-            const isPrefixOfCommand = this.commands.some((cmd) => {
-              if (cmd.name === '') return false
-              const cmdParts = cmd.name.split(' ')
-              return cmdParts[0] === firstArg
-            })
-            if (isPrefixOfCommand) {
-              // Don't match default command - let it fall through to "unknown command"
-              continue
-            }
-          }
+        const result = command.isMatched(parsed.args as string[])
+        if (result.matched) {
           shouldParse = false
-          this.setParsedInfo(parsed, command)
-          this.emit(`command:!`, command)
+          const matchedCommandName = parsed.args.slice(0, result.consumedArgs).join(' ')
+          const parsedInfo = {
+            ...parsed,
+            args: parsed.args.slice(result.consumedArgs),
+          }
+          this.setParsedInfo(parsedInfo, command, matchedCommandName)
+          this.emit(`command:${matchedCommandName}`, command)
+          break // Stop after first match (greedy matching)
         }
       }
-    }
 
-    if (shouldParse) {
-      const parsed = this.mri(argv.slice(2))
-      this.setParsedInfo(parsed)
+      if (shouldParse) {
+        // Search the default command
+        for (const command of this.commands) {
+          if (command.name === '') {
+            // Check if any argument is a prefix of an existing command
+            // If so, don't match the default command (user probably mistyped a subcommand)
+            const parsed = this.mri(argv.slice(2), command)
+            const firstArg = parsed.args[0]
+            if (firstArg) {
+              const isPrefixOfCommand = this.commands.some((cmd) => {
+                if (cmd.name === '') return false
+                const cmdParts = cmd.name.split(' ')
+                return cmdParts[0] === firstArg
+              })
+              if (isPrefixOfCommand) {
+                // Don't match default command - let it fall through to "unknown command"
+                continue
+              }
+            }
+            shouldParse = false
+            this.setParsedInfo(parsed, command)
+            this.emit(`command:!`, command)
+          }
+        }
+      }
+
+      if (shouldParse) {
+        const parsed = this.mri(argv.slice(2))
+        this.setParsedInfo(parsed)
+      }
+    } catch (err) {
+      if (err instanceof GokeError) {
+        this.handleCliError(err)
+        this.exit(1)
+      }
+      throw err
     }
 
     if (this.options.help && this.showHelpOnExit) {
@@ -1275,11 +1312,17 @@ class Goke extends EventEmitter {
 
     if (!command || !command.commandAction) return
 
-    command.checkUnknownOptions()
-
-    command.checkOptionValue()
-
-    command.checkRequiredArgs()
+    try {
+      command.checkUnknownOptions()
+      command.checkOptionValue()
+      command.checkRequiredArgs()
+    } catch (err) {
+      if (err instanceof GokeError) {
+        this.handleCliError(err)
+        this.exit(1)
+      }
+      throw err
+    }
 
     const actionArgs: any[] = []
     command.args.forEach((arg, index) => {
@@ -1290,7 +1333,22 @@ class Goke extends EventEmitter {
       }
     })
     actionArgs.push(options)
-    return command.commandAction.apply(this, actionArgs)
+
+    const result = command.commandAction.apply(this, actionArgs)
+
+    // If the action returns a promise, catch async errors
+    if (result && typeof result === 'object' && typeof result.catch === 'function') {
+      result.catch((err: unknown) => {
+        if (err instanceof Error) {
+          this.handleCliError(err)
+        } else {
+          this.console.error(`${pc.red(pc.bold('error:'))} ${String(err)}`)
+        }
+        this.exit(1)
+      })
+    }
+
+    return result
   }
 }
 
