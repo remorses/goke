@@ -238,6 +238,8 @@ class Option {
   default?: unknown
   /** Standard JSON Schema V1 schema for type coercion and inference */
   schema?: StandardJSONSchemaV1
+  /** Whether this option is deprecated (hidden from help output) */
+  deprecated?: boolean
 
   /**
    * Create an option.
@@ -257,6 +259,9 @@ class Option {
       this.description = meta.description ?? ''
       if (meta.default !== undefined) {
         this.default = meta.default
+      }
+      if (meta.deprecated) {
+        this.deprecated = true
       }
     } else {
       this.description = ''
@@ -513,7 +518,8 @@ class Command {
     if (showCommands) {
       const commandRows = commands.map((command) => {
         const displayName = command.rawName.trim() === '' ? name : command.rawName
-        const displayOptions = command.isDefaultCommand ? [] : command.options
+        // Hide deprecated options from subcommand help output
+        const displayOptions = command.isDefaultCommand ? [] : command.options.filter((o) => !o.deprecated)
         return {
           command,
           displayName,
@@ -606,6 +612,8 @@ class Command {
     if (!this.isGlobalCommand && !this.isDefaultCommand) {
       options = options.filter((option) => option.name !== 'version')
     }
+    // Hide deprecated options from help output
+    options = options.filter((option) => !option.deprecated)
     if (options.length > 0) {
       const longestOptionNameLength = maxVisibleLength(
         options.map((option) => option.rawName)

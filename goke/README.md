@@ -419,11 +419,37 @@ cli
 cli.parse()
 ```
 
-The second argument accepts any object implementing [Standard JSON Schema V1](https://github.com/standard-schema/standard-schema), including:
+The second argument accepts any object implementing [Standard Schema](https://github.com/standard-schema/standard-schema), including:
 
 - **Zod** v4.2+ (e.g. `z.number()`, `z.string()`, `z.array(z.number())`)
 - **Valibot**, **ArkType**, and other Standard Schema-compatible libraries
-- **Plain JSON Schema** via `wrapJsonSchema({ type: "number", description: "Port" })`
+
+### Hiding Deprecated Options
+
+Mark options as deprecated using Zod's `.meta({ deprecated: true })`. Deprecated options are hidden from help output but still work for parsing — useful for backward compatibility.
+
+```ts
+import { goke } from 'goke'
+import { z } from 'zod'
+
+const cli = goke()
+
+cli
+  .command('serve', 'Start server')
+  // Deprecated option: hidden from --help, still parses
+  .option('--old-port <port>', z.number().meta({ deprecated: true, description: 'Use --port instead' }))
+  // Current option: visible in help
+  .option('--port <port>', z.number().describe('Port number'))
+  .action((options) => {
+    const port = options.port ?? options.oldPort
+    console.log('Starting on port', port)
+  })
+
+cli.help()
+cli.parse()
+```
+
+When users run `--help`, deprecated options won't appear, but `--old-port 3000` still works.
 
 ### Brackets
 

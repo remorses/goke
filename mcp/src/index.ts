@@ -411,7 +411,7 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
           cmd.option(optionStr, optionDesc);
         } else {
           // Wrap the MCP tool's JSON Schema property into a StandardJSONSchemaV1
-          // object so Goke can use it for type coercion (string → typed value).
+          // so goke can use it for type coercion.
           // Put the enriched description into the JSON Schema so it's extracted automatically.
           // Boolean flags with defaults also go through this path to preserve the default.
           const enrichedSchema = { ...propSchema, description: optionDesc } as Record<string, unknown>;

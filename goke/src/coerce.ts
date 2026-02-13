@@ -127,23 +127,8 @@ export declare namespace StandardJSONSchemaV1 {
 /**
  * Wraps a plain JSON Schema object into a StandardJSONSchemaV1-compatible object.
  *
- * This is useful for dynamic use cases where you have a raw JSON Schema
- * (e.g. from an MCP tool's inputSchema) and need to pass it to Goke's
- * schema option which expects StandardJSONSchemaV1.
- *
- * @example
- * ```ts
- * import { wrapJsonSchema } from 'goke'
- *
- * // Wrap a plain JSON Schema for use with Goke options
- * const schema = wrapJsonSchema({ type: "number" })
- * cmd.option('--port <port>', 'Port', { schema })
- *
- * // Wrap MCP tool property schemas
- * for (const [name, propSchema] of Object.entries(tool.inputSchema.properties)) {
- *   cmd.option(`--${name} <${name}>`, desc, { schema: wrapJsonSchema(propSchema) })
- * }
- * ```
+ * @internal This is an internal helper used by @goke/mcp to wrap MCP tool schemas.
+ * Users should pass Zod or other StandardSchema-compatible schemas to `.option()`.
  *
  * @param jsonSchema - A plain JSON Schema object (e.g. `{ type: "number" }`)
  * @returns A StandardJSONSchemaV1-compatible object that Goke can use for coercion
@@ -177,6 +162,8 @@ export interface JsonSchema {
   additionalProperties?: boolean | JsonSchema
   default?: unknown
   description?: string
+  /** JSON Schema deprecated annotation (draft 2019-09+) */
+  deprecated?: boolean
 }
 
 /**
@@ -540,18 +527,21 @@ export function isStandardSchema(value: unknown): value is StandardJSONSchemaV1 
 }
 
 /**
- * Extract description and default value from a StandardJSONSchemaV1-compatible schema.
- * Calls extractJsonSchema() internally and pulls `description` and `default` fields.
+ * Extract description, default value, and deprecated flag from a StandardJSONSchemaV1-compatible schema.
+ * Calls extractJsonSchema() internally and pulls `description`, `default`, and `deprecated` fields.
  */
-export function extractSchemaMetadata(schema: StandardJSONSchemaV1): { description?: string; default?: unknown } {
+export function extractSchemaMetadata(schema: StandardJSONSchemaV1): { description?: string; default?: unknown; deprecated?: boolean } {
   const jsonSchema = extractJsonSchema(schema)
   if (!jsonSchema) return {}
-  const result: { description?: string; default?: unknown } = {}
+  const result: { description?: string; default?: unknown; deprecated?: boolean } = {}
   if (typeof jsonSchema.description === 'string') {
     result.description = jsonSchema.description
   }
   if (jsonSchema.default !== undefined) {
     result.default = jsonSchema.default
+  }
+  if (jsonSchema.deprecated === true) {
+    result.deprecated = true
   }
   return result
 }

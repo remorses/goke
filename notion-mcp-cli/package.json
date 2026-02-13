@@ -30,8 +30,9 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@goke/mcp": "workspace:*",
     "goke": "workspace:*",
-    "@goke/mcp": "workspace:*"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^22.15.21",

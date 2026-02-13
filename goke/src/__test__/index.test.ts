@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import goke, { createConsole, wrapJsonSchema } from '../index.js'
+import goke, { createConsole } from '../index.js'
 import type { GokeOutputStream, GokeOptions } from '../index.js'
 import { coerceBySchema } from '../coerce.js'
 import { z } from 'zod'
@@ -87,7 +87,7 @@ describe('error formatting', () => {
     const stderr = createTestOutputStream()
     const cli = goke('mycli', { stderr, exit: () => {} })
 
-    cli.option('--port <port>', wrapJsonSchema({ type: 'number', description: 'Port' }))
+    cli.option('--port <port>', z.number().describe('Port'))
 
     try {
       cli.parse('node bin --port abc'.split(' '))
@@ -1699,5 +1699,56 @@ describe('schema description and default extraction', () => {
     cli.parse(['node', 'bin', 'serve', '--help'], { run: false })
 
     expect(stdout.text).toContain('(default: 3000)')
+  })
+
+  test('deprecated options are hidden from help output', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout })
+
+    cli
+      .command('serve', 'Start server')
+      .option('--old <value>', z.string().meta({ deprecated: true, description: 'Old option' }))
+      .option('--new <value>', z.string().describe('Normal option'))
+
+    cli.help()
+    cli.parse(['node', 'bin', 'serve', '--help'], { run: false })
+
+    // Normal option should be visible
+    expect(stdout.text).toContain('--new')
+    expect(stdout.text).toContain('Normal option')
+    // Deprecated option should be hidden
+    expect(stdout.text).not.toContain('--old')
+    expect(stdout.text).not.toContain('Old option')
+  })
+
+  test('deprecated option still works for parsing (just hidden from help)', () => {
+    const cli = gokeTestable('mycli')
+
+    let result: any = {}
+    cli
+      .command('serve', 'Start server')
+      .option('--old <value>', z.string().meta({ deprecated: true, description: 'Old option' }))
+      .action((options) => { result = options })
+
+    cli.parse(['node', 'bin', 'serve', '--old', 'legacy-value'])
+
+    // Deprecated option should still be parsed and usable
+    expect(result.old).toBe('legacy-value')
+  })
+
+  test('deprecated options hidden from global help', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout })
+
+    cli.option('--legacy [value]', z.string().meta({ deprecated: true, description: 'Deprecated global' }))
+    cli.option('--current [value]', z.string().describe('Current option'))
+
+    cli.help()
+    cli.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toContain('--current')
+    expect(stdout.text).toContain('Current option')
+    expect(stdout.text).not.toContain('--legacy')
+    expect(stdout.text).not.toContain('Deprecated global')
   })
 })
