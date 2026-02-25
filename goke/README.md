@@ -419,6 +419,8 @@ cli
 cli.parse()
 ```
 
+**Important:** When using a schema with `.default()`, do **not** repeat the default in the description string. The framework automatically appends `(default: <value>)` to help output from the schema default. Writing `.default(100).describe('Number of lines (default: 100)')` would display the default twice.
+
 The second argument accepts any object implementing [Standard Schema](https://github.com/standard-schema/standard-schema), including:
 
 - **Zod** v4.2+ (e.g. `z.number()`, `z.string()`, `z.array(z.number())`)
