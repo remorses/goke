@@ -970,22 +970,31 @@ describe('space-separated subcommands', () => {
     expect(stripAnsi(output)).toMatchInlineSnapshot(`
       "mycli
 
+
       Usage:
         $ mycli <command> [options]
+
 
       Commands:
         mcp login <url>              Login to MCP server
 
+
         mcp logout                   Logout from MCP server
+
 
         mcp status                   Show connection status
 
+
         git remote add <name> <url>  Add a git remote
+
 
         git remote remove <name>     Remove a git remote
 
+
         build                        Build the project
+
           --watch                    Watch mode
+
 
       Options:
         -h, --help  Display this message
@@ -1259,26 +1268,35 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toMatchInlineSnapshot(`
       "deploy
 
+
       Usage:
         $ deploy [options]
+
 
       Commands:
         deploy               Deploy the current project
 
+
         init                 Initialize a new project
+
 
         login                Authenticate with the server
 
+
         logout               Clear saved credentials
+
 
         status               Show deployment status
 
+
         logs <deploymentId>  Stream logs for a deployment
+
 
       Options:
         --env <env>  Target environment
         --dry-run    Preview without deploying
         -h, --help   Display this message
+
 
       Examples:
       # Deploy to staging first
@@ -1310,16 +1328,20 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toMatchInlineSnapshot(`
       "deploy
 
+
       Usage:
         $ deploy logs <deploymentId>
+
 
       Options:
         --follow     Follow log output
         --lines <n>  Number of lines (default: 100)
         -h, --help   Display this message
 
+
       Description:
         Stream logs for a deployment
+
 
       Examples:
       # Stream last 200 lines for a deployment
@@ -1348,13 +1370,17 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toMatchInlineSnapshot(`
       "deploy
 
+
       Usage:
         $ deploy [options]
+
 
       Commands:
         deploy  Deploy the current project
 
+
         status  Show deployment status
+
 
       Options:
         --env <env>  Target environment
@@ -1386,8 +1412,10 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toMatchInlineSnapshot(`
       "mycli
 
+
       Usage:
         $ mycli <command> [options]
+
 
       Commands:
         notion-search      Perform a semantic search over
@@ -1395,16 +1423,20 @@ describe('many commands with root command (empty string)', () => {
                            connected integrations with
                            advanced filtering options, date
                            filters, and creator filters.
+
           --query <query>  Natural language query text to
                            search for
           --limit [limit]  Maximum number of results to return
                            (default: 10)
 
+
         notion-fetch       Retrieve a Notion page or database
                            by URL or ID and render the result
                            in enhanced markdown format for
                            terminal output.
+
           --id <id>        Notion URL or UUID to fetch
+
 
       Options:
         -h, --help  Display this message
@@ -1427,19 +1459,27 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toMatchInlineSnapshot(`
       "gtui
 
+
       Usage:
         $ gtui <command> [options]
+
 
       Commands:
         auth login                                 Authenticate with Google (opens browser)
 
+
         auth logout                                Remove stored credentials
+
           --force                                  Skip confirmation
 
+
         mail list                                  List email threads
+
           --folder [folder]                        Folder to list
 
+
         attachment get <messageId> <attachmentId>  Download an attachment
+
 
       Options:
         -h, --help  Display this message
@@ -1487,13 +1527,17 @@ describe('many commands with root command (empty string)', () => {
       expect(stdout.text).toMatchInlineSnapshot(`
         "mycli
 
+
         Usage:
           $ mycli <command> [options]
 
+
         Commands:
           notion-search      Perform a semantic search over Notion workspace content and connected integrations with advanced filtering options, date filters, and creator filters.
+
             --query <query>  Natural language query text to search for
             --limit [limit]  Maximum number of results to return (default: 10)
+
 
         Options:
           -h, --help  Display this message

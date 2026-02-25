@@ -571,9 +571,9 @@ class Command {
               })
               .join('\n')
 
-            return `${headerLine}\n${optionLines}`
+            return `${headerLine}\n\n${optionLines}`
           })
-          .join('\n\n'),
+          .join('\n\n\n'),
       })
     }
 
@@ -669,7 +669,7 @@ class Command {
             ? `${pc.bold(pc.blue(section.title))}:\n${section.body}`
             : section.body
         })
-        .join('\n\n')
+        .join('\n\n\n')
     )
   }
 
