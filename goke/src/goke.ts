@@ -94,14 +94,9 @@ const ANSI_RE = /\x1B\[[0-9;]*m/g
 
 const visibleLength = (value: string) => value.replace(ANSI_RE, '').length
 
-const commandOrange = (value: string) => {
-  if (!pc.isColorSupported) {
-    return value
-  }
-  return `\x1b[38;5;208m${value}\x1b[39m`
-}
+const commandGreen = (value: string) => pc.bold(pc.greenBright(value))
 
-const optionYellow = (value: string) => pc.bold(pc.yellowBright(value))
+const optionBlue = (value: string) => pc.bold(pc.blueBright(value))
 
 const padRight = (str: string, length: number) => {
   return visibleLength(str) >= length ? str : `${str}${' '.repeat(length - visibleLength(str))}`
@@ -547,7 +542,7 @@ class Command {
               descriptionWidth,
               sharedDescriptionColumn,
             )
-            const commandPrefix = `  ${pc.bold(commandOrange(displayName))}`
+            const commandPrefix = `  ${pc.bold(commandGreen(displayName))}`
             const commandPadding = ' '.repeat(
               Math.max(2, sharedDescriptionColumn - (2 + visibleLength(displayName)))
             )
@@ -566,7 +561,7 @@ class Command {
                   descriptionWidth,
                   sharedDescriptionColumn,
                 )
-                const optionPrefix = `    ${optionYellow(option.rawName)}`
+                const optionPrefix = `    ${optionBlue(option.rawName)}`
                 const optionPadding = ' '.repeat(
                   Math.max(2, sharedDescriptionColumn - (4 + visibleLength(option.rawName)))
                 )
@@ -631,8 +626,8 @@ class Command {
               descriptionColumn,
             )
             return description
-              ? `  ${optionYellow(optionLabel)}  ${description}`
-              : `  ${optionYellow(optionLabel)}`
+              ? `  ${optionBlue(optionLabel)}  ${description}`
+              : `  ${optionBlue(optionLabel)}`
           })
           .join('\n'),
       })
