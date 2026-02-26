@@ -604,6 +604,24 @@ Add a global option. The second argument is either:
 
 - Type: `() => CLI`
 
+Print the help message to stdout.
+
+#### cli.helpText()
+
+- Type: `() => string`
+
+Return the formatted help string without printing it. Useful for embedding help text in documentation, tests, or other programmatic uses.
+
+```ts
+const cli = goke('mycli')
+cli.command('build', 'Build project')
+cli.option('--watch', 'Watch mode')
+cli.help()
+
+const help = cli.helpText()
+// => "mycli\n\nUsage:\n  $ mycli ..."
+```
+
 #### cli.usage(text)
 
 - Type: `(text: string) => CLI`

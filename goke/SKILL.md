@@ -324,6 +324,52 @@ cli.option('--env <env>', 'Set envs')
 // options.port and options.p both equal 3000
 ```
 
+## Interactive prompts with @clack/prompts
+
+For commands that need user input (login, setup, init), use `@clack/prompts` for select menus, password inputs, and text prompts. **Every interactive input must also be available as a CLI option** so agents and CI can use the command non-interactively.
+
+The pattern: check if flags are present — if yes, use them directly. If no flags, fall back to interactive prompts.
+
+```ts
+import { select, password, isCancel, cancel } from '@clack/prompts'
+
+cli
+  .command('login', 'Configure API keys interactively or via flags')
+  .option('-p, --provider [name]', z.string().describe('Provider for non-interactive login (google, openai)'))
+  .option('-k, --key [key]', z.string().describe('API key for non-interactive login'))
+  .action(async (options) => {
+    // Non-interactive path (agents, CI)
+    if (options.provider) {
+      saveKey(options.provider, options.key || await readKeyFromStdin())
+      return
+    }
+    // Interactive path (humans)
+    const provider = await select({ message: 'Select provider', options: [...] })
+    if (isCancel(provider)) { cancel(); process.exit(0) }
+    const key = await password({ message: 'Paste API key' })
+    if (isCancel(key)) { cancel(); process.exit(0) }
+    saveKey(provider, key.trim())
+  })
+```
+
+## Programmatic help text
+
+`cli.helpText()` returns the formatted help string without printing it. Useful for embedding help text in docs, READMEs, or other programmatic uses:
+
+```ts
+const cli = goke('mycli')
+cli.command('build', 'Build project')
+cli.option('--watch', 'Watch mode')
+cli.help()
+
+const help = cli.helpText()
+// => "mycli\n\nUsage:\n  $ mycli ..."
+```
+
+The string includes ANSI color codes (same as `--help` output). Strip them if you need plain text.
+
+`cli.outputHelp()` still exists and prints to stdout — it calls `helpText()` internally.
+
 ## Injectable I/O (testing)
 
 Override stdout, stderr, argv, and exit for testing:

@@ -1796,3 +1796,81 @@ describe('schema description and default extraction', () => {
     expect(stdout.text).not.toContain('Deprecated global')
   })
 })
+
+describe('helpText()', () => {
+  test('returns help string without printing', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout })
+
+    cli.command('serve', 'Start server')
+    cli.option('--port <port>', 'Port number')
+    cli.help()
+    // parse a known command so help is not auto-triggered
+    cli.parse(['node', 'bin', 'serve'], { run: false })
+
+    // reset stdout after parse
+    stdout.lines.length = 0
+
+    const text = stripAnsi(cli.helpText())
+
+    expect(text).toContain('mycli')
+    expect(text).toContain('serve')
+    expect(text).toContain('Start server')
+    expect(text).toContain('--port')
+    // helpText() does not print to stdout
+    expect(stdout.text).toBe('')
+  })
+
+  test('returns same content as outputHelp', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout })
+
+    cli.command('build', 'Build project')
+    cli.option('--watch [watch]', 'Watch mode')
+    cli.help()
+    // parse a known command so help is not auto-triggered
+    cli.parse(['node', 'bin', 'build'], { run: false })
+
+    // reset stdout after parse
+    stdout.lines.length = 0
+
+    const helpTextResult = stripAnsi(cli.helpText())
+    cli.outputHelp()
+    // outputHelp adds a trailing newline via console.log
+    const outputHelpResult = stdout.text.replace(/\n$/, '')
+
+    expect(helpTextResult).toBe(outputHelpResult)
+  })
+
+  test('returns subcommand help when command is matched', () => {
+    const cli = goke('mycli')
+
+    cli.command('deploy <env>', 'Deploy to environment')
+      .option('--force', 'Force deploy')
+
+    cli.help()
+    cli.parse(['node', 'bin', 'deploy', '--help'], { run: false })
+
+    const text = stripAnsi(cli.helpText())
+
+    expect(text).toContain('deploy')
+    expect(text).toContain('--force')
+    expect(text).toContain('Force deploy')
+  })
+
+  test('works without calling parse', () => {
+    const cli = goke('mycli')
+
+    cli.command('test', 'Run tests')
+    cli.option('--coverage', 'Enable coverage')
+    cli.help()
+
+    // helpText() works even without parse
+    const text = stripAnsi(cli.helpText())
+
+    expect(text).toContain('mycli')
+    expect(text).toContain('test')
+    expect(text).toContain('Run tests')
+    expect(text).toContain('--coverage')
+  })
+})

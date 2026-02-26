@@ -487,7 +487,11 @@ class Command {
     })
   }
 
-  outputHelp() {
+  /**
+   * Return the formatted help string without printing it.
+   * Useful for embedding help text in documentation, tests, or other programmatic uses.
+   */
+  helpText(): string {
     const { name, commands } = this.cli
     const {
       versionNumber,
@@ -662,15 +666,17 @@ class Command {
       sections = helpCallback(sections) || sections
     }
 
-    this.cli.console.log(
-      sections
-        .map((section) => {
-          return section.title
-            ? `${pc.bold(pc.blue(section.title))}:\n${section.body}`
-            : section.body
-        })
-        .join('\n\n\n')
-    )
+    return sections
+      .map((section) => {
+        return section.title
+          ? `${pc.bold(pc.blue(section.title))}:\n${section.body}`
+          : section.body
+      })
+      .join('\n\n\n')
+  }
+
+  outputHelp() {
+    this.cli.console.log(this.helpText())
   }
 
   outputVersion() {
@@ -954,17 +960,24 @@ class Goke extends EventEmitter {
   }
 
   /**
+   * Return the formatted help string without printing it.
+   * When a sub-command is matched, returns help for that command.
+   * Otherwise returns the global help.
+   */
+  helpText(): string {
+    if (this.matchedCommand) {
+      return this.matchedCommand.helpText()
+    }
+    return this.globalCommand.helpText()
+  }
+
+  /**
    * Output the corresponding help message
    * When a sub-command is matched, output the help message for the command
    * Otherwise output the global one.
-   *
    */
   outputHelp() {
-    if (this.matchedCommand) {
-      this.matchedCommand.outputHelp()
-    } else {
-      this.globalCommand.outputHelp()
-    }
+    this.console.log(this.helpText())
   }
 
   /**
