@@ -47,16 +47,16 @@ importers:
         specifier: ^22.19.7
         version: 22.19.7
       goke:
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../goke
 
   notion-mcp-cli:
     dependencies:
       '@goke/mcp':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../mcp
       goke:
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../goke
       zod:
         specifier: ^4.3.6

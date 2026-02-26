@@ -1,5 +1,9 @@
 # notion-mcp-cli
 
+## 0.0.7
+
+1. **Updated to goke 6.2.0** — picks up formatted error output, `helpText()`, deprecated option support, and help visual improvements.
+
 ## 0.0.6
 
 - Build: clean `dist` before compiling to avoid stale declaration files in published output
