@@ -237,6 +237,23 @@ cli.command('install', 'Install packages').alias('i').action(() => {})
 // Now both `mycli install` and `mycli i` work
 ```
 
+## Double-dash `--` (end of options)
+
+`--` signals end of options. Everything after it goes into `options['--']` as a separate array, not mixed into positional args. This lets you distinguish command args from passthrough args.
+
+```ts
+cli
+  .command('run <script>', 'Run a script with injected env vars')
+  .option('--env <env>', z.enum(['dev', 'staging', 'production']).describe('Target environment'))
+  .action((script, options) => {
+    // runner run --env staging server.js -- --port 3000
+    // script = 'server.js'
+    // options['--'] = ['--port', '3000']
+    const extra = (options['--'] || []).join(' ')
+    execSync(`node ${script} ${extra}`, { env: { ...process.env, ...loadSecrets(options.env) } })
+  })
+```
+
 ## Writing detailed help text
 
 Agents and users rely on `--help` as the primary documentation for a CLI. Write descriptions that are thorough and actionable.

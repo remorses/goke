@@ -485,6 +485,48 @@ cli
   })
 ```
 
+### Double-dash `--` (end of options)
+
+The `--` token signals the end of options. Everything after `--` is available via `options['--']` as a separate array, not mixed into positional args. This lets you distinguish between your command's own arguments and passthrough args — the same pattern used by `doppler`, `npm`, `pnpm`, and `docker`.
+
+```ts
+import { goke } from 'goke'
+import { z } from 'zod'
+import { execSync } from 'child_process'
+
+const cli = goke('runner')
+
+cli
+  .command('run <script>', 'Run a script with injected environment variables')
+  .option('--env <env>', z.enum(['dev', 'staging', 'production']).describe('Target environment'))
+  .example('# Pass extra flags to the child script via --')
+  .example('runner run --env staging server.js -- --port 3000 --verbose')
+  .action((script, options) => {
+    // runner run --env staging server.js -- --port 3000 --verbose
+    // script = 'server.js'           (positional arg)
+    // options.env = 'staging'         (runner's own option)
+    // options['--'] = ['--port', '3000', '--verbose']  (passthrough)
+
+    const secrets = loadSecrets(options.env)
+    const extraArgs = (options['--'] || []).join(' ')
+    execSync(`node ${script} ${extraArgs}`, {
+      env: { ...process.env, ...secrets },
+      stdio: 'inherit',
+    })
+  })
+
+cli.help()
+cli.parse()
+```
+
+```bash
+runner run --env staging server.js -- --port 3000 --verbose
+#          ^^^^^^^^^^^^  ^^^^^^^^^    ^^^^^^^^^^^^^^^^^^^^^^^^^
+#          runner option  positional   passthrough (options['--'])
+```
+
+Without `--`, flags like `--port` would be parsed as runner options and fail with "Unknown option `--port`". The `--` tells goke to stop parsing and collect the rest separately.
+
 ### Dot-nested Options
 
 Dot-nested options will be merged into a single option.

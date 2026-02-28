@@ -1212,7 +1212,10 @@ class Goke extends EventEmitter {
     ]
     const mriOptions = getMriOptions(cliOptions)
 
-    // Extract everything after `--` since mri doesn't support it
+    // Extract everything after `--` into options['--'].
+    // Args after `--` are kept separate from positional args so commands
+    // like `run <script> -- --coverage` can distinguish the script name
+    // from passthrough args.
     let argsAfterDoubleDashes: string[] = []
     const doubleDashesIndex = argv.indexOf('--')
     if (doubleDashesIndex > -1) {
