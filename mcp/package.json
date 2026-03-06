@@ -1,6 +1,6 @@
 {
   "name": "@goke/mcp",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "Dynamically generate CLI commands from MCP server tools",
   "type": "module",
   "main": "dist/index.js",
@@ -21,7 +21,7 @@
   ],
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "pnpm clean && tsc",
+    "build": "pnpm clean && tsc -p tsconfig.build.json",
     "test": "vitest --run",
     "watch": "tsc -w",
     "prepublishOnly": "pnpm build"

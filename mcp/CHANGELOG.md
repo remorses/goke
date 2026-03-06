@@ -1,5 +1,9 @@
 # @goke/mcp
 
+## 0.0.7
+
+1. **Fixed: test files excluded from published package** — `dist/test/` is no longer included in the npm tarball.
+
 ## 0.0.6
 
 1. **Added `addCliToolsToMcp`** — expose any goke CLI as MCP tools. Mounts `tools/list` and `tools/call` handlers on a low-level `Server` or high-level `McpServer`, with automatic tool-name sanitization, positional argument support, and composition with tools already registered on the server:
