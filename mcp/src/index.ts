@@ -49,6 +49,8 @@ import yaml from "js-yaml";
 import { FileOAuthProvider } from "./oauth-provider.js";
 import { startOAuthFlow, isAuthRequiredError } from "./auth.js";
 import type { McpOAuthConfig, McpOAuthState } from "./types.js";
+export { addCliToolsToMcp } from "./cli-to-mcp.js";
+export type { AddCliToolsToMcpOptions } from "./cli-to-mcp.js";
 
 // Public exports - only types that consumers need
 export type { Transport };

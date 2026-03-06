@@ -1,0 +1,500 @@
+/**
+ * CLI to MCP adapter.
+ *
+ * Exposes goke commands as MCP tools on either a low-level Server
+ * or a high-level McpServer by mounting tools/list + tools/call handlers.
+ */
+
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import {
+  CallToolRequestSchema,
+  ErrorCode,
+  ListToolsRequestSchema,
+  McpError,
+  type CallToolResult,
+  type Tool,
+} from "@modelcontextprotocol/sdk/types.js";
+import { coerceBySchema, extractJsonSchema, type Command, type Goke, type StandardJSONSchemaV1 } from "goke";
+
+const CLI_TO_MCP_STATE = Symbol.for("@goke/mcp/cli-to-mcp-state");
+
+interface CommandArgLike {
+  required: boolean;
+  value: string;
+  variadic: boolean;
+}
+
+interface OptionLike {
+  name: string;
+  description: string;
+  default?: unknown;
+  required?: boolean;
+  isBoolean?: boolean;
+  schema?: StandardJSONSchemaV1;
+}
+
+interface OptionBinding {
+  name: string;
+  defaultValue?: unknown;
+  jsonSchema?: Record<string, unknown>;
+}
+
+interface CliToolBinding {
+  tool: Tool;
+  command: Command;
+  positionalArgs: CommandArgLike[];
+  options: OptionBinding[];
+  requiredNames: string[];
+}
+
+interface CliToMcpState {
+  toolsByName: Map<string, CliToolBinding>;
+  commandToToolName: Map<string, string>;
+}
+
+type AnyRequestHandler = (request: unknown, extra: unknown) => unknown | Promise<unknown>;
+
+function isMountableCommand(command: Command, commandFilter?: (commandName: string) => boolean): boolean {
+  if (!command.commandAction) {
+    return false;
+  }
+
+  if (command.name === "") {
+    return false;
+  }
+
+  if (commandFilter && !commandFilter(command.name)) {
+    return false;
+  }
+
+  return true;
+}
+
+export interface AddCliToolsToMcpOptions {
+  cli: Goke;
+  server: Server | McpServer;
+  commandFilter?: (commandName: string) => boolean;
+  sanitizeToolName?: (commandName: string) => string;
+}
+
+function isMcpServer(value: Server | McpServer): value is McpServer {
+  return "server" in value;
+}
+
+function resolveServer(value: Server | McpServer): Server {
+  if (isMcpServer(value)) {
+    return value.server;
+  }
+  return value;
+}
+
+function getToolCallArguments(args: Record<string, unknown>, name: string): unknown {
+  if (name in args) {
+    return args[name];
+  }
+
+  const parts = name.split(".");
+  let current: unknown = args;
+  for (const part of parts) {
+    if (current != null && typeof current === "object" && part in (current as Record<string, unknown>)) {
+      current = (current as Record<string, unknown>)[part];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
+}
+
+function setDotProp(target: Record<string, unknown>, keys: string[], value: unknown): void {
+  let current: Record<string, unknown> = target;
+
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (i === keys.length - 1) {
+      current[key] = value;
+      return;
+    }
+
+    const existing = current[key];
+    if (existing != null && typeof existing === "object" && !Array.isArray(existing)) {
+      current = existing as Record<string, unknown>;
+      continue;
+    }
+
+    const next: Record<string, unknown> = {};
+    current[key] = next;
+    current = next;
+  }
+}
+
+function defaultSanitizeToolName(commandName: string): string {
+  let name = commandName.trim();
+  name = name.replace(/\s+/g, "_");
+  name = name.replace(/[^A-Za-z0-9._-]/g, "_");
+  name = name.replace(/_+/g, "_");
+  name = name.replace(/^[._-]+|[._-]+$/g, "");
+
+  if (!name) {
+    name = "tool";
+  }
+
+  if (name.length > 128) {
+    name = name.slice(0, 128);
+  }
+
+  return name;
+}
+
+function uniqueToolName(baseName: string, usedNames: Set<string>): string {
+  if (!usedNames.has(baseName)) {
+    return baseName;
+  }
+
+  for (let i = 2; i < 10_000; i++) {
+    const suffix = `_${i}`;
+    const prefixMax = 128 - suffix.length;
+    const candidate = `${baseName.slice(0, Math.max(1, prefixMax))}${suffix}`;
+    if (!usedNames.has(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error(`Unable to generate a unique MCP tool name for ${baseName}`);
+}
+
+function normalizeOptionSchema(option: OptionLike): { schema: Record<string, unknown>; jsonSchema?: Record<string, unknown> } {
+  const schemaFromOption = option.schema ? extractJsonSchema(option.schema) : undefined;
+  const schema: Record<string, unknown> = schemaFromOption ? { ...schemaFromOption } : {
+    type: option.isBoolean ? "boolean" : "string",
+  };
+
+  if (typeof schema.description !== "string" && option.description) {
+    schema.description = option.description;
+  }
+  if (schema.default === undefined && option.default !== undefined) {
+    schema.default = option.default;
+  }
+
+  return { schema, jsonSchema: schemaFromOption };
+}
+
+function commandDescription(command: Command): string {
+  const description = command.description.trim();
+  if (description) {
+    return description;
+  }
+  return `Run CLI command ${command.name}`;
+}
+
+function formatTextResult(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value == null) {
+    return "";
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function toCallToolResult(value: unknown): CallToolResult {
+  if (value && typeof value === "object" && "content" in value) {
+    return value as CallToolResult;
+  }
+
+  return {
+    content: [{
+      type: "text",
+      text: formatTextResult(value),
+    }],
+  };
+}
+
+function getExistingRequestHandler(server: Server, method: string): AnyRequestHandler | undefined {
+  const handlerMap = (server as unknown as { _requestHandlers?: unknown })._requestHandlers;
+  if (!(handlerMap instanceof Map)) {
+    return undefined;
+  }
+  return (handlerMap as Map<string, AnyRequestHandler>).get(method);
+}
+
+function isToolNotFoundError(error: unknown, toolName: string): boolean {
+  if (!(error instanceof McpError)) {
+    return false;
+  }
+
+  if (error.code !== ErrorCode.InvalidParams) {
+    return false;
+  }
+
+  const message = String(error.message).toLowerCase();
+  return message.includes("tool") && message.includes("not found") && message.includes(toolName.toLowerCase());
+}
+
+function isToolNotFoundResult(result: unknown, toolName: string): boolean {
+  if (!result || typeof result !== "object") {
+    return false;
+  }
+
+  const maybe = result as { isError?: boolean; content?: Array<{ type?: string; text?: string }> };
+  if (!maybe.isError || !Array.isArray(maybe.content)) {
+    return false;
+  }
+
+  const textBlock = maybe.content.find((entry) => entry?.type === "text");
+  const text = String(textBlock?.text ?? "").toLowerCase();
+  return text.includes("tool") && text.includes("not found") && text.includes(toolName.toLowerCase());
+}
+
+async function runCliTool(binding: CliToolBinding, argumentsObject: Record<string, unknown>): Promise<CallToolResult> {
+  for (const requiredName of binding.requiredNames) {
+    if (getToolCallArguments(argumentsObject, requiredName) === undefined) {
+      throw new McpError(ErrorCode.InvalidParams, `Missing required argument: ${requiredName}`);
+    }
+  }
+
+  const positionalValues: unknown[] = [];
+  for (const arg of binding.positionalArgs) {
+    const value = getToolCallArguments(argumentsObject, arg.value);
+
+    if (arg.variadic) {
+      if (value === undefined) {
+        positionalValues.push([]);
+      } else if (Array.isArray(value)) {
+        positionalValues.push(value.map((entry) => String(entry)));
+      } else {
+        positionalValues.push([String(value)]);
+      }
+    } else {
+      positionalValues.push(value === undefined ? undefined : String(value));
+    }
+  }
+
+  const optionsObject: Record<string, unknown> = {};
+  for (const option of binding.options) {
+    let optionValue = getToolCallArguments(argumentsObject, option.name);
+    if (optionValue === undefined && option.defaultValue !== undefined) {
+      optionValue = option.defaultValue;
+    }
+
+    if (optionValue !== undefined && option.jsonSchema) {
+      const isStringArray = Array.isArray(optionValue) && optionValue.every((value) => typeof value === "string");
+      const isCoercibleType = typeof optionValue === "string" || typeof optionValue === "boolean" || isStringArray;
+      if (isCoercibleType) {
+        optionValue = coerceBySchema(optionValue as string | boolean | string[], option.jsonSchema, option.name);
+      }
+    }
+
+    if (optionValue !== undefined) {
+      setDotProp(optionsObject, option.name.split("."), optionValue);
+    }
+  }
+
+  const action = binding.command.commandAction;
+  if (!action) {
+    throw new McpError(ErrorCode.InvalidParams, `Command ${binding.command.name} has no action`);
+  }
+
+  try {
+    const result = await Promise.resolve(action(...positionalValues, optionsObject));
+    return toCallToolResult(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      isError: true,
+      content: [{ type: "text", text: message }],
+    };
+  }
+}
+
+function createBinding(command: Command, toolName: string): CliToolBinding {
+  const positionalArgs = command.args as unknown as CommandArgLike[];
+  const options = command.options as unknown as OptionLike[];
+
+  const properties: Record<string, Record<string, unknown>> = {};
+  const requiredNames: string[] = [];
+  const optionBindings: OptionBinding[] = [];
+
+  for (const arg of positionalArgs) {
+    if (arg.variadic) {
+      properties[arg.value] = {
+        type: "array",
+        items: { type: "string" },
+        description: `Positional argument ${arg.value}`,
+      };
+    } else {
+      properties[arg.value] = {
+        type: "string",
+        description: `Positional argument ${arg.value}`,
+      };
+    }
+
+    if (arg.required) {
+      requiredNames.push(arg.value);
+    }
+  }
+
+  for (const option of options) {
+    const normalized = normalizeOptionSchema(option);
+    properties[option.name] = normalized.schema;
+
+    if (option.required) {
+      requiredNames.push(option.name);
+    }
+
+    optionBindings.push({
+      name: option.name,
+      defaultValue: option.default,
+      jsonSchema: normalized.jsonSchema,
+    });
+  }
+
+  const inputSchema: Tool["inputSchema"] = {
+    type: "object",
+    properties,
+    ...(requiredNames.length > 0 ? { required: Array.from(new Set(requiredNames)) } : {}),
+  };
+
+  return {
+    tool: {
+      name: toolName,
+      description: commandDescription(command),
+      inputSchema,
+    },
+    command,
+    positionalArgs,
+    options: optionBindings,
+    requiredNames: Array.from(new Set(requiredNames)),
+  };
+}
+
+function getOrInstallState(server: Server): CliToMcpState {
+  const serverWithState = server as Server & { [CLI_TO_MCP_STATE]?: CliToMcpState };
+  const existing = serverWithState[CLI_TO_MCP_STATE];
+  if (existing) {
+    return existing;
+  }
+
+  const existingListHandler = getExistingRequestHandler(server, "tools/list");
+  const existingCallHandler = getExistingRequestHandler(server, "tools/call");
+
+  if (!existingListHandler && !existingCallHandler) {
+    server.registerCapabilities({ tools: { listChanged: true } });
+  }
+
+  const state: CliToMcpState = {
+    toolsByName: new Map(),
+    commandToToolName: new Map(),
+  };
+
+  server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
+    const localTools = Array.from(state.toolsByName.values()).map((binding) => binding.tool);
+    if (!existingListHandler) {
+      return { tools: localTools };
+    }
+
+    const previousResult = await Promise.resolve(existingListHandler(request, extra)) as {
+      tools?: Tool[];
+      nextCursor?: string;
+    };
+
+    const merged = new Map<string, Tool>();
+    for (const tool of previousResult.tools ?? []) {
+      merged.set(tool.name, tool);
+    }
+    for (const tool of localTools) {
+      if (!merged.has(tool.name)) {
+        merged.set(tool.name, tool);
+      }
+    }
+
+    return {
+      ...previousResult,
+      tools: Array.from(merged.values()),
+    };
+  });
+
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    const binding = state.toolsByName.get(request.params.name);
+    const argumentsObject = request.params.arguments ?? {};
+
+    if (existingCallHandler) {
+      try {
+        const existingResult = await Promise.resolve(existingCallHandler(request, extra)) as CallToolResult;
+        if (binding && isToolNotFoundResult(existingResult, request.params.name)) {
+          return runCliTool(binding, argumentsObject);
+        }
+        return existingResult;
+      } catch (error) {
+        if (!binding || !isToolNotFoundError(error, request.params.name)) {
+          throw error;
+        }
+      }
+    }
+
+    if (!binding) {
+      throw new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
+    }
+
+    return runCliTool(binding, argumentsObject);
+  });
+
+  Object.defineProperty(serverWithState, CLI_TO_MCP_STATE, {
+    value: state,
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
+
+  return state;
+}
+
+export function addCliToolsToMcp(options: AddCliToolsToMcpOptions): void {
+  const { cli, commandFilter, sanitizeToolName = defaultSanitizeToolName } = options;
+  const server = resolveServer(options.server);
+  const state = getOrInstallState(server);
+  const usedNames = new Set(state.toolsByName.keys());
+
+  const activeCommandNames = new Set<string>();
+  for (const command of cli.commands) {
+    if (isMountableCommand(command, commandFilter)) {
+      activeCommandNames.add(command.name);
+    }
+  }
+
+  for (const [commandName, toolName] of state.commandToToolName) {
+    if (!activeCommandNames.has(commandName)) {
+      state.commandToToolName.delete(commandName);
+      state.toolsByName.delete(toolName);
+      usedNames.delete(toolName);
+    }
+  }
+
+  for (const command of cli.commands) {
+    if (!isMountableCommand(command, commandFilter)) {
+      continue;
+    }
+
+    const existingToolName = state.commandToToolName.get(command.name);
+    if (existingToolName) {
+      state.toolsByName.delete(existingToolName);
+      state.commandToToolName.delete(command.name);
+      usedNames.delete(existingToolName);
+    }
+
+    const baseToolName = defaultSanitizeToolName(sanitizeToolName(command.name));
+    const toolName = uniqueToolName(baseToolName, usedNames);
+    usedNames.add(toolName);
+
+    const binding = createBinding(command, toolName);
+    state.toolsByName.set(toolName, binding);
+    state.commandToToolName.set(command.name, toolName);
+  }
+}

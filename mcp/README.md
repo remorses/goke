@@ -62,6 +62,62 @@ notion-mcp-cli notion-retrieve-page --page_id "abc123"
 notion-mcp-cli notion-list-users
 ```
 
+## Turn a goke CLI into an MCP server
+
+`addCliToolsToMcp()` does the inverse mapping: every CLI command becomes an MCP tool.
+
+- Command description → MCP tool description
+- Option schema (Zod or any Standard Schema library) → MCP `inputSchema` JSON Schema
+- Command names are sanitized into valid MCP tool names (invalid characters become `_`)
+- Composable with existing MCP tools already registered on the same server
+
+### With low-level `Server`
+
+```ts
+import { goke } from "goke"
+import { z } from "zod"
+import { Server } from "@modelcontextprotocol/sdk/server/index.js"
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
+import { addCliToolsToMcp } from "@goke/mcp"
+
+const cli = goke("my-cli")
+
+cli
+  .command("notion search", "Search Notion pages")
+  .option("--query <query>", z.string().describe("Search query"))
+  .action((options) => ({ query: options.query }))
+
+const server = new Server(
+  { name: "my-cli-mcp", version: "1.0.0" },
+  { capabilities: {} },
+)
+
+addCliToolsToMcp({ cli, server })
+
+const transport = new StdioServerTransport()
+await server.connect(transport)
+```
+
+Run it with Node:
+
+```bash
+node dist/server.js
+```
+
+### With high-level `McpServer`
+
+```ts
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
+import { addCliToolsToMcp } from "@goke/mcp"
+
+const mcp = new McpServer({ name: "my-cli-mcp", version: "1.0.0" })
+addCliToolsToMcp({ cli, server: mcp })
+
+const transport = new StdioServerTransport()
+await mcp.connect(transport)
+```
+
 ## Full example (with config persistence)
 
 This is the pattern used by [notion-mcp-cli](../notion-mcp-cli):
