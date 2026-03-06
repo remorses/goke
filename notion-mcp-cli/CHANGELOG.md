@@ -1,5 +1,11 @@
 # notion-mcp-cli
 
+## 0.0.8
+
+1. **Added `./src` and `./src/*` exports** — import directly from source TypeScript files without going through `dist`.
+2. **Added `exports` map** — explicit package exports with `./package.json` support.
+3. **Added package metadata** — `homepage`, `bugs`, `repository.directory` for better discoverability on npm.
+
 ## 0.0.7
 
 1. **Updated to goke 6.2.0** — picks up formatted error output, `helpText()`, deprecated option support, and help visual improvements.
