@@ -1,5 +1,10 @@
 # @goke/mcp
 
+## 0.0.8
+
+1. **Added `./src` and `./src/*` exports** — import directly from source TypeScript files without going through `dist`.
+2. **Added package metadata** — `homepage`, `bugs`, `repository.directory`, and expanded `keywords` for better discoverability on npm.
+
 ## 0.0.7
 
 1. **Fixed: test files excluded from published package** — `dist/test/` is no longer included in the npm tarball.
