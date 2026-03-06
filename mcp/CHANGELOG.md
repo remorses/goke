@@ -1,5 +1,13 @@
 # @goke/mcp
 
+## 0.0.6
+
+1. **Added `addCliToolsToMcp`** — expose any goke CLI as MCP tools. Mounts `tools/list` and `tools/call` handlers on a low-level `Server` or high-level `McpServer`, with automatic tool-name sanitization, positional argument support, and composition with tools already registered on the server:
+   ```ts
+   import { addCliToolsToMcp } from '@goke/mcp'
+   addCliToolsToMcp({ cli, server })
+   ```
+
 ## 0.0.5
 
 - Build: clean `dist` before `tsc` to remove stale generated files
