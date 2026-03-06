@@ -1,5 +1,10 @@
 # goke
 
+## 6.2.1
+
+1. **Added `./src` and `./src/*` exports** — import directly from source TypeScript files without going through `dist`.
+2. **Added package metadata** — `homepage`, `bugs`, `repository.directory`, and expanded `keywords` for better discoverability on npm.
+
 ## 6.2.0
 
 1. **Added `cli.helpText()`** — returns the formatted help string without printing it. Useful for embedding help in docs, testing output, or passing to other tools:
