@@ -1,7 +1,6 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
     "target": "ESNext",
     "resolveJsonModule": true,
     "esModuleInterop": true,
@@ -13,6 +12,6 @@
     "useUnknownInCatchVariables": false,
     "outDir": "dist"
   },
-  "include": ["src"],
+  "include": ["src", "test"],
   "exclude": ["**/node_modules", "**/.*/"]
 }

@@ -70,8 +70,9 @@ function createCli() {
   return cli;
 }
 
-function firstTextContent(result: { content: Array<{ type: string; text?: string }> }): string {
-  return result.content.find((entry) => entry.type === "text")?.text ?? "";
+function firstTextContent(result: Awaited<ReturnType<Client["callTool"]>>): string {
+  const content = "content" in result ? (result as { content: Array<{ type: string; text?: string }> }).content : [];
+  return content.find((entry) => entry.type === "text")?.text ?? "";
 }
 
 function expectCommandDescriptions(tools: Array<{ name: string; description?: string }>): void {
