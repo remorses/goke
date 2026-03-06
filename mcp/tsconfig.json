@@ -1,14 +1,17 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "rootDir": "src",
+    "outDir": "dist",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "target": "ESNext",
+    "lib": ["ESNext"],
     "declaration": true,
     "declarationMap": true,
+    "noEmit": false,
     "strict": true,
-    "esModuleInterop": true,
     "skipLibCheck": true,
-    "outDir": "dist"
+    "useUnknownInCatchVariables": false
   },
-  "include": ["src", "test"]
+  "include": ["src"]
 }

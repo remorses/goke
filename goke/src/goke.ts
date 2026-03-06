@@ -94,7 +94,7 @@ const ANSI_RE = /\x1B\[[0-9;]*m/g
 
 const visibleLength = (value: string) => value.replace(ANSI_RE, '').length
 
-const commandGreen = (value: string) => pc.bold(pc.greenBright(value))
+const commandGreen = (value: string) => pc.bold(pc.cyanBright(value))
 
 const optionBlue = (value: string) => pc.bold(pc.blueBright(value))
 

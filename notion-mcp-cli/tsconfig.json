@@ -1,17 +1,18 @@
 {
-  "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ESNext",
-    "resolveJsonModule": true,
-    "esModuleInterop": true,
-    "moduleResolution": "NodeNext",
+    "rootDir": "src",
+    "outDir": "dist",
     "module": "NodeNext",
-    "noEmit": false,
-    "skipLibCheck": true,
+    "moduleResolution": "NodeNext",
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "declaration": true,
     "declarationMap": true,
-    "useUnknownInCatchVariables": false,
-    "outDir": "dist"
+    "noEmit": false,
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "useUnknownInCatchVariables": false
   },
-  "include": ["src", "test"],
-  "exclude": ["**/node_modules", "**/.*/"]
+  "include": ["src"]
 }

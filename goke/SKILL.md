@@ -59,7 +59,7 @@ This works in Node.js and keeps the version in sync with `package.json` automati
 6. Use `z.enum()` for options constrained to a fixed set of values
 7. Write very detailed descriptions for commands and options — agents and users rely on `--help` output as documentation. Include what the option does, when to use it, and examples if relevant
 8. Add `.example()` to commands to show usage patterns in help output — use a `#` comment as the first line to explain the scenario
-9. Options without brackets are boolean flags (`--verbose` → `true`/`false`)
+9. Options without brackets are boolean flags — `undefined` when not passed, `true` when passed (`--verbose`), `false` when negated (`--no-verbose`). This three-state behavior lets you distinguish "user explicitly set" from "not provided"
 10. Kebab-case options are auto-camelCased in the parsed result (`--max-retries` → `options.maxRetries`)
 
 ## Schema-based options
@@ -177,7 +177,7 @@ Without a schema, all values stay as strings. `--port 3000` → `"3000"` (string
 | `[...files]` in command | Variadic (collects remaining args into array) |
 | `<value>` in option | Required value (error if missing) |
 | `[value]` in option | Optional value (`true` if flag present without value) |
-| no brackets in option | Boolean flag (`--verbose` → `true`) |
+| no brackets in option | Boolean flag (`undefined` if not passed, `true` if passed) |
 
 ## Commands
 
@@ -319,11 +319,27 @@ cli.example((bin) => `${bin} deploy --env production`)
 
 ## Boolean flags
 
-Options without brackets are boolean flags:
+Options without brackets are boolean flags. They default to `undefined` (not `false`), so you can distinguish between "not passed" and "explicitly set":
 
 ```ts
-.option('--verbose', 'Enable verbose output')     // --verbose → true
-.option('--no-cache', 'Disable caching')           // --no-cache → true (negated option)
+.option('--verbose', 'Enable verbose output')
+.option('--no-cache', 'Disable caching')
+```
+
+| Input | `options.verbose` | `options.cache` |
+|-------|-------------------|-----------------|
+| *(not passed)* | `undefined` | `undefined` |
+| `--verbose` | `true` | — |
+| `--no-verbose` | `false` | — |
+| `--no-cache` | — | `false` |
+
+This lets you apply defaults or merge configs only when the user didn't explicitly set a flag:
+
+```ts
+.action((options) => {
+  // undefined means "user didn't say" — apply your own default
+  const verbose = options.verbose ?? config.verbose ?? false
+})
 ```
 
 ## Dot-nested options

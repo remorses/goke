@@ -3,27 +3,50 @@
   "version": "0.0.7",
   "type": "module",
   "description": "CLI for Notion MCP with OAuth support",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/remorses/goke",
+    "directory": "notion-mcp-cli"
+  },
+  "homepage": "https://github.com/remorses/goke/tree/main/notion-mcp-cli",
+  "bugs": "https://github.com/remorses/goke/issues",
+  "keywords": [
+    "notion",
+    "mcp",
+    "cli",
+    "model-context-protocol"
+  ],
   "bin": {
     "notion-mcp-cli": "bin.js"
   },
   "main": "./dist/cli.js",
   "types": "./dist/cli.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "types": "./dist/cli.d.ts",
+      "default": "./dist/cli.js"
+    },
+    "./src": {
+      "types": "./src/cli.ts",
+      "default": "./src/cli.ts"
+    },
+    "./src/*": {
+      "types": "./src/*.ts",
+      "default": "./src/*.ts"
+    }
+  },
   "files": [
     "dist",
+    "src",
     "bin.js"
   ],
   "scripts": {
     "clean": "rm -rf dist",
     "build": "pnpm clean && tsc",
     "dev": "tsx src/cli.ts",
-    "watch": "tsc -w",
     "prepublishOnly": "pnpm build"
   },
-  "keywords": [
-    "notion",
-    "mcp",
-    "cli"
-  ],
   "author": "Tommaso De Rossi, morse <beats.by.morse@gmail.com>",
   "license": "MIT",
   "engines": {

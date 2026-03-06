@@ -1,18 +1,36 @@
 {
   "name": "@goke/mcp",
   "version": "0.0.7",
-  "description": "Dynamically generate CLI commands from MCP server tools",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "description": "Dynamically generate CLI commands from MCP server tools",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/remorses/goke",
+    "directory": "mcp"
+  },
+  "homepage": "https://github.com/remorses/goke/tree/main/mcp",
+  "bugs": "https://github.com/remorses/goke/issues",
+  "keywords": [
+    "mcp",
+    "cli",
+    "goke",
+    "model-context-protocol"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
+    "./package.json": "./package.json",
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "default": "./dist/index.js"
     },
-    "./src/index.js": {
+    "./src": {
       "types": "./src/index.ts",
-      "import": "./src/index.ts"
+      "default": "./src/index.ts"
+    },
+    "./src/*": {
+      "types": "./src/*.ts",
+      "default": "./src/*.ts"
     }
   },
   "files": [
@@ -21,16 +39,10 @@
   ],
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "pnpm clean && tsc -p tsconfig.build.json",
+    "build": "pnpm clean && tsc",
     "test": "vitest --run",
-    "watch": "tsc -w",
     "prepublishOnly": "pnpm build"
   },
-  "keywords": [
-    "mcp",
-    "cli",
-    "goke"
-  ],
   "author": "Tommaso De Rossi, morse <beats.by.morse@gmail.com>",
   "license": "MIT",
   "dependencies": {

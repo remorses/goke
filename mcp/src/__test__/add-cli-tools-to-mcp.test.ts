@@ -10,7 +10,7 @@ import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } fr
 import { goke, wrapJsonSchema } from "goke";
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
-import { addCliToolsToMcp } from "../src/cli-to-mcp.js";
+import { addCliToolsToMcp } from "../cli-to-mcp.js";
 
 function createCli() {
   const cli = goke("test-cli");
