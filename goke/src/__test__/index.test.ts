@@ -551,6 +551,47 @@ describe('regression: oracle-found issues', () => {
     expect(options.tag).toEqual(['foo', 'bar'])
   })
 
+  test('repeated optional value option without schema produces array', () => {
+    const cli = goke()
+
+    cli.option('--tag [tag]', 'Tags')
+
+    const { options } = cli.parse('node bin --tag foo --tag bar'.split(' '))
+    expect(options.tag).toEqual(['foo', 'bar'])
+  })
+
+  test('repeated alias option without schema produces array', () => {
+    const cli = goke()
+
+    cli.option('-t, --tag <tag>', 'Tags')
+
+    const { options } = cli.parse('node bin -t foo -t bar -t baz'.split(' '))
+    expect(options.tag).toEqual(['foo', 'bar', 'baz'])
+    expect(options.t).toEqual(['foo', 'bar', 'baz'])
+  })
+
+  test('repeated option without schema on subcommand produces array', () => {
+    const cli = goke()
+    let result: any = {}
+
+    cli
+      .command('build', 'Build')
+      .option('--exclude <path>', 'Paths to exclude')
+      .action((options) => { result = options })
+
+    cli.parse('node bin build --exclude node_modules --exclude dist --exclude .git'.split(' '), { run: true })
+    expect(result.exclude).toEqual(['node_modules', 'dist', '.git'])
+  })
+
+  test('single value without schema stays as string (not wrapped in array)', () => {
+    const cli = goke()
+
+    cli.option('--tag <tag>', 'Tags')
+
+    const { options } = cli.parse('node bin --tag foo'.split(' '))
+    expect(options.tag).toBe('foo')
+  })
+
   test('const null coercion works', () => {
     expect(coerceBySchema('', { const: null }, 'val')).toBe(null)
   })
