@@ -206,6 +206,11 @@ const getFileName = (input: string) => {
   return m ? m[1] : ''
 }
 
+const isPromiseLike = (value: unknown): value is PromiseLike<unknown> =>
+  value != null
+  && (typeof value === 'object' || typeof value === 'function')
+  && typeof (value as any).then === 'function'
+
 const camelcaseOptionName = (name: string) => {
   // Camelcase the option name
   // Don't camelcase anything after the dot `.`
@@ -373,7 +378,7 @@ class Command {
     public rawName: string,
     public description: string,
     public config: CommandConfig = {},
-    public cli: Goke
+    public cli: Goke<any>
   ) {
     this.options = []
     this.aliasNames = []
@@ -750,7 +755,7 @@ class Command {
 }
 
 class GlobalCommand extends Command {
-  constructor(cli: Goke) {
+  constructor(cli: Goke<any>) {
     super('@@global@@', '', {}, cli)
   }
 }
@@ -841,10 +846,12 @@ interface ParsedArgv {
   }
 }
 
-class Goke extends EventEmitter {
+class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
   /** The program name to display in help and version message */
   name: string
   commands: Command[]
+  /** Middleware functions that run before the matched command action, in registration order */
+  middlewares: Array<{ action: (options: any) => void | Promise<void> }>
   globalCommand: GlobalCommand
   matchedCommand?: Command
   matchedCommandName?: string
@@ -885,6 +892,7 @@ class Goke extends EventEmitter {
     super()
     this.name = name
     this.commands = []
+    this.middlewares = []
     this.rawArgs = []
     this.args = []
     this.options = {}
@@ -922,9 +930,43 @@ class Goke extends EventEmitter {
    * Add a global CLI option.
    *
    * Which is also applied to sub-commands.
+   *
+   * When a StandardJSONSchemaV1 schema is provided, the return type is narrowed
+   * to include the inferred option type — enabling type-safe `.use()` callbacks.
    */
-  option(rawName: string, descriptionOrSchema?: string | StandardJSONSchemaV1) {
+  option<
+    RawName extends string,
+    S extends StandardJSONSchemaV1
+  >(rawName: RawName, schema: S): Goke<Opts & OptionEntry<RawName, S>>
+  option(rawName: string, descriptionOrSchema?: string | StandardJSONSchemaV1): this
+  option(rawName: string, descriptionOrSchema?: string | StandardJSONSchemaV1): any {
     this.globalCommand.option(rawName, descriptionOrSchema as any)
+    return this
+  }
+
+  /**
+   * Register a middleware function that runs before the matched command action.
+   *
+   * Middleware runs in registration order, after option parsing and validation,
+   * but before the command's `.action()` callback. Useful for reacting to global
+   * options (e.g. setting up logging, initializing state).
+   *
+   * The callback receives the parsed options object, typed according to all
+   * `.option()` calls that precede this `.use()` in the chain.
+   *
+   * @example
+   * ```ts
+   * cli
+   *   .option('--verbose', z.boolean().default(false).describe('Verbose'))
+   *   .use((options) => {
+   *     if (options.verbose) {
+   *       process.env.LOG_LEVEL = 'debug'
+   *     }
+   *   })
+   * ```
+   */
+  use(callback: (options: Opts) => void | Promise<void>): this {
+    this.middlewares.push({ action: callback })
     return this
   }
 
@@ -1353,18 +1395,45 @@ class Goke extends EventEmitter {
     })
     actionArgs.push(options)
 
-    const result = command.commandAction.apply(this, actionArgs)
+    const executeAction = () => command.commandAction!.apply(this, actionArgs)
 
-    // If the action returns a promise, catch async errors
-    if (result && typeof result === 'object' && typeof result.catch === 'function') {
-      result.catch((err: unknown) => {
-        if (err instanceof Error) {
-          this.handleCliError(err)
-        } else {
-          this.console.error(`${pc.red(pc.bold('error:'))} ${String(err)}`)
+    const handleAsyncError = (err: unknown) => {
+      if (err instanceof Error) {
+        this.handleCliError(err)
+      } else {
+        this.console.error(`${pc.red(pc.bold('error:'))} ${String(err)}`)
+      }
+      this.exit(1)
+    }
+
+    // Run middleware in registration order, then the command action.
+    // If any middleware returns a promise, the rest of the chain
+    // (remaining middleware + command action) becomes async.
+    let asyncChain: Promise<any> | null = null
+
+    for (const mw of this.middlewares) {
+      if (asyncChain) {
+        asyncChain = asyncChain.then(() => mw.action(options))
+      } else {
+        try {
+          const mwResult = mw.action(options)
+          if (isPromiseLike(mwResult)) {
+            asyncChain = mwResult as Promise<any>
+          }
+        } catch (err) {
+          handleAsyncError(err)
+          return
         }
-        this.exit(1)
-      })
+      }
+    }
+
+    const result = asyncChain
+      ? asyncChain.then(executeAction)
+      : executeAction()
+
+    // If the result is a promise, catch async errors
+    if (isPromiseLike(result)) {
+      (result as Promise<any>).catch(handleAsyncError)
     }
 
     return result

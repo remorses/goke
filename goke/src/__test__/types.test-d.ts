@@ -6,7 +6,8 @@
  * These use expectTypeOf from vitest for compile-time type assertions.
  */
 import { describe, test, expectTypeOf } from 'vitest'
-import type { StandardTypedV1 } from '../coerce.js'
+import type { StandardTypedV1, StandardJSONSchemaV1 } from '../coerce.js'
+import goke from '../index.js'
 
 // ─── Import type helpers from Command.ts ───
 // We can't import the private types directly, so we reconstruct them here
@@ -107,5 +108,50 @@ describe('type-level: CamelCase', () => {
 
   test('single char segments', () => {
     expectTypeOf<CamelCase<'a-b-c'>>().toEqualTypeOf<'aBC'>()
+  })
+})
+
+describe('type-level: middleware use() callback inference', () => {
+  test('use() callback receives accumulated option types', () => {
+    const schema1 = {} as StandardJSONSchemaV1<unknown, number>
+    const schema2 = {} as StandardJSONSchemaV1<unknown, string>
+
+    goke('test')
+      .option('--port <port>', schema1)
+      .option('--host <host>', schema2)
+      .use((options) => {
+        expectTypeOf(options.port).toEqualTypeOf<number>()
+        expectTypeOf(options.host).toEqualTypeOf<string>()
+      })
+  })
+
+  test('use() only sees options declared before it', () => {
+    const schema1 = {} as StandardJSONSchemaV1<unknown, boolean>
+    const schema2 = {} as StandardJSONSchemaV1<unknown, number>
+
+    goke('test')
+      .option('--verbose', schema1)
+      .use((options) => {
+        expectTypeOf(options.verbose).toEqualTypeOf<boolean | undefined>()
+        // @ts-expect-error port is not declared yet
+        options.port
+      })
+      .option('--port <port>', schema2)
+      .use((options) => {
+        // Now both are visible
+        expectTypeOf(options.verbose).toEqualTypeOf<boolean | undefined>()
+        expectTypeOf(options.port).toEqualTypeOf<number>()
+      })
+  })
+
+  test('accessing a non-existent option is a type error', () => {
+    const schema = {} as StandardJSONSchemaV1<unknown, number>
+
+    goke('test')
+      .option('--port <port>', schema)
+      .use((options) => {
+        // @ts-expect-error nonExistent was never defined
+        options.nonExistent
+      })
   })
 })

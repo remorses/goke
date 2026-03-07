@@ -1,5 +1,33 @@
 # goke
 
+## 6.3.0
+
+1. **Added `cli.use()` middleware** — register functions that run before any command action, after option parsing. Useful for reacting to global options (setting up logging, initializing clients, configuring services):
+   ```ts
+   cli
+     .option('--verbose', z.boolean().default(false).describe('Enable verbose logging'))
+     .use((options) => {
+       if (options.verbose) process.env.LOG_LEVEL = 'debug'
+     })
+   ```
+
+2. **Type-safe middleware callbacks** — `.use()` receives options typed from all `.option()` calls preceding it in the chain. Accessing an option not yet declared is a TypeScript error. Multiple middleware run in registration order:
+   ```ts
+   cli
+     .option('--token <token>', z.string().describe('API token'))
+     .use((options) => {
+       options.token   // string — typed
+       options.port    // TypeScript error — not declared yet
+     })
+     .option('--port <port>', z.number().describe('Port'))
+     .use((options) => {
+       options.token   // string
+       options.port    // number
+     })
+   ```
+
+3. **Async middleware supported** — if middleware returns a promise, the chain awaits it before proceeding to the next middleware or command action.
+
 ## 6.2.3
 
 1. **Added `./src` and `./src/*` exports** — import directly from source TypeScript files without going through `dist`.

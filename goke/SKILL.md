@@ -14,7 +14,7 @@ version: 0.0.1
 
 Zero-dependency, type-safe CLI framework for TypeScript. A CAC replacement with Standard Schema support.
 
-4 core APIs: `cli.option`, `cli.version`, `cli.help`, `cli.parse`.
+5 core APIs: `cli.option`, `cli.use`, `cli.version`, `cli.help`, `cli.parse`.
 
 ```ts
 import { goke } from 'goke'
@@ -61,6 +61,8 @@ This works in Node.js and keeps the version in sync with `package.json` automati
 8. Add `.example()` to commands to show usage patterns in help output — use a `#` comment as the first line to explain the scenario
 9. Options without brackets are boolean flags — `undefined` when not passed, `true` when passed (`--verbose`), `false` when negated (`--no-verbose`). This three-state behavior lets you distinguish "user explicitly set" from "not provided"
 10. Kebab-case options are auto-camelCased in the parsed result (`--max-retries` → `options.maxRetries`)
+11. Use `.use()` for middleware that reacts to global options (logging setup, auth, state init) — it runs before any command action
+12. Place `.use()` after the `.option()` calls it depends on — type safety is positional in the chain
 
 ## Schema-based options
 
@@ -178,6 +180,57 @@ Without a schema, all values stay as strings. `--port 3000` → `"3000"` (string
 | `<value>` in option | Required value (error if missing) |
 | `[value]` in option | Optional value (`true` if flag present without value) |
 | no brackets in option | Boolean flag (`undefined` if not passed, `true` if passed) |
+
+## Global Options and Middleware
+
+Global options apply to all commands. Use `.use()` to register middleware that runs before any command action — for reacting to global options (logging, state init, auth).
+
+```ts
+const cli = goke('mycli')
+
+cli
+  .option('--verbose', z.boolean().default(false).describe('Enable verbose logging'))
+  .option('--api-url [url]', z.string().default('https://api.example.com').describe('API base URL'))
+  .use((options) => {
+    // options.verbose: boolean, options.apiUrl: string — fully typed
+    if (options.verbose) {
+      process.env.LOG_LEVEL = 'debug'
+    }
+  })
+
+cli
+  .command('deploy <env>', 'Deploy to environment')
+  .action((env, options) => {
+    // options includes global options (verbose, apiUrl) + command options
+    console.log(`Deploying to ${env} via ${options.apiUrl}`)
+  })
+```
+
+Middleware runs in registration order, after parsing/validation, before the command action. Type safety is positional — each `.use()` only sees options declared before it in the chain:
+
+```ts
+cli
+  .option('--verbose', z.boolean().default(false).describe('Verbose'))
+  .use((options) => {
+    options.verbose  // boolean — typed
+    options.port     // TypeScript error — not declared yet
+  })
+  .option('--port <port>', z.number().describe('Port'))
+  .use((options) => {
+    options.verbose  // boolean — still visible
+    options.port     // number — now visible
+  })
+```
+
+Async middleware is supported — the chain awaits each middleware before proceeding:
+
+```ts
+cli
+  .option('--token <token>', z.string().describe('API token'))
+  .use(async (options) => {
+    globalState.client = await connectToApi(options.token)
+  })
+```
 
 ## Commands
 

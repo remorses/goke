@@ -1874,3 +1874,238 @@ describe('helpText()', () => {
     expect(text).toContain('--coverage')
   })
 })
+
+describe('middleware', () => {
+  test('middleware runs before command action', () => {
+    const cli = goke('mycli')
+    const order: string[] = []
+
+    cli
+      .option('--verbose', 'Verbose')
+      .use(() => {
+        order.push('middleware')
+      })
+
+    cli
+      .command('build', 'Build')
+      .action(() => {
+        order.push('action')
+      })
+
+    cli.parse(['node', 'bin', 'build'], { run: true })
+    expect(order).toEqual(['middleware', 'action'])
+  })
+
+  test('multiple middleware run in registration order', () => {
+    const cli = goke('mycli')
+    const order: string[] = []
+
+    cli
+      .use(() => { order.push('mw1') })
+      .use(() => { order.push('mw2') })
+      .use(() => { order.push('mw3') })
+
+    cli
+      .command('deploy', 'Deploy')
+      .action(() => { order.push('action') })
+
+    cli.parse(['node', 'bin', 'deploy'], { run: true })
+    expect(order).toEqual(['mw1', 'mw2', 'mw3', 'action'])
+  })
+
+  test('middleware receives parsed global options', () => {
+    const cli = goke('mycli')
+    let received: any = null
+
+    cli
+      .option('--verbose', 'Verbose')
+      .use((options) => {
+        received = { ...options }
+      })
+
+    cli
+      .command('build', 'Build')
+      .action(() => {})
+
+    cli.parse(['node', 'bin', 'build', '--verbose'], { run: true })
+    expect(received.verbose).toBe(true)
+  })
+
+  test('middleware receives schema-coerced global options', () => {
+    const cli = goke('mycli')
+    let received: any = null
+
+    cli
+      .option('--port <port>', z.number().describe('Port'))
+      .use((options) => {
+        received = { ...options }
+      })
+
+    cli
+      .command('serve', 'Serve')
+      .action(() => {})
+
+    cli.parse(['node', 'bin', 'serve', '--port', '3000'], { run: true })
+    expect(received.port).toBe(3000)
+    expect(typeof received.port).toBe('number')
+  })
+
+  test('async middleware awaited before command action', async () => {
+    const cli = goke('mycli')
+    const order: string[] = []
+
+    cli.use(async () => {
+      await new Promise((r) => setTimeout(r, 10))
+      order.push('async-mw')
+    })
+
+    cli
+      .command('run', 'Run')
+      .action(() => { order.push('action') })
+
+    cli.parse(['node', 'bin', 'run'], { run: true })
+
+    // Wait for async chain to complete
+    await new Promise((r) => setTimeout(r, 50))
+    expect(order).toEqual(['async-mw', 'action'])
+  })
+
+  test('async middleware error is caught and formatted', async () => {
+    const stderr = createTestOutputStream()
+    let exitCode: number | undefined
+    const cli = goke('mycli', { stderr, exit: (code) => { exitCode = code } })
+
+    cli.use(async () => {
+      throw new Error('middleware failed')
+    })
+
+    cli
+      .command('deploy', 'Deploy')
+      .action(() => {})
+
+    cli.parse(['node', 'bin', 'deploy'], { run: true })
+
+    await new Promise((r) => setTimeout(r, 10))
+    expect(exitCode).toBe(1)
+    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: middleware failed"`)
+  })
+
+  test('middleware does not run with { run: false }', () => {
+    const cli = goke('mycli')
+    let middlewareCalled = false
+
+    cli.use(() => { middlewareCalled = true })
+
+    cli
+      .command('build', 'Build')
+      .action(() => {})
+
+    cli.parse(['node', 'bin', 'build'], { run: false })
+    expect(middlewareCalled).toBe(false)
+  })
+
+  test('middleware does not run for help', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout })
+    let middlewareCalled = false
+
+    cli.use(() => { middlewareCalled = true })
+    cli.help()
+
+    cli
+      .command('build', 'Build')
+      .action(() => {})
+
+    cli.parse(['node', 'bin', '--help'], { run: true })
+    expect(middlewareCalled).toBe(false)
+  })
+
+  test('middleware does not run when no command matched', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout })
+    let middlewareCalled = false
+
+    cli.use(() => { middlewareCalled = true })
+    cli.help()
+
+    cli
+      .command('build', 'Build')
+      .action(() => {})
+
+    cli.parse(['node', 'bin', 'nonexistent'], { run: true })
+    expect(middlewareCalled).toBe(false)
+  })
+
+  test('middleware runs for default command', () => {
+    const cli = goke('mycli')
+    const order: string[] = []
+
+    cli.use(() => { order.push('mw') })
+
+    cli
+      .command('', 'Default')
+      .action(() => { order.push('action') })
+
+    cli.parse(['node', 'bin'], { run: true })
+    expect(order).toEqual(['mw', 'action'])
+  })
+
+  test('sync middleware error is caught and formatted', () => {
+    const stderr = createTestOutputStream()
+    let exitCode: number | undefined
+    const cli = goke('mycli', { stderr, exit: (code) => { exitCode = code } })
+
+    cli.use(() => {
+      throw new Error('middleware exploded')
+    })
+
+    cli
+      .command('deploy', 'Deploy')
+      .action(() => {})
+
+    cli.parse(['node', 'bin', 'deploy'], { run: true })
+
+    expect(exitCode).toBe(1)
+    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: middleware exploded"`)
+  })
+
+  test('sync middleware error short-circuits command action', () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+    let actionCalled = false
+
+    cli.use(() => {
+      throw new Error('abort')
+    })
+
+    cli
+      .command('build', 'Build')
+      .action(() => { actionCalled = true })
+
+    cli.parse(['node', 'bin', 'build'], { run: true })
+
+    expect(actionCalled).toBe(false)
+  })
+
+  test('mixed sync and async middleware chain correctly', async () => {
+    const cli = goke('mycli')
+    const order: string[] = []
+
+    cli
+      .use(() => { order.push('sync1') })
+      .use(async () => {
+        await new Promise((r) => setTimeout(r, 10))
+        order.push('async')
+      })
+      .use(() => { order.push('sync2') })
+
+    cli
+      .command('run', 'Run')
+      .action(() => { order.push('action') })
+
+    cli.parse(['node', 'bin', 'run'], { run: true })
+
+    await new Promise((r) => setTimeout(r, 50))
+    expect(order).toEqual(['sync1', 'async', 'sync2', 'action'])
+  })
+})

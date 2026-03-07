@@ -11,10 +11,11 @@
 ## Features
 
 - **Super light-weight**: No dependency, just a single file.
-- **Easy to learn**. There are only 4 APIs you need to learn for building simple CLIs: `cli.option` `cli.version` `cli.help` `cli.parse`.
+- **Easy to learn**. There are only 5 APIs you need to learn for building simple CLIs: `cli.option` `cli.use` `cli.version` `cli.help` `cli.parse`.
 - **Yet so powerful**. Enable features like default command, git-like subcommands, validation for required arguments and options, variadic arguments, dot-nested options, automated help message generation and so on.
 - **Space-separated subcommands**: Support multi-word commands like `mcp login`, `git remote add`.
 - **Schema-based type coercion**: Use Zod, Valibot, ArkType, or plain JSON Schema for automatic type coercion and TypeScript type inference. Description and default values are extracted from the schema automatically.
+- **Type-safe middleware**: Register `.use()` callbacks that run before commands with full type inference from global options.
 - **Developer friendly**. Written in TypeScript.
 
 ## Install
@@ -346,6 +347,73 @@ deploy logs abc123 --follow     # subcommand with args + options
 deploy --help                   # shows all commands
 ```
 
+### Global Options and Middleware
+
+Global options are defined on the CLI instance and apply to all commands. Use `.use()` to register middleware that runs before any command action — useful for reacting to global options like setting up logging, initializing state, or configuring services.
+
+Middleware runs in registration order, after option parsing and validation, but before the matched command's `.action()` callback.
+
+```ts
+import { goke } from 'goke'
+import { z } from 'zod'
+
+const cli = goke('mycli')
+
+cli
+  .option('--verbose', z.boolean().default(false).describe('Enable verbose logging'))
+  .option('--api-url [url]', z.string().default('https://api.example.com').describe('API base URL'))
+  .use((options) => {
+    // options.verbose and options.apiUrl are fully typed here
+    if (options.verbose) {
+      process.env.LOG_LEVEL = 'debug'
+    }
+  })
+
+cli
+  .command('deploy <env>', 'Deploy to an environment')
+  .option('--dry-run', 'Preview without deploying')
+  .action((env, options) => {
+    // options includes both command options (dryRun) and global options (verbose, apiUrl)
+    console.log(`Deploying to ${env} via ${options.apiUrl}`)
+  })
+
+cli
+  .command('status', 'Show deployment status')
+  .action((options) => {
+    console.log('Checking status...')
+  })
+
+cli.help()
+cli.parse()
+```
+
+Type safety is positional — each `.use()` callback only sees options declared before it in the chain:
+
+```ts
+cli
+  .option('--verbose', z.boolean().default(false).describe('Verbose'))
+  .use((options) => {
+    options.verbose   // boolean — typed
+    options.port      // TypeScript error — not declared yet
+  })
+  .option('--port <port>', z.number().describe('Port'))
+  .use((options) => {
+    options.verbose   // boolean — still visible
+    options.port      // number — now visible
+  })
+```
+
+Middleware supports async functions. If any middleware is async, the remaining middleware and command action are chained as promises:
+
+```ts
+cli
+  .option('--token <token>', z.string().describe('API token'))
+  .use(async (options) => {
+    const client = await connectToApi(options.token)
+    globalState.client = client
+  })
+```
+
 ### Command-specific Options
 
 You can attach options to a command.
@@ -629,6 +697,12 @@ Add a global option. The second argument is either:
 
 - A **string** used as the description text
 - A **Standard Schema** (e.g. `z.number().describe('Port')`) — description and default are extracted from the schema automatically
+
+#### cli.use(callback)
+
+- Type: `(callback: (options: Opts) => void | Promise<void>) => CLI`
+
+Register a middleware function that runs before the matched command action. Middleware runs in registration order, after option parsing and validation. The callback receives the parsed global options, typed according to all `.option()` calls that precede the `.use()` in the chain.
 
 #### cli.parse(argv?)
 
