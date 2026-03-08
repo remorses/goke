@@ -471,9 +471,11 @@ const cli = goke('mycli', {
 })
 ```
 
-## @goke/mcp — turn MCP servers into CLIs
+## @goke/mcp — MCP ↔ CLI bridge
 
-`@goke/mcp` auto-discovers tools from an MCP server and registers them as CLI commands with typed options from JSON Schema:
+### MCP server → CLI
+
+`addMcpCommands` auto-discovers tools from an MCP server and registers them as CLI commands with typed options from JSON Schema:
 
 ```ts
 import { goke } from 'goke'
@@ -498,6 +500,43 @@ cli.parse()
 ```
 
 Tools are cached for 1 hour. OAuth is lazy — triggered only on 401 errors.
+
+### CLI → MCP server
+
+`createMcpAction` turns a CLI into a stdio MCP server. Every command becomes an MCP tool. The MCP command itself is auto-excluded from the tool list.
+
+```ts
+import { goke } from 'goke'
+import { z } from 'zod'
+import { createMcpAction } from '@goke/mcp'
+
+const cli = goke('mycli')
+
+cli
+  .command('search', 'Search pages')
+  .option('--query <query>', z.string().describe('Search query'))
+  .action((options) => findPages(options.query))
+
+cli.command('mcp', 'Start MCP server over stdio')
+  .action(createMcpAction({ cli }))
+
+cli.help()
+cli.parse()
+```
+
+Options: `commandFilter`, `sanitizeToolName`, `serverName`, `serverVersion`, `createTransport`.
+
+### Installing an MCP server in clients
+
+Users can install any CLI that exposes an `mcp` command using [@playwriter/install-mcp](https://github.com/nicepkg/install-mcp) — a cross-platform tool that handles config file locations for every major MCP client:
+
+```bash
+npx @playwriter/install-mcp mycli --client claude-desktop
+npx @playwriter/install-mcp mycli --client cursor
+npx @playwriter/install-mcp mycli --client vscode
+```
+
+Supports `claude-desktop`, `cursor`, `vscode`, `windsurf`, `claude-code`, `opencode`, `zed`, `goose`, `cline`, `codex`, `gemini-cli`, and more. For custom arguments: `npx @playwriter/install-mcp 'npx mycli mcp' --client cursor`.
 
 ## Complete example
 

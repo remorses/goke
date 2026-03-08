@@ -62,60 +62,114 @@ notion-mcp-cli notion-retrieve-page --page_id "abc123"
 notion-mcp-cli notion-list-users
 ```
 
-## Turn a goke CLI into an MCP server
+## Expose a CLI as an MCP server
 
-`addCliToolsToMcp()` does the inverse mapping: every CLI command becomes an MCP tool.
-
-- Command description → MCP tool description
-- Option schema (Zod or any Standard Schema library) → MCP `inputSchema` JSON Schema
-- Command names are sanitized into valid MCP tool names (invalid characters become `_`)
-- Composable with existing MCP tools already registered on the same server
-
-### With low-level `Server`
+`createMcpAction()` turns your entire CLI into a stdio MCP server with one line. Every CLI command becomes an MCP tool automatically. The command you attach it to is excluded from the tool list.
 
 ```ts
 import { goke } from "goke"
 import { z } from "zod"
-import { Server } from "@modelcontextprotocol/sdk/server/index.js"
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
-import { addCliToolsToMcp } from "@goke/mcp"
+import { createMcpAction } from "@goke/mcp"
 
 const cli = goke("my-cli")
 
 cli
-  .command("notion search", "Search Notion pages")
+  .command("search", "Search pages")
   .option("--query <query>", z.string().describe("Search query"))
-  .action((options) => ({ query: options.query }))
+  .option("--limit [limit]", z.number().default(10).describe("Max results"))
+  .action((options) => {
+    return { results: findPages(options.query, options.limit) }
+  })
+
+cli
+  .command("deploy <env>", "Deploy to environment")
+  .option("--dry-run", z.boolean().default(false).describe("Simulate"))
+  .action((env, options) => {
+    return options.dryRun ? `would deploy to ${env}` : deploy(env)
+  })
+
+// Add MCP support — runs a stdio MCP server when the user invokes `my-cli mcp`
+cli.command("mcp", "Start MCP server over stdio")
+  .action(createMcpAction({ cli }))
+
+cli.help()
+cli.parse()
+```
+
+Now users can use your CLI directly **or** connect it as an MCP server:
+
+```bash
+# Use as a normal CLI
+my-cli search --query "meeting notes"
+my-cli deploy staging --dry-run
+
+# Use as an MCP server (e.g. from Claude Desktop, Cursor, etc.)
+my-cli mcp
+```
+
+When running as MCP, the server exposes `search` and `deploy` as tools. The `mcp` command itself is excluded. Options with Zod schemas (or any Standard Schema) become typed `inputSchema` properties in the MCP tool definition.
+
+### Installing the MCP server in clients
+
+Users can install your CLI as an MCP server in any client using [`@playwriter/install-mcp`](https://github.com/nicepkg/install-mcp) — a cross-platform tool that handles config file locations for every major MCP client:
+
+```bash
+# Install in Claude Desktop
+npx @playwriter/install-mcp my-cli --client claude-desktop
+
+# Install in Cursor
+npx @playwriter/install-mcp my-cli --client cursor
+
+# Install in VS Code
+npx @playwriter/install-mcp my-cli --client vscode
+```
+
+This works with any client: `claude-desktop`, `cursor`, `vscode`, `windsurf`, `claude-code`, `opencode`, `zed`, `goose`, `cline`, `codex`, `gemini-cli`, and [more](https://github.com/supermemoryai/install-mcp#supported-clients). If the command needs custom arguments, pass the full command string:
+
+```bash
+npx @playwriter/install-mcp 'npx my-cli mcp' --client cursor
+```
+
+`createMcpAction` accepts the same filtering options as `addCliToolsToMcp`:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `cli` | `Goke` | **required** | The CLI instance to expose |
+| `commandFilter` | `(name) => boolean` | — | Additional filter (MCP command is always excluded) |
+| `sanitizeToolName` | `(name) => string` | — | Custom tool name sanitizer |
+| `serverName` | `string` | CLI name | MCP server name |
+| `serverVersion` | `string` | `'1.0.0'` | MCP server version |
+| `createTransport` | `() => Transport` | stdio | Custom transport factory |
+
+### Advanced: `addCliToolsToMcp`
+
+For more control (composing with existing MCP tools, using a custom server), use `addCliToolsToMcp()` directly:
+
+```ts
+import { Server } from "@modelcontextprotocol/sdk/server/index.js"
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
+import { addCliToolsToMcp } from "@goke/mcp"
 
 const server = new Server(
   { name: "my-cli-mcp", version: "1.0.0" },
   { capabilities: {} },
 )
 
+// Mount CLI commands as tools alongside your own
 addCliToolsToMcp({ cli, server })
 
 const transport = new StdioServerTransport()
 await server.connect(transport)
 ```
 
-Run it with Node:
-
-```bash
-node dist/server.js
-```
-
-### With high-level `McpServer`
+Also works with the high-level `McpServer`:
 
 ```ts
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
-import { addCliToolsToMcp } from "@goke/mcp"
 
 const mcp = new McpServer({ name: "my-cli-mcp", version: "1.0.0" })
+mcp.tool("custom-tool", "A tool defined directly", async () => ({ ... }))
 addCliToolsToMcp({ cli, server: mcp })
-
-const transport = new StdioServerTransport()
-await mcp.connect(transport)
 ```
 
 ## Full example (with config persistence)
@@ -220,13 +274,14 @@ Registers MCP tool commands on a goke CLI instance.
 ### Exports
 
 ```ts
-// Main function
+// MCP server → CLI (consume MCP tools as CLI commands)
 export { addMcpCommands } from '@goke/mcp'
-
-// Types
-export type { AddMcpCommandsOptions } from '@goke/mcp'
-export type { CachedMcpTools } from '@goke/mcp'
+export type { AddMcpCommandsOptions, CachedMcpTools } from '@goke/mcp'
 export type { McpOAuthConfig, McpOAuthState } from '@goke/mcp'
+
+// CLI → MCP server (expose CLI commands as MCP tools)
+export { createMcpAction, addCliToolsToMcp } from '@goke/mcp'
+export type { CreateMcpActionOptions, AddCliToolsToMcpOptions } from '@goke/mcp'
 ```
 
 ## OAuth flow
