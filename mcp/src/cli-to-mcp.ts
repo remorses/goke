@@ -7,6 +7,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   CallToolRequestSchema,
   ErrorCode,
@@ -454,6 +455,73 @@ function getOrInstallState(server: Server): CliToMcpState {
   });
 
   return state;
+}
+
+export interface CreateMcpActionOptions {
+  /** The CLI instance whose commands will be exposed as MCP tools */
+  cli: Goke;
+  /** Additional filter for which commands to expose. The MCP command itself is always excluded. */
+  commandFilter?: (commandName: string) => boolean;
+  /** Custom tool name sanitizer */
+  sanitizeToolName?: (commandName: string) => string;
+  /** MCP server name. Defaults to the CLI name or 'cli-mcp-server' */
+  serverName?: string;
+  /** MCP server version. Defaults to '1.0.0' */
+  serverVersion?: string;
+  /** Custom transport factory. Defaults to StdioServerTransport (stdin/stdout). */
+  createTransport?: () => Transport | Promise<Transport>;
+}
+
+/**
+ * Create a goke action callback that starts an MCP server over stdio.
+ *
+ * Exposes all CLI commands as MCP tools, automatically excluding the
+ * command this action is attached to.
+ *
+ * @example
+ * ```ts
+ * cli.command('mcp', 'Start MCP server over stdio')
+ *   .action(createMcpAction({ cli }))
+ * ```
+ */
+export function createMcpAction(options: CreateMcpActionOptions): (...args: any[]) => Promise<void> {
+  const { cli, commandFilter: userFilter, sanitizeToolName, serverName, serverVersion, createTransport } = options;
+
+  return async () => {
+    // At call time, goke has already matched the command and set matchedCommandName.
+    // We use it to auto-exclude the MCP command itself from the tool list.
+    const mcpCommandName = cli.matchedCommandName;
+
+    const { Server: ServerClass } = await import("@modelcontextprotocol/sdk/server/index.js");
+
+    const server = new ServerClass(
+      {
+        name: serverName || cli.name || "cli-mcp-server",
+        version: serverVersion || "1.0.0",
+      },
+      { capabilities: {} },
+    );
+
+    addCliToolsToMcp({
+      cli,
+      server,
+      commandFilter: (name) => {
+        if (mcpCommandName && name === mcpCommandName) return false;
+        return userFilter ? userFilter(name) : true;
+      },
+      sanitizeToolName,
+    });
+
+    let transport: Transport;
+    if (createTransport) {
+      transport = await createTransport();
+    } else {
+      const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
+      transport = new StdioServerTransport();
+    }
+
+    await server.connect(transport);
+  };
 }
 
 export function addCliToolsToMcp(options: AddCliToolsToMcpOptions): void {
