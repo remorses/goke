@@ -1,5 +1,31 @@
 # @goke/mcp
 
+## 0.0.9
+
+1. **New `createMcpAction()`** — turn any goke CLI into a stdio MCP server with one line. Add a command to your CLI and every other command is automatically exposed as an MCP tool:
+
+   ```ts
+   import { createMcpAction } from '@goke/mcp'
+
+   const cli = goke('my-cli')
+
+   cli.command('search', 'Search pages')
+     .option('--query <query>', z.string().describe('Search query'))
+     .action((options) => findPages(options.query))
+
+   // Running `my-cli mcp` starts a stdio MCP server
+   cli.command('mcp', 'Start MCP server over stdio')
+     .action(createMcpAction({ cli }))
+   ```
+
+   The `mcp` command itself is automatically excluded from the tool list. Options with Zod schemas (or any Standard Schema) become typed `inputSchema` properties. Accepts the same filtering options as `addCliToolsToMcp`: `commandFilter`, `sanitizeToolName`, `serverName`, `serverVersion`, and `createTransport` for custom transports.
+
+   Install it in any MCP client with [`@playwriter/install-mcp`](https://github.com/nicepkg/install-mcp):
+   ```bash
+   npx @playwriter/install-mcp my-cli --client claude-desktop
+   npx @playwriter/install-mcp my-cli --client cursor
+   ```
+
 ## 0.0.8
 
 1. **Added `./src` and `./src/*` exports** — import directly from source TypeScript files without going through `dist`.
