@@ -1,5 +1,15 @@
 # goke
 
+## 6.3.1
+
+1. **Added `openInBrowser(url)`** — opens a URL in the default browser. In non-TTY environments (CI, piped output, agents), prints the URL to stderr instead of opening a browser:
+   ```ts
+   import { openInBrowser } from 'goke'
+
+   openInBrowser('https://example.com/dashboard')
+   ```
+   Use this after generating URLs (OAuth callbacks, dashboards, auth flows) so interactive users get a browser tab while non-interactive environments get a printable URL.
+
 ## 6.3.0
 
 1. **Added `cli.use()` middleware** — register functions that run before any command action, after option parsing. Useful for reacting to global options (setting up logging, initializing clients, configuring services):

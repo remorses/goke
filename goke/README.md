@@ -665,6 +665,16 @@ cli
   })
 ```
 
+### Open in Browser
+
+`openInBrowser` opens a URL in the default browser. In non-TTY environments (CI, piped output, agents), it prints the URL to stdout instead.
+
+```ts
+import { openInBrowser } from 'goke'
+
+openInBrowser('https://example.com/dashboard')
+```
+
 ## References
 
 ### CLI Instance

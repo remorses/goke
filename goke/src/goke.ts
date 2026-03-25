@@ -1440,8 +1440,35 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
   }
 }
 
+// ─── openInBrowser ───
+
+/**
+ * Open a URL in the default browser.
+ * In non-TTY environments (CI, piped output, agents), prints the URL to stdout instead.
+ */
+function openInBrowser(url: string): void {
+  if (!process.stdout.isTTY) {
+    console.error(url)
+    return
+  }
+  const { execSync } = require('child_process') as typeof import('child_process')
+  const platform = process.platform
+  try {
+    if (platform === 'darwin') {
+      execSync(`open ${JSON.stringify(url)}`, { stdio: 'ignore' })
+    } else if (platform === 'win32') {
+      execSync(`start "" ${JSON.stringify(url)}`, { stdio: 'ignore' })
+    } else {
+      execSync(`xdg-open ${JSON.stringify(url)}`, { stdio: 'ignore' })
+    }
+  } catch {
+    // fallback: print the URL if open fails
+    console.error(url)
+  }
+}
+
 // ─── Exports ───
 
 export type { GokeOutputStream, GokeConsole, GokeOptions }
-export { createConsole, Command }
+export { createConsole, Command, openInBrowser }
 export default Goke
