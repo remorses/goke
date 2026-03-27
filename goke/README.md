@@ -525,7 +525,9 @@ When users run `--help`, deprecated options won't appear, but `--old-port 3000` 
 
 When using brackets in command name, angled brackets indicate required command arguments, while square brackets indicate optional arguments.
 
-When using brackets in option name, angled brackets indicate that a string / number value is required, while square brackets indicate that the value can also be `true`.
+When using brackets in option name, angled brackets indicate that a string / number value is required, while square brackets indicate that the value is optional.
+
+**Optionality is determined solely by bracket syntax, not by the schema.** `[square brackets]` makes an option optional regardless of whether the schema is `z.string()` or `z.string().optional()`. The schema's `.optional()` is never consulted for this — it only affects type coercion. This means `z.string()` with `[--name]` is treated as optional: if the flag is omitted, `options.name` is `undefined` even though the schema has no `.optional()`.
 
 ### Negated Options
 
