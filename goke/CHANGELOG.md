@@ -1,5 +1,15 @@
 # goke
 
+## 6.3.2
+
+1. **Added `.hidden()` on commands** — hide a command from help output while keeping it fully functional:
+   ```ts
+   cli.command('debug', 'Internal debug tool')
+     .hidden()
+     .action(() => { ... })
+   ```
+   Hidden commands don't appear in `--help` but still parse and run normally when invoked directly.
+
 ## 6.3.1
 
 1. **Added `openInBrowser(url)`** — opens a URL in the default browser. In non-TTY environments (CI, piped output, agents), prints the URL to stderr instead of opening a browser:

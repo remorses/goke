@@ -1836,6 +1836,37 @@ describe('schema description and default extraction', () => {
     expect(stdout.text).not.toContain('--legacy')
     expect(stdout.text).not.toContain('Deprecated global')
   })
+
+  test('hidden commands are not shown in help output', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout })
+
+    cli.command('visible', 'A visible command')
+    cli.command('secret', 'A hidden command').hidden()
+
+    cli.help()
+    cli.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toContain('visible')
+    expect(stdout.text).toContain('A visible command')
+    expect(stdout.text).not.toContain('secret')
+    expect(stdout.text).not.toContain('A hidden command')
+  })
+
+  test('hidden command still parses and runs', () => {
+    const cli = gokeTestable('mycli')
+
+    let result: any = {}
+    cli
+      .command('secret', 'A hidden command')
+      .hidden()
+      .option('--value <v>', z.string().describe('some value'))
+      .action((options) => { result = options })
+
+    cli.parse(['node', 'bin', 'secret', '--value', 'hello'])
+
+    expect(result.value).toBe('hello')
+  })
 })
 
 describe('helpText()', () => {

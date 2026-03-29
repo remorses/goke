@@ -373,6 +373,7 @@ class Command {
   examples: CommandExample[]
   helpCallback?: HelpCallback
   globalCommand?: GlobalCommand
+  _hidden?: boolean
 
   constructor(
     public rawName: string,
@@ -442,6 +443,11 @@ class Command {
 
   alias(name: string) {
     this.aliasNames.push(name)
+    return this
+  }
+
+  hidden() {
+    this._hidden = true
     return this
   }
 
@@ -520,7 +526,7 @@ class Command {
     const terminalWidth = Math.max(this.cli.columns, 40)
 
     if (showCommands) {
-      const commandRows = commands.map((command) => {
+      const commandRows = commands.filter((command) => !command._hidden).map((command) => {
         const displayName = command.rawName.trim() === '' ? name : command.rawName
         // Hide deprecated options from subcommand help output
         const displayOptions = command.isDefaultCommand ? [] : command.options.filter((o) => !o.deprecated)
