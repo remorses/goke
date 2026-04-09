@@ -2,6 +2,8 @@
  * Browser-safe runtime stubs for goke core.
  */
 
+import type { GokeFs } from './goke-fs.js'
+
 type Listener = (...args: any[]) => void
 
 class EventEmitter {
@@ -52,8 +54,36 @@ const process = {
   },
 }
 
+function createBrowserFsError(methodName: string) {
+  return new Error(
+    `fs.${methodName}() is not available in the browser runtime. Pass a custom fs implementation to goke(...).`
+  )
+}
+
+function createUnsupportedFsMethod<T>(methodName: string): T {
+  return (async () => {
+    throw createBrowserFsError(methodName)
+  }) as T
+}
+
+const fs: GokeFs = {
+  appendFile: createUnsupportedFsMethod<GokeFs['appendFile']>('appendFile'),
+  chmod: createUnsupportedFsMethod<GokeFs['chmod']>('chmod'),
+  copyFile: createUnsupportedFsMethod<GokeFs['copyFile']>('copyFile'),
+  link: createUnsupportedFsMethod<GokeFs['link']>('link'),
+  mkdir: createUnsupportedFsMethod<GokeFs['mkdir']>('mkdir'),
+  readFile: createUnsupportedFsMethod<GokeFs['readFile']>('readFile'),
+  readlink: createUnsupportedFsMethod<GokeFs['readlink']>('readlink'),
+  realpath: createUnsupportedFsMethod<GokeFs['realpath']>('realpath'),
+  rename: createUnsupportedFsMethod<GokeFs['rename']>('rename'),
+  rm: createUnsupportedFsMethod<GokeFs['rm']>('rm'),
+  symlink: createUnsupportedFsMethod<GokeFs['symlink']>('symlink'),
+  utimes: createUnsupportedFsMethod<GokeFs['utimes']>('utimes'),
+  writeFile: createUnsupportedFsMethod<GokeFs['writeFile']>('writeFile'),
+}
+
 function openInBrowser(_url: string): void {
   // Browser builds should decide how to surface URLs themselves.
 }
 
-export { EventEmitter, openInBrowser, process }
+export { EventEmitter, fs, openInBrowser, process }

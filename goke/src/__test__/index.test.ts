@@ -3,6 +3,9 @@ import goke, { createConsole } from '../index.js'
 import type { GokeOutputStream, GokeOptions } from '../index.js'
 import { coerceBySchema } from '../coerce.js'
 import { z } from 'zod'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const ANSI_RE = /\x1B\[[0-9;]*m/g
 
@@ -154,6 +157,37 @@ describe('error formatting', () => {
     expect(text).toContain('error:')
     expect(text).toContain('Unknown option `--unknown`')
     expect(text).toMatch(/at /)
+  })
+})
+
+describe('injected fs', () => {
+  test('command actions can use the default node fs for cli storage', async () => {
+    const stdout = createTestOutputStream()
+    const cli = gokeTestable('mycli', { stdout })
+    const originalCwd = process.cwd()
+    const tempDir = await mkdtemp(join(tmpdir(), 'goke-fs-'))
+
+    try {
+      process.chdir(tempDir)
+
+      cli
+        .command('login', 'Persist login state')
+        .option('--token <token>', z.string().describe('Token'))
+        .action(async (options, { fs, console }) => {
+          await fs.mkdir('.mycli', { recursive: true })
+          await fs.writeFile('.mycli/auth.json', JSON.stringify({ token: options.token }), 'utf8')
+          console.log('saved credentials')
+        })
+
+      cli.parse(['node', 'bin', 'login', '--token', 'abc123'], { run: false })
+      await cli.runMatchedCommand()
+
+      expect(stdout.text).toBe('saved credentials\n')
+      expect(await readFile(join(tempDir, '.mycli/auth.json'), 'utf8')).toBe('{"token":"abc123"}')
+    } finally {
+      process.chdir(originalCwd)
+      await rm(tempDir, { recursive: true, force: true })
+    }
   })
 })
 

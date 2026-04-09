@@ -15,7 +15,8 @@ import mri from "./mri.js"
 import { GokeError, coerceBySchema, extractJsonSchema, extractSchemaMetadata, isStandardSchema } from "./coerce.js"
 import type { StandardJSONSchemaV1 } from "./coerce.js"
 import { createJustBashCommand as createJustBashCommandBridge } from './just-bash.js'
-import { EventEmitter, openInBrowser, process } from '#runtime'
+import type { GokeFs } from './goke-fs.js'
+import { EventEmitter, fs as runtimeFs, openInBrowser, process } from '#runtime'
 
 // ─── Node.js platform constants ───
 
@@ -821,6 +822,7 @@ interface GokeProcess {
 
 interface GokeExecutionContext {
   console: GokeConsole
+  fs: GokeFs
   process: GokeProcess
 }
 
@@ -838,6 +840,8 @@ class GokeProcessExit extends Error {
  * Options for configuring a Goke CLI instance.
  */
 interface GokeOptions {
+  /** Custom fs implementation. Defaults to node:fs/promises in Node runtimes. */
+  fs?: GokeFs
   /** Custom stdout stream. Defaults to process.stdout */
   stdout?: GokeOutputStream
   /** Custom stderr stream. Defaults to process.stderr */
@@ -932,6 +936,8 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
   showVersionOnExit?: boolean
 
   /** Output stream for normal output (help, version, etc.) */
+  readonly fs: GokeFs
+  /** Output stream for normal output (help, version, etc.) */
   readonly stdout: GokeOutputStream
   /** Output stream for error output */
   readonly stderr: GokeOutputStream
@@ -956,6 +962,7 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
     this.rawArgs = []
     this.args = []
     this.options = {}
+    this.fs = options?.fs ?? runtimeFs
     this.stdout = options?.stdout ?? process.stdout
     this.stderr = options?.stderr ?? process.stderr
     this.console = createConsole(this.stdout, this.stderr)
@@ -968,6 +975,7 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
 
   clone(options?: GokeOptions) {
     const cloned = new Goke<Opts>(this.name, {
+      fs: options?.fs ?? this.fs,
       stdout: options?.stdout ?? this.stdout,
       stderr: options?.stderr ?? this.stderr,
       argv: options?.argv ?? this.#defaultArgv,
@@ -996,6 +1004,7 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
   private createExecutionContext(argv = this.rawArgs): GokeExecutionContext {
     return {
       console: this.console,
+      fs: this.fs,
       process: {
         argv,
         stdout: this.stdout,
@@ -1570,6 +1579,6 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
 
 // ─── Exports ───
 
-export type { GokeOutputStream, GokeConsole, GokeOptions, GokeProcess, GokeExecutionContext }
+export type { GokeOutputStream, GokeConsole, GokeOptions, GokeProcess, GokeExecutionContext, GokeFs }
 export { createConsole, Command, GokeProcessExit, openInBrowser }
 export default Goke

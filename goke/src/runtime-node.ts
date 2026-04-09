@@ -4,8 +4,11 @@
 
 import { execSync } from 'child_process'
 import { EventEmitter } from 'events'
+import * as nodeFs from 'node:fs/promises'
+import type { GokeFs } from './goke-fs.js'
 
 const process = globalThis.process
+const fs: GokeFs = nodeFs
 
 function openInBrowser(url: string): void {
   if (!process.stdout.isTTY) {
@@ -26,4 +29,4 @@ function openInBrowser(url: string): void {
   }
 }
 
-export { EventEmitter, openInBrowser, process }
+export { EventEmitter, fs, openInBrowser, process }

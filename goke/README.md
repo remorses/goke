@@ -352,9 +352,38 @@ deploy --help                   # shows all commands
 
 Global options are defined on the CLI instance and apply to all commands. Use `.use()` to register middleware that runs before any command action — useful for reacting to global options like setting up logging, initializing state, or configuring services.
 
-Prefer the injected `{ console, process }` argument over global `console` and `process.exit`. It keeps commands easier to test and lets the same command code run inside alternate runtimes like JustBash.
+Prefer the injected `{ fs, console, process }` argument over global `console`, `process.exit`, or direct `node:fs/promises` imports. It keeps commands easier to test and lets the same command code run inside alternate runtimes like JustBash.
 
 Middleware runs in registration order, after option parsing and validation, but before the matched command's `.action()` callback.
+
+### Filesystem Access
+
+The injected `fs` object is the recommended way to read or write CLI state.
+
+- In normal Node.js runs, `fs` defaults to `node:fs/promises`
+- In JustBash runs, `goke` swaps in a compatible adapter over the JustBash virtual filesystem
+
+This makes storage-style commands work in both environments without branching on runtime details.
+
+```ts
+cli
+  .command('login', 'Save auth token')
+  .option('--token <token>', z.string().describe('Auth token'))
+  .action(async (options, { fs, console }) => {
+    await fs.mkdir('.mycli', { recursive: true })
+    await fs.writeFile('.mycli/auth.json', JSON.stringify({ token: options.token }), 'utf8')
+    console.log('saved credentials')
+  })
+
+cli
+  .command('whoami', 'Read saved auth token')
+  .action(async (options, { fs, console }) => {
+    const auth = await fs.readFile('.mycli/auth.json', 'utf8')
+    console.log(auth)
+  })
+```
+
+Prefer injected `fs` for CLI storage instead of importing `node:fs/promises` directly inside actions. That keeps the command portable to JustBash and easier to test.
 
 ```ts
 import { goke } from 'goke'
@@ -743,7 +772,7 @@ const bash = new Bash({
 await bash.exec('parent child commandwithspaces --name Tommy')
 ```
 
-Prefer the injected `{ console, process }` helpers in command implementations so the same command code works cleanly both in the regular CLI runtime and through the JustBash bridge.
+Prefer the injected `{ fs, console, process }` helpers in command implementations so the same command code works cleanly both in the regular CLI runtime and through the JustBash bridge. The injected `fs` defaults to Node `fs/promises` and is automatically replaced with a JustBash-backed adapter inside `createJustBashCommand()`.
 
 ## References
 
@@ -780,9 +809,9 @@ Add a global option. The second argument is either:
 
 #### cli.use(callback)
 
-- Type: `(callback: (options: Opts, { console, process }) => void | Promise<void>) => CLI`
+- Type: `(callback: (options: Opts, { fs, console, process }) => void | Promise<void>) => CLI`
 
-Register a middleware function that runs before the matched command action. Middleware runs in registration order, after option parsing and validation. The callback receives the parsed global options, typed according to all `.option()` calls that precede the `.use()` in the chain, plus an injected `{ console, process }` helper object.
+Register a middleware function that runs before the matched command action. Middleware runs in registration order, after option parsing and validation. The callback receives the parsed global options, typed according to all `.option()` calls that precede the `.use()` in the chain, plus an injected `{ fs, console, process }` helper object.
 
 #### cli.parse(argv?)
 
@@ -836,7 +865,7 @@ Basically the same as `cli.option` but this adds the option to specific command.
 
 - Type: `(callback: ActionCallback) => Command`
 
-Command callbacks receive positional args first, then parsed options, then an injected `{ console, process }` object. Prefer those injected helpers over global `console` and `process.exit` so commands stay easier to test and can run inside alternate runtimes like JustBash.
+Command callbacks receive positional args first, then parsed options, then an injected `{ fs, console, process }` object. Prefer those injected helpers over global `console`, `process.exit`, and direct `node:fs/promises` imports so commands stay easier to test and can run inside alternate runtimes like JustBash.
 
 #### command.alias(name)
 

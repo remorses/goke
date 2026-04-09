@@ -61,7 +61,7 @@ This works in Node.js and keeps the version in sync with `package.json` automati
 8. Add `.example()` to commands to show usage patterns in help output — use a `#` comment as the first line to explain the scenario
 9. Options without brackets are boolean flags — `undefined` when not passed, `true` when passed (`--verbose`), `false` when negated (`--no-verbose`). This three-state behavior lets you distinguish "user explicitly set" from "not provided"
 10. Kebab-case options are auto-camelCased in the parsed result (`--max-retries` → `options.maxRetries`)
-11. Prefer the injected `{ console, process }` argument in `.action()` and `.use()` over global `console` and `process.exit` — it keeps commands easier to test and lets the same code run inside alternate runtimes like JustBash
+11. Prefer the injected `{ fs, console, process }` argument in `.action()` and `.use()` over global `console`, `process.exit`, and direct `node:fs/promises` imports — it keeps commands easier to test and lets the same code run inside alternate runtimes like JustBash
 12. Use `.use()` for middleware that reacts to global options (logging setup, auth, state init) — it runs before any command action
 13. Place `.use()` after the `.option()` calls it depends on — type safety is positional in the chain
 
@@ -188,7 +188,32 @@ Without a schema, all values stay as strings. `--port 3000` → `"3000"` (string
 
 Global options apply to all commands. Use `.use()` to register middleware that runs before any command action — for reacting to global options (logging, state init, auth).
 
-Prefer the injected `{ console, process }` argument over global `console` and `process.exit`. It is easier to test because output and exits are dependency-injected, and the same command code can run under JustBash too.
+Prefer the injected `{ fs, console, process }` argument over global `console`, `process.exit`, and direct `node:fs/promises` imports. It is easier to test because storage, output, and exits are dependency-injected, and the same command code can run under JustBash too.
+
+For filesystem access, injected `fs` is the default choice:
+
+- In normal Node.js runs, `fs` defaults to `node:fs/promises`
+- In JustBash runs, `goke` swaps in a compatible adapter over the JustBash virtual filesystem
+
+Use injected `fs` for CLI storage so commands work in both runtimes:
+
+```ts
+cli
+  .command('login', 'Save auth token')
+  .option('--token <token>', z.string().describe('Auth token'))
+  .action(async (options, { fs, console }) => {
+    await fs.mkdir('.mycli', { recursive: true })
+    await fs.writeFile('.mycli/auth.json', JSON.stringify({ token: options.token }), 'utf8')
+    console.log('saved credentials')
+  })
+
+cli
+  .command('whoami', 'Read saved auth token')
+  .action(async (options, { fs, console }) => {
+    const auth = await fs.readFile('.mycli/auth.json', 'utf8')
+    console.log(auth)
+  })
+```
 
 ```ts
 const cli = goke('mycli')
@@ -536,7 +561,7 @@ const bash = new Bash({
 await bash.exec('parent child commandwithspaces --name Tommy')
 ```
 
-This bridge is why the injected `{ console, process }` argument matters: it keeps command output and exits portable across the regular CLI runtime, tests, and JustBash.
+This bridge is why the injected `{ fs, console, process }` argument matters: it keeps filesystem access, command output, and exits portable across the regular CLI runtime, tests, and JustBash.
 
 ## @goke/mcp — MCP ↔ CLI bridge
 

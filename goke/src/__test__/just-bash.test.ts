@@ -125,6 +125,92 @@ describe('createJustBashCommand', () => {
     expect(result.exitCode).toBe(0)
   })
 
+  test('maps injected fs to the just-bash virtual filesystem', async () => {
+    const { Bash } = await import('just-bash')
+    const cli = gokeTestable('parent')
+
+    cli
+      .command('login', 'Persist login state')
+      .option('--token <token>', z.string().describe('Token'))
+      .action(async (options, { fs, console }) => {
+        await fs.mkdir('.mycli', { recursive: true })
+        await fs.writeFile('.mycli/auth.json', JSON.stringify({ token: options.token }), 'utf8')
+        console.log('saved credentials')
+      })
+
+    const bash = new Bash({
+      customCommands: [await cli.createJustBashCommand()],
+    })
+
+    const loginResult = await bash.exec('mkdir project && cd project && parent login --token Tommy')
+    const catResult = await bash.exec('cd project && cat .mycli/auth.json')
+
+    expect(loginResult.stdout).toBe('saved credentials\n')
+    expect(loginResult.stderr).toBe('')
+    expect(loginResult.exitCode).toBe(0)
+    expect(catResult.stdout).toBe('{"token":"Tommy"}')
+    expect(catResult.stderr).toBe('')
+    expect(catResult.exitCode).toBe(0)
+  })
+
+  test('real just-bash exec passes the configured in-memory fs to the goke command', async () => {
+    const { Bash, InMemoryFs } = await import('just-bash')
+    const cli = gokeTestable('parent')
+
+    cli
+      .command('login', 'Persist login state')
+      .option('--token <token>', z.string().describe('Token'))
+      .action(async (options, { fs, console }) => {
+        await fs.mkdir('.mycli', { recursive: true })
+        await fs.writeFile('.mycli/auth.json', JSON.stringify({ token: options.token }), 'utf8')
+        console.log('saved credentials')
+      })
+
+    const virtualFs = new InMemoryFs()
+    await virtualFs.mkdir('/project', { recursive: true })
+
+    const bash = new Bash({
+      fs: virtualFs,
+      cwd: '/project',
+      customCommands: [await cli.createJustBashCommand()],
+    })
+
+    const result = await bash.exec('parent login --token Tommy')
+
+    expect(result.stdout).toBe('saved credentials\n')
+    expect(result.stderr).toBe('')
+    expect(result.exitCode).toBe(0)
+    expect(await virtualFs.readFile('/project/.mycli/auth.json', 'utf8')).toBe('{"token":"Tommy"}')
+  })
+
+  test('accepts an explicit just-bash fs context when executing the custom command', async () => {
+    const { InMemoryFs } = await import('just-bash')
+    const cli = gokeTestable('parent')
+
+    cli
+      .command('login', 'Persist login state')
+      .option('--token <token>', z.string().describe('Token'))
+      .action(async (options, { fs, console }) => {
+        await fs.mkdir('.mycli', { recursive: true })
+        await fs.writeFile('.mycli/auth.json', JSON.stringify({ token: options.token }), 'utf8')
+        console.log('saved credentials')
+      })
+
+    const customCommand = await cli.createJustBashCommand()
+    const virtualFs = new InMemoryFs()
+    await virtualFs.mkdir('/project', { recursive: true })
+
+    const result = await customCommand.execute(
+      ['login', '--token', 'Tommy'],
+      { fs: virtualFs, cwd: '/project' },
+    )
+
+    expect(result.stdout).toBe('saved credentials\n')
+    expect(result.stderr).toBe('')
+    expect(result.exitCode).toBe(0)
+    expect(await virtualFs.readFile('/project/.mycli/auth.json', 'utf8')).toBe('{"token":"Tommy"}')
+  })
+
   test('maps injected process.exit to a command exit code', async () => {
     const cli = gokeTestable('parent')
 
