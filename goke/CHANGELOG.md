@@ -1,5 +1,41 @@
 # goke
 
+## 6.4.0
+
+1. **Added injected `{ console, process }` runtime helpers for actions and middleware** — command callbacks can now write output and exit through dependency-injected runtime objects instead of reaching for globals:
+   ```ts
+   cli
+     .command('deploy', 'Deploy the project')
+     .action((options, { console, process }) => {
+       console.log('deploying')
+       process.exit(0)
+     })
+   ```
+   This makes commands easier to test, keeps output portable across runtimes, and lets the same command implementation run cleanly in alternate environments.
+
+2. **Added `cli.createJustBashCommand()`** — expose a goke CLI as a JustBash custom command while keeping support for multi-word goke subcommands:
+   ```ts
+   import { Bash } from 'just-bash'
+
+   const bash = new Bash({
+     customCommands: [await cli.createJustBashCommand()],
+   })
+
+   await bash.exec('parent child commandwithspaces --name Tommy')
+   ```
+   This also includes `cli.clone()` and `GokeProcessExit` so shared CLI instances can be reused safely with injected output and exit handling.
+
+3. **Made the core package import-safe outside Node.js** — browser-like runtimes can now import `goke` without crashing on top-level Node globals, then provide their own `argv`, output streams, and `exit` handler manually:
+   ```ts
+   const cli = goke('mycli', {
+     argv: ['browser', 'mycli', 'status'],
+     stdout: { write(data) { logs.push(data) } },
+     stderr: { write(data) { errors.push(data) } },
+     exit(code) { throw new Error(`exit ${code}`) },
+   })
+   ```
+   Node-specific runtime bindings now live behind package import conditions, with browser stubs for `process`, `EventEmitter`, and `openInBrowser()`.
+
 ## 6.3.2
 
 1. **Added `.hidden()` on commands** — hide a command from help output while keeping it fully functional:
