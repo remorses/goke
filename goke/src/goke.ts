@@ -1572,12 +1572,12 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
  * Open a URL in the default browser.
  * In non-TTY environments (CI, piped output, agents), prints the URL to stdout instead.
  */
-function openInBrowser(url: string): void {
+async function openInBrowser(url: string): void {
   if (!process.stdout.isTTY) {
     console.error(url)
     return
   }
-  const { execSync } = require('child_process') as typeof import('child_process')
+  const { execSync } = await import('child_process') as typeof import('child_process')
   const platform = process.platform
   try {
     if (platform === 'darwin') {
