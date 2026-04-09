@@ -24,7 +24,6 @@
   "imports": {
     "#runtime": {
       "types": "./src/runtime-node.ts",
-      "development": "./src/runtime-node.ts",
       "node": "./dist/runtime-node.js",
       "default": "./dist/runtime-browser.js"
     }
