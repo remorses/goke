@@ -15,7 +15,7 @@
 - **Yet so powerful**. Enable features like default command, git-like subcommands, validation for required arguments and options, variadic arguments, dot-nested options, automated help message generation and so on.
 - **Space-separated subcommands**: Support multi-word commands like `mcp login`, `git remote add`.
 - **Schema-based type coercion**: Use Zod, Valibot, ArkType, or plain JSON Schema for automatic type coercion and TypeScript type inference. Description and default values are extracted from the schema automatically.
-- **Injected execution context**: Prefer `{ console, process }` in actions and middleware for portable output, simpler tests, and alternate runtimes like JustBash.
+- **Injected execution context**: Prefer `{ fs, console, process }` in actions and middleware for portable storage, output, and runtime metadata across Node.js, tests, and JustBash.
 - **Type-safe middleware**: Register `.use()` callbacks that run before commands with full type inference from global options.
 - **Developer friendly**. Written in TypeScript.
 
@@ -44,8 +44,8 @@ cli.option(
 )
 cli.option('--name <name>', 'Provide your name')
 
-cli.command('lint [...files]', 'Lint files').action((files, options, { console }) => {
-  console.log(files, options)
+cli.command('lint [...files]', 'Lint files').action((files, options, { console, process }) => {
+  console.log(files, options, process.cwd)
 })
 
 cli
@@ -53,8 +53,8 @@ cli
   .option('--minify', 'Minify output')
   .example('build src/index.ts')
   .example('build src/index.ts --minify')
-  .action(async (entry, options, { console }) => { // options is type safe! no need to type it
-    console.log(entry, options)
+  .action(async (entry, options, { console, process }) => { // options is type safe! no need to type it
+    console.log(entry, options, process.env.NODE_ENV)
   })
 
 cli.example((bin) => `${bin} lint src/**/*.ts`)
@@ -133,8 +133,8 @@ cli
   .option('--channel <name>', 'Target channel: stable, beta, alpha')
   .option('--notes-file <path>', 'Markdown file used as release notes')
   .option('--dry-run', 'Preview every step without publishing')
-  .action((version, options, { console }) => {
-    console.log('release', version, options)
+  .action((version, options, { console, process }) => {
+    console.log('release', version, options, process.cwd)
   })
 
 cli
@@ -159,8 +159,8 @@ cli
   .option('--target <migration>', 'Apply up to a specific migration id')
   .option('--dry-run', 'Print plan only, do not execute SQL')
   .option('--verbose', 'Show each executed statement')
-  .action((options, { console }) => {
-    console.log('migrate', options)
+  .action((options, { console, process }) => {
+    console.log('migrate', options, process.stdin)
   })
 
 cli.help()
@@ -299,39 +299,39 @@ cli
     z.string().default('production').describe('Target environment'),
   )
   .option('--dry-run', 'Preview without deploying')
-  .action((options, { console }) => {
-    console.log(`Deploying to ${options.env}...`)
+  .action((options, { console, process }) => {
+    console.log(`Deploying to ${options.env} from ${process.cwd}...`)
   })
 
 // Subcommands
 cli
   .command('init', 'Initialize a new project')
   .option('--template <template>', 'Project template')
-  .action((options, { console }) => {
-    console.log('Initializing project...')
+  .action((options, { console, process }) => {
+    console.log('Initializing project in', process.cwd)
   })
 
-cli.command('login', 'Authenticate with the server').action((options, { console }) => {
-  console.log('Opening browser for login...')
+cli.command('login', 'Authenticate with the server').action((options, { console, process }) => {
+  console.log('Opening browser for login from', process.cwd)
 })
 
-cli.command('logout', 'Clear saved credentials').action((options, { console }) => {
-  console.log('Logged out')
+cli.command('logout', 'Clear saved credentials').action((options, { console, process }) => {
+  console.log('Logged out', process.env.USER)
 })
 
 cli
   .command('status', 'Show deployment status')
   .option('--json', 'Output as JSON')
-  .action((options, { console }) => {
-    console.log('Fetching status...')
+  .action((options, { console, process }) => {
+    console.log('Fetching status from', process.cwd)
   })
 
 cli
   .command('logs <deploymentId>', 'Stream logs for a deployment')
   .option('--follow', 'Follow log output')
   .option('--lines <n>', z.number().default(100).describe('Number of lines'))
-  .action((deploymentId, options, { console }) => {
-    console.log(`Streaming logs for ${deploymentId}...`)
+  .action((deploymentId, options, { console, process }) => {
+    console.log(`Streaming logs for ${deploymentId} from ${process.cwd}...`)
   })
 
 cli.help()
@@ -354,6 +354,11 @@ Global options are defined on the CLI instance and apply to all commands. Use `.
 
 Prefer the injected `{ fs, console, process }` argument over global `console`, `process.exit`, or direct `node:fs/promises` imports. It keeps commands easier to test and lets the same command code run inside alternate runtimes like JustBash.
 
+`process.cwd`, `process.stdin`, and `process.env` come from the active runtime:
+
+- In normal Node.js runs, `process.cwd` and `process.env` reflect the host process, while `process.stdin` defaults to an empty string unless you inject it yourself.
+- In JustBash runs, those same fields are populated from the sandbox execution context.
+
 Middleware runs in registration order, after option parsing and validation, but before the matched command's `.action()` callback.
 
 ### Filesystem Access
@@ -369,21 +374,49 @@ This makes storage-style commands work in both environments without branching on
 cli
   .command('login', 'Save auth token')
   .option('--token <token>', z.string().describe('Auth token'))
-  .action(async (options, { fs, console }) => {
+  .action(async (options, { fs, console, process }) => {
     await fs.mkdir('.mycli', { recursive: true })
     await fs.writeFile('.mycli/auth.json', JSON.stringify({ token: options.token }), 'utf8')
-    console.log('saved credentials')
+    console.log('saved credentials in', process.cwd)
   })
 
 cli
   .command('whoami', 'Read saved auth token')
-  .action(async (options, { fs, console }) => {
+  .action(async (options, { fs, console, process }) => {
     const auth = await fs.readFile('.mycli/auth.json', 'utf8')
-    console.log(auth)
+    console.log(auth, process.env.USER)
   })
 ```
 
 Prefer injected `fs` for CLI storage instead of importing `node:fs/promises` directly inside actions. That keeps the command portable to JustBash and easier to test.
+
+`goke` also exports the runtime types, so helper functions can use dependency injection without reaching for globals:
+
+```ts
+import { goke } from 'goke'
+import type { GokeFs, GokeProcess } from 'goke'
+
+async function saveAuthToken(args: {
+  fs: GokeFs
+  process: GokeProcess
+  token: string
+}) {
+  await args.fs.mkdir('.mycli', { recursive: true })
+  await args.fs.writeFile('.mycli/auth.json', JSON.stringify({
+    token,
+    cwd: args.process.cwd,
+  }), 'utf8')
+}
+
+const cli = goke('mycli')
+
+cli
+  .command('login <token>', 'Save auth token')
+  .action(async (token, options, { fs, process, console }) => {
+    await saveAuthToken({ fs, process, token })
+    console.log('saved credentials')
+  })
+```
 
 ```ts
 import { goke } from 'goke'
@@ -394,25 +427,25 @@ const cli = goke('mycli')
 cli
   .option('--verbose', z.boolean().default(false).describe('Enable verbose logging'))
   .option('--api-url [url]', z.string().default('https://api.example.com').describe('API base URL'))
-  .use((options, { console }) => {
+  .use((options, { console, process }) => {
     // options.verbose and options.apiUrl are fully typed here
     if (options.verbose) {
-      console.log('verbose mode enabled')
+      console.log('verbose mode enabled in', process.cwd)
     }
   })
 
 cli
   .command('deploy <env>', 'Deploy to an environment')
   .option('--dry-run', 'Preview without deploying')
-  .action((env, options, { console }) => {
+  .action((env, options, { console, process }) => {
     // options includes both command options (dryRun) and global options (verbose, apiUrl)
-    console.log(`Deploying to ${env} via ${options.apiUrl}`)
+    console.log(`Deploying to ${env} via ${options.apiUrl} from ${process.cwd}`)
   })
 
 cli
   .command('status', 'Show deployment status')
-  .action((options, { console }) => {
-    console.log('Checking status...')
+  .action((options, { console, process }) => {
+    console.log('Checking status...', process.stdin)
   })
 
 cli.help()
@@ -427,13 +460,16 @@ cli
   .use((options, { process }) => {
     options.verbose   // boolean — typed
     process.argv      // string[] — typed
+    process.cwd       // string — typed
+    process.env       // Record<string, string> — typed
+    process.stdin     // string — typed
     options.port      // TypeScript error — not declared yet
   })
   .option('--port <port>', z.number().describe('Port'))
-  .use((options, { console }) => {
+  .use((options, { console, process }) => {
     options.verbose   // boolean — still visible
     options.port      // number — now visible
-    console.error('ready')
+    console.error('ready', process.cwd)
   })
 ```
 
@@ -442,10 +478,10 @@ Middleware supports async functions. If any middleware is async, the remaining m
 ```ts
 cli
   .option('--token <token>', z.string().describe('API token'))
-  .use(async (options, { console }) => {
+  .use(async (options, { console, process }) => {
     const client = await connectToApi(options.token)
     globalState.client = client
-    console.log('connected')
+    console.log('connected', process.env.NODE_ENV)
   })
 ```
 
@@ -461,8 +497,8 @@ const cli = goke()
 cli
   .command('rm <dir>', 'Remove a dir')
   .option('-r, --recursive', 'Remove recursively')
-  .action((dir, options, { console }) => {
-    console.log('remove ' + dir + (options.recursive ? ' recursively' : ''))
+  .action((dir, options, { console, process }) => {
+    console.log('remove ' + dir + (options.recursive ? ' recursively' : ''), process.cwd)
   })
 
 cli.help()
@@ -479,18 +515,18 @@ import { goke } from 'goke'
 
 const cli = goke('mycli')
 
-cli.command('mcp login <url>', 'Login to MCP server').action((url, options, { console }) => {
-  console.log('Logging in to', url)
+cli.command('mcp login <url>', 'Login to MCP server').action((url, options, { console, process }) => {
+  console.log('Logging in to', url, 'from', process.cwd)
 })
 
-cli.command('mcp logout', 'Logout from MCP server').action((options, { console }) => {
-  console.log('Logged out')
+cli.command('mcp logout', 'Logout from MCP server').action((options, { console, process }) => {
+  console.log('Logged out', process.env.USER)
 })
 
 cli
   .command('git remote add <name> <url>', 'Add a git remote')
-  .action((name, url, options, { console }) => {
-    console.log('Adding remote', name, url)
+  .action((name, url, options, { console, process }) => {
+    console.log('Adding remote', name, url, 'from', process.cwd)
   })
 
 cli.help()
@@ -514,9 +550,9 @@ cli
   .option('--workers <workers>', z.int().describe('Worker count'))
   .option('--tags <tag>', z.array(z.string()).describe('Tags (repeatable)'))
   .option('--verbose', 'Verbose output')
-  .action((options, { console }) => {
+  .action((options, { console, process }) => {
     // options.port is number, options.host is string, etc.
-    console.log(options)
+    console.log(options, process.env.NODE_ENV)
   })
 
 cli.parse()
@@ -545,9 +581,9 @@ cli
   .option('--old-port <port>', z.number().meta({ deprecated: true, description: 'Use --port instead' }))
   // Current option: visible in help
   .option('--port <port>', z.number().describe('Port number'))
-  .action((options, { console }) => {
+  .action((options, { console, process }) => {
     const port = options.port ?? options.oldPort
-    console.log('Starting on port', port)
+    console.log('Starting on port', port, 'from', process.cwd)
   })
 
 cli.help()
@@ -583,10 +619,10 @@ The last argument of a command can be variadic. To make an argument variadic you
 cli
   .command('build <entry> [...otherFiles]', 'Build your app')
   .option('--foo', 'Foo option')
-  .action((entry, otherFiles, options, { console }) => {
+  .action((entry, otherFiles, options, { console, process }) => {
     console.log(entry)
     console.log(otherFiles)
-    console.log(options)
+    console.log(options, process.stdin)
   })
 ```
 
@@ -641,8 +677,8 @@ cli
   .command('build', 'desc')
   .option('--env <env>', 'Set envs')
   .example('--env.API_SECRET xxx')
-  .action((options, { console }) => {
-    console.log(options)
+  .action((options, { console, process }) => {
+    console.log(options, process.env.API_SECRET)
   })
 ```
 
@@ -654,9 +690,9 @@ Register a command that will be used when no other command is matched.
 cli
   .command('[...files]', 'Build files')
   .option('--minimize', 'Minimize output')
-  .action((files, options, { console }) => {
+  .action((files, options, { console, process }) => {
     console.log(files)
-    console.log(options.minimize)
+    console.log(options.minimize, process.cwd)
   })
 ```
 
@@ -677,7 +713,7 @@ try {
 
 ### Testing with mocked console and exit
 
-Because goke derives its injected `{ console, process }` from the CLI's configured output streams and `exit` function, tests can override them directly and assert on the calls.
+Because goke derives its injected `{ fs, console, process }` from the CLI's configured runtime dependencies, tests can override them directly and assert on the calls.
 
 ```ts
 import { describe, expect, test, vi } from 'vitest'
@@ -729,11 +765,11 @@ cli
   .command('serve <entry>', 'Start the app')
   .option('--port <port>', z.number().default(3000).describe('Port number'))
   .option('--watch', 'Watch files')
-  .action((entry, options, { console }) => {
+  .action((entry, options, { console, process }) => {
     // entry: string
     // options.port: number
     // options.watch: boolean
-    console.log(entry, options.port, options.watch)
+    console.log(entry, options.port, options.watch, process.cwd)
   })
 ```
 
@@ -761,8 +797,8 @@ const cli = goke('parent')
 cli
   .command('child commandwithspaces', 'Run nested command')
   .option('--name <name>', z.string().describe('Name'))
-  .action((options, { console }) => {
-    console.log(`hello ${options.name}`)
+  .action((options, { console, process }) => {
+    console.log(`hello ${options.name} from ${process.cwd}`)
   })
 
 const bash = new Bash({
@@ -772,7 +808,7 @@ const bash = new Bash({
 await bash.exec('parent child commandwithspaces --name Tommy')
 ```
 
-Prefer the injected `{ fs, console, process }` helpers in command implementations so the same command code works cleanly both in the regular CLI runtime and through the JustBash bridge. The injected `fs` defaults to Node `fs/promises` and is automatically replaced with a JustBash-backed adapter inside `createJustBashCommand()`.
+Prefer the injected `{ fs, console, process }` helpers in command implementations so the same command code works cleanly both in the regular CLI runtime and through the JustBash bridge. The injected `fs` defaults to Node `fs/promises`, and `process.cwd` / `process.env` / `process.stdin` reflect host values in Node but sandbox values inside `createJustBashCommand()`.
 
 ## References
 

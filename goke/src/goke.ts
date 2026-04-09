@@ -815,6 +815,9 @@ interface GokeConsole {
 
 interface GokeProcess {
   argv: string[]
+  cwd: string
+  env: Record<string, string | undefined>
+  stdin: string
   stdout: GokeOutputStream
   stderr: GokeOutputStream
   exit(code: number): never | void
@@ -840,8 +843,14 @@ class GokeProcessExit extends Error {
  * Options for configuring a Goke CLI instance.
  */
 interface GokeOptions {
+  /** Custom cwd value exposed through the injected process context. */
+  cwd?: string
+  /** Custom environment exposed through the injected process context. */
+  env?: Record<string, string | undefined>
   /** Custom fs implementation. Defaults to node:fs/promises in Node runtimes. */
   fs?: GokeFs
+  /** Custom stdin content exposed through the injected process context. */
+  stdin?: string
   /** Custom stdout stream. Defaults to process.stdout */
   stdout?: GokeOutputStream
   /** Custom stderr stream. Defaults to process.stderr */
@@ -935,8 +944,14 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
   showHelpOnExit?: boolean
   showVersionOnExit?: boolean
 
+  /** Working directory exposed through the injected process context. */
+  readonly cwd?: string
+  /** Environment exposed through the injected process context. */
+  readonly env?: Record<string, string | undefined>
   /** Output stream for normal output (help, version, etc.) */
   readonly fs: GokeFs
+  /** Standard input exposed through the injected process context. */
+  readonly stdin?: string
   /** Output stream for normal output (help, version, etc.) */
   readonly stdout: GokeOutputStream
   /** Output stream for error output */
@@ -962,7 +977,10 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
     this.rawArgs = []
     this.args = []
     this.options = {}
+    this.cwd = options?.cwd
+    this.env = options?.env
     this.fs = options?.fs ?? runtimeFs
+    this.stdin = options?.stdin
     this.stdout = options?.stdout ?? process.stdout
     this.stderr = options?.stderr ?? process.stderr
     this.console = createConsole(this.stdout, this.stderr)
@@ -975,7 +993,10 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
 
   clone(options?: GokeOptions) {
     const cloned = new Goke<Opts>(this.name, {
+      cwd: options?.cwd ?? this.cwd,
+      env: options?.env ?? this.env,
       fs: options?.fs ?? this.fs,
+      stdin: options?.stdin ?? this.stdin,
       stdout: options?.stdout ?? this.stdout,
       stderr: options?.stderr ?? this.stderr,
       argv: options?.argv ?? this.#defaultArgv,
@@ -1007,6 +1028,9 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
       fs: this.fs,
       process: {
         argv,
+        cwd: this.cwd ?? process.cwd(),
+        env: this.env ?? process.env,
+        stdin: this.stdin ?? '',
         stdout: this.stdout,
         stderr: this.stderr,
         exit: (code: number) => {

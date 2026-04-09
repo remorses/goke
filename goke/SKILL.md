@@ -27,9 +27,9 @@ cli
   .option('--port <port>', z.number().default(3000).describe('Port to listen on'))
   .option('--host [host]', z.string().default('localhost').describe('Hostname to bind'))
   .option('--open', 'Open browser on start')
-  .action((options, { console }) => {
+  .action((options, { console, process }) => {
     // options.port: number, options.host: string, options.open: boolean
-    console.log(options)
+    console.log(options, process.cwd)
   })
 
 cli.help()
@@ -190,6 +190,11 @@ Global options apply to all commands. Use `.use()` to register middleware that r
 
 Prefer the injected `{ fs, console, process }` argument over global `console`, `process.exit`, and direct `node:fs/promises` imports. It is easier to test because storage, output, and exits are dependency-injected, and the same command code can run under JustBash too.
 
+`process.cwd`, `process.stdin`, and `process.env` come from the active runtime:
+
+- In normal Node.js runs, `process.cwd` and `process.env` reflect host values, while `process.stdin` defaults to an empty string unless you inject it yourself.
+- In JustBash runs, those same fields are populated from the sandbox execution context.
+
 For filesystem access, injected `fs` is the default choice:
 
 - In normal Node.js runs, `fs` defaults to `node:fs/promises`
@@ -201,18 +206,36 @@ Use injected `fs` for CLI storage so commands work in both runtimes:
 cli
   .command('login', 'Save auth token')
   .option('--token <token>', z.string().describe('Auth token'))
-  .action(async (options, { fs, console }) => {
+  .action(async (options, { fs, console, process }) => {
     await fs.mkdir('.mycli', { recursive: true })
     await fs.writeFile('.mycli/auth.json', JSON.stringify({ token: options.token }), 'utf8')
-    console.log('saved credentials')
+    console.log('saved credentials in', process.cwd)
   })
 
 cli
   .command('whoami', 'Read saved auth token')
-  .action(async (options, { fs, console }) => {
+  .action(async (options, { fs, console, process }) => {
     const auth = await fs.readFile('.mycli/auth.json', 'utf8')
-    console.log(auth)
+    console.log(auth, process.env.USER)
   })
+```
+
+`goke` also exports the runtime types, so helper functions can use dependency injection cleanly:
+
+```ts
+import type { GokeFs, GokeProcess } from 'goke'
+
+async function saveAuthToken(args: {
+  fs: GokeFs
+  process: GokeProcess
+  token: string
+}) {
+  await args.fs.mkdir('.mycli', { recursive: true })
+  await args.fs.writeFile('.mycli/auth.json', JSON.stringify({
+    token,
+    cwd: args.process.cwd,
+  }), 'utf8')
+}
 ```
 
 ```ts
@@ -221,18 +244,18 @@ const cli = goke('mycli')
 cli
   .option('--verbose', z.boolean().default(false).describe('Enable verbose logging'))
   .option('--api-url [url]', z.string().default('https://api.example.com').describe('API base URL'))
-  .use((options, { console }) => {
+  .use((options, { console, process }) => {
     // options.verbose: boolean, options.apiUrl: string — fully typed
     if (options.verbose) {
-      console.log('verbose mode enabled')
+      console.log('verbose mode enabled in', process.cwd)
     }
   })
 
 cli
   .command('deploy <env>', 'Deploy to environment')
-  .action((env, options, { console }) => {
+  .action((env, options, { console, process }) => {
     // options includes global options (verbose, apiUrl) + command options
-    console.log(`Deploying to ${env} via ${options.apiUrl}`)
+    console.log(`Deploying to ${env} via ${options.apiUrl} from ${process.cwd}`)
   })
 ```
 
@@ -244,13 +267,16 @@ cli
   .use((options, { process }) => {
     options.verbose  // boolean — typed
     process.argv     // string[] — typed
+    process.cwd      // string — typed
+    process.env      // Record<string, string> — typed
+    process.stdin    // string — typed
     options.port     // TypeScript error — not declared yet
   })
   .option('--port <port>', z.number().describe('Port'))
-  .use((options, { console }) => {
+  .use((options, { console, process }) => {
     options.verbose  // boolean — still visible
     options.port     // number — now visible
-    console.error('ready')
+    console.error('ready', process.cwd)
   })
 ```
 
@@ -259,9 +285,9 @@ Async middleware is supported — the chain awaits each middleware before procee
 ```ts
 cli
   .option('--token <token>', z.string().describe('API token'))
-  .use(async (options, { console }) => {
+  .use(async (options, { console, process }) => {
     globalState.client = await connectToApi(options.token)
-    console.log('connected')
+    console.log('connected', process.env.NODE_ENV)
   })
 ```
 
@@ -522,10 +548,11 @@ describe('deploy command', () => {
 
     cli
       .command('deploy', 'Deploy the project')
-      .action((options, { console, process }) => {
-        console.log('deploying')
-        process.exit(2)
-      })
+  .action((options, { console, process }) => {
+    console.log('deploying')
+    console.log(process.cwd)
+    process.exit(2)
+  })
 
     expect(() => {
       cli.parse(['node', 'acme', 'deploy'], { run: true })
@@ -550,8 +577,8 @@ const cli = goke('parent')
 cli
   .command('child commandwithspaces', 'Run nested command')
   .option('--name <name>', z.string().describe('Name'))
-  .action((options, { console }) => {
-    console.log(`hello ${options.name}`)
+  .action((options, { console, process }) => {
+    console.log(`hello ${options.name} from ${process.cwd}`)
   })
 
 const bash = new Bash({
@@ -561,7 +588,7 @@ const bash = new Bash({
 await bash.exec('parent child commandwithspaces --name Tommy')
 ```
 
-This bridge is why the injected `{ fs, console, process }` argument matters: it keeps filesystem access, command output, and exits portable across the regular CLI runtime, tests, and JustBash.
+This bridge is why the injected `{ fs, console, process }` argument matters: it keeps filesystem access, command output, and runtime metadata portable across the regular CLI runtime, tests, and JustBash.
 
 ## @goke/mcp — MCP ↔ CLI bridge
 

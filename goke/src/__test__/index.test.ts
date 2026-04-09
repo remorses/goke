@@ -191,6 +191,65 @@ describe('injected fs', () => {
   })
 })
 
+describe('injected process context', () => {
+  test('command actions receive host cwd, env, and stdin defaults', async () => {
+    const stdout = createTestOutputStream()
+    const cli = gokeTestable('mycli', { stdout })
+    const originalCwd = process.cwd()
+    const originalEnv = process.env.GOKE_TEST_TOKEN
+    const tempDir = await mkdtemp(join(tmpdir(), 'goke-process-'))
+
+    try {
+      process.chdir(tempDir)
+      process.env.GOKE_TEST_TOKEN = 'abc123'
+
+      cli
+        .command('context', 'Inspect process context')
+        .action((options, { console, process }) => {
+          console.log(JSON.stringify({
+            cwd: process.cwd,
+            stdin: process.stdin,
+            token: process.env.GOKE_TEST_TOKEN,
+          }))
+        })
+
+      cli.parse(['node', 'bin', 'context'], { run: false })
+      await cli.runMatchedCommand()
+
+      expect(stdout.text).toBe(
+        `${JSON.stringify({ cwd: process.cwd(), stdin: '', token: 'abc123' })}\n`,
+      )
+    } finally {
+      process.chdir(originalCwd)
+      if (originalEnv === undefined) {
+        delete process.env.GOKE_TEST_TOKEN
+      } else {
+        process.env.GOKE_TEST_TOKEN = originalEnv
+      }
+      await rm(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test('custom injected env stays mutable inside command actions', async () => {
+    const stdout = createTestOutputStream()
+    const env: Record<string, string | undefined> = { TOKEN: 'before' }
+    const cli = gokeTestable('mycli', { env, stdout })
+
+    cli
+      .command('context', 'Mutate process env')
+      .action((options, { console, process }) => {
+        process.env.TOKEN = 'after'
+        console.log(process.env.TOKEN)
+      })
+
+    cli.parse(['node', 'bin', 'context'], { run: false })
+    await cli.runMatchedCommand()
+
+    expect(stdout.text).toBe('after\n')
+    expect(env.TOKEN).toBe('after')
+  })
+})
+
 test('double dashes', () => {
   const cli = goke()
 

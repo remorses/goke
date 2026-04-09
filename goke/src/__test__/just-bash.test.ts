@@ -183,6 +183,66 @@ describe('createJustBashCommand', () => {
     expect(await virtualFs.readFile('/project/.mycli/auth.json', 'utf8')).toBe('{"token":"Tommy"}')
   })
 
+  test('real just-bash exec passes sandbox cwd, stdin, and env through process context', async () => {
+    const { Bash, InMemoryFs } = await import('just-bash')
+    const cli = gokeTestable('parent')
+
+    cli
+      .command('context', 'Inspect process context')
+      .action((options, { console, process }) => {
+        console.log(JSON.stringify({
+          cwd: process.cwd,
+          stdin: process.stdin,
+          token: process.env.TOKEN,
+        }))
+      })
+
+    const virtualFs = new InMemoryFs()
+    await virtualFs.mkdir('/project', { recursive: true })
+
+    const bash = new Bash({
+      fs: virtualFs,
+      cwd: '/project',
+      env: { TOKEN: 'Tommy' },
+      customCommands: [await cli.createJustBashCommand()],
+    })
+
+    const result = await bash.exec('parent context', { stdin: 'hello from stdin' })
+
+    expect(result.stdout).toBe(
+      `${JSON.stringify({ cwd: '/project', stdin: 'hello from stdin', token: 'Tommy' })}\n`,
+    )
+    expect(result.stderr).toBe('')
+    expect(result.exitCode).toBe(0)
+  })
+
+  test('explicit just-bash context exposes a mutable env object backed by the sandbox env', async () => {
+    const { InMemoryFs } = await import('just-bash')
+    const cli = gokeTestable('parent')
+
+    cli
+      .command('mutate-env', 'Mutate sandbox env')
+      .action((options, { console, process }) => {
+        process.env.TOKEN = 'updated'
+        console.log(process.env.TOKEN)
+      })
+
+    const virtualFs = new InMemoryFs()
+    await virtualFs.mkdir('/project', { recursive: true })
+    const env = new Map<string, string>([['TOKEN', 'before']])
+    const customCommand = await cli.createJustBashCommand()
+
+    const result = await customCommand.execute(
+      ['mutate-env'],
+      { fs: virtualFs, cwd: '/project', env, stdin: '' },
+    )
+
+    expect(result.stdout).toBe('updated\n')
+    expect(result.stderr).toBe('')
+    expect(result.exitCode).toBe(0)
+    expect(env.get('TOKEN')).toBe('updated')
+  })
+
   test('accepts an explicit just-bash fs context when executing the custom command', async () => {
     const { InMemoryFs } = await import('just-bash')
     const cli = gokeTestable('parent')
@@ -202,7 +262,7 @@ describe('createJustBashCommand', () => {
 
     const result = await customCommand.execute(
       ['login', '--token', 'Tommy'],
-      { fs: virtualFs, cwd: '/project' },
+      { fs: virtualFs, cwd: '/project', env: new Map(), stdin: '' },
     )
 
     expect(result.stdout).toBe('saved credentials\n')

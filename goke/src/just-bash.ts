@@ -26,7 +26,7 @@ interface JustBashCommand {
   execute(args: string[], context?: JustBashExecutionContext): Promise<JustBashExecResult>
 }
 
-type JustBashExecutionContext = Pick<CommandContext, 'cwd' | 'fs'>
+type JustBashExecutionContext = Pick<CommandContext, 'cwd' | 'env' | 'fs' | 'stdin'>
 type JustBashEncoding = 'utf8' | 'utf-8' | 'ascii' | 'binary' | 'base64' | 'hex' | 'latin1'
 
 function createTextCaptureStream(): GokeOutputStream & { readonly text: string } {
@@ -87,6 +87,48 @@ const toDate = (value: Date | string | number) => {
     throw new Error(`Invalid time value: ${String(value)}`)
   }
   return date
+}
+
+function createJustBashEnvProxy(env: Map<string, string>): Record<string, string | undefined> {
+  return new Proxy(Object.create(null) as Record<string, string | undefined>, {
+    deleteProperty(_target, property) {
+      if (typeof property === 'string') {
+        env.delete(property)
+      }
+      return true
+    },
+    get(_target, property) {
+      if (typeof property !== 'string') return undefined
+      return env.get(property)
+    },
+    getOwnPropertyDescriptor(_target, property) {
+      if (typeof property !== 'string') return undefined
+      const value = env.get(property)
+      if (value === undefined) return undefined
+      return {
+        configurable: true,
+        enumerable: true,
+        value,
+        writable: true,
+      }
+    },
+    has(_target, property) {
+      return typeof property === 'string' && env.has(property)
+    },
+    ownKeys() {
+      return [...env.keys()]
+    },
+    set(_target, property, value) {
+      if (typeof property === 'string') {
+        if (value === undefined) {
+          env.delete(property)
+        } else {
+          env.set(property, String(value))
+        }
+      }
+      return true
+    },
+  })
 }
 
 function createJustBashFs(fs: IFileSystem, cwd: string): GokeFs {
@@ -194,7 +236,10 @@ export function createJustBashCommand(
       const stderr = createTextCaptureStream()
       const argv = ['node', name, ...args]
       const cloned = cli.clone({
+        cwd: context?.cwd,
+        env: context ? createJustBashEnvProxy(context.env) : cli.env,
         fs: context ? createJustBashFs(context.fs, context.cwd) : cli.fs,
+        stdin: context?.stdin,
         stdout,
         stderr,
         argv,

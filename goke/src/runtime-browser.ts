@@ -43,6 +43,10 @@ const createOutputStream = () => ({
 const process = {
   argv: [] as string[],
   arch: 'browser',
+  cwd() {
+    return '/'
+  },
+  env: Object.create(null) as Record<string, string | undefined>,
   platform: 'browser',
   version: 'browser',
   stdout: createOutputStream(),
