@@ -10,12 +10,12 @@
  * - Utility functions: string helpers, bracket parsing, dot-prop access
  */
 
-import { EventEmitter } from 'events'
 import pc from 'picocolors'
 import mri from "./mri.js"
 import { GokeError, coerceBySchema, extractJsonSchema, extractSchemaMetadata, isStandardSchema } from "./coerce.js"
 import type { StandardJSONSchemaV1 } from "./coerce.js"
 import { createJustBashCommand as createJustBashCommandBridge } from './just-bash.js'
+import { EventEmitter, openInBrowser, process } from '#runtime'
 
 // ─── Node.js platform constants ───
 
@@ -1563,33 +1563,6 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
       handleAsyncError(err)
       return
     }
-  }
-}
-
-// ─── openInBrowser ───
-
-/**
- * Open a URL in the default browser.
- * In non-TTY environments (CI, piped output, agents), prints the URL to stdout instead.
- */
-async function openInBrowser(url: string): void {
-  if (!process.stdout.isTTY) {
-    console.error(url)
-    return
-  }
-  const { execSync } = await import('child_process') as typeof import('child_process')
-  const platform = process.platform
-  try {
-    if (platform === 'darwin') {
-      execSync(`open ${JSON.stringify(url)}`, { stdio: 'ignore' })
-    } else if (platform === 'win32') {
-      execSync(`start "" ${JSON.stringify(url)}`, { stdio: 'ignore' })
-    } else {
-      execSync(`xdg-open ${JSON.stringify(url)}`, { stdio: 'ignore' })
-    }
-  } catch {
-    // fallback: print the URL if open fails
-    console.error(url)
   }
 }
 
