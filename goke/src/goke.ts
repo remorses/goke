@@ -210,7 +210,8 @@ const getFileName = (input: string) => {
 const isPromiseLike = (value: unknown): value is PromiseLike<unknown> =>
   value != null
   && (typeof value === 'object' || typeof value === 'function')
-  && typeof (value as any).then === 'function'
+  && 'then' in value
+  && typeof value.then === 'function'
 
 const camelcaseOptionName = (name: string) => {
   // Camelcase the option name
@@ -1045,7 +1046,8 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
   >(rawName: RawName, schema: S): Goke<Opts & OptionEntry<RawName, S>>
   option(rawName: string, descriptionOrSchema?: string | StandardJSONSchemaV1): this
   option(rawName: string, descriptionOrSchema?: string | StandardJSONSchemaV1): any {
-    this.globalCommand.option(rawName, descriptionOrSchema as any)
+    const option = new Option(rawName, descriptionOrSchema)
+    this.globalCommand.options.push(option)
     return this
   }
 

@@ -72,7 +72,7 @@ describe('clone', () => {
 
     cli.command('build', 'Build').action(() => {})
 
-    const cloned = (cli as any).clone({ exit: () => {} })
+    const cloned = cli.clone({ exit: () => {} })
 
     cloned.parse(['node', 'bin', 'build'], { run: false })
 
@@ -93,7 +93,7 @@ describe('createJustBashCommand', () => {
         console.log(`hello ${options.name}`)
       })
 
-    const customCommand = await (cli as any).createJustBashCommand()
+    const customCommand = await cli.createJustBashCommand()
     const result = await customCommand.execute(['child', 'commandwithspaces', '--name', 'Tommy'])
 
     expect(result).toEqual({
@@ -101,6 +101,28 @@ describe('createJustBashCommand', () => {
       stderr: '',
       exitCode: 0,
     })
+  })
+
+  test('works through real just-bash exec with a goke custom command', async () => {
+    const { Bash } = await import('just-bash')
+    const cli = gokeTestable('parent')
+
+    cli
+      .command('child commandwithspaces', 'Run nested command')
+      .option('--name <name>', z.string().describe('Name'))
+      .action((options, { console }) => {
+        console.log(`hello ${options.name}`)
+      })
+
+    const bash = new Bash({
+      customCommands: [await cli.createJustBashCommand()],
+    })
+
+    const result = await bash.exec('parent child commandwithspaces --name Tommy')
+
+    expect(result.stdout).toBe('hello Tommy\n')
+    expect(result.stderr).toBe('')
+    expect(result.exitCode).toBe(0)
   })
 
   test('maps injected process.exit to a command exit code', async () => {
@@ -112,7 +134,7 @@ describe('createJustBashCommand', () => {
         process.exit(7)
       })
 
-    const customCommand = await (cli as any).createJustBashCommand()
+    const customCommand = await cli.createJustBashCommand()
     const result = await customCommand.execute(['fail'])
 
     expect(result).toEqual({
