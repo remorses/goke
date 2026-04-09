@@ -15,6 +15,7 @@ import pc from 'picocolors'
 import mri from "./mri.js"
 import { GokeError, coerceBySchema, extractJsonSchema, extractSchemaMetadata, isStandardSchema } from "./coerce.js"
 import type { StandardJSONSchemaV1 } from "./coerce.js"
+import { createJustBashCommand as createJustBashCommandBridge } from './just-bash.js'
 
 // ─── Node.js platform constants ───
 
@@ -289,6 +290,10 @@ class Option {
       // No arg needed, it's boolean flag
       this.isBoolean = true
     }
+  }
+
+  clone() {
+    return new Option(this.rawName, this.schema ?? this.description)
   }
 }
 
@@ -766,6 +771,24 @@ class GlobalCommand extends Command {
   }
 }
 
+const cloneCommandInto = (source: Command, cli: Goke<any>) => {
+  const target = source instanceof GlobalCommand
+    ? new GlobalCommand(cli)
+    : new Command(source.rawName, source.description, { ...source.config }, cli)
+
+  target.aliasNames = [...source.aliasNames]
+  target.usageText = source.usageText
+  target.versionNumber = source.versionNumber
+  target.examples = [...source.examples]
+  target.helpCallback = source.helpCallback
+  target.commandAction = source.commandAction
+  target._hidden = source._hidden
+  target.options = source.options.map((option) => option.clone())
+  target.globalCommand = cli.globalCommand
+
+  return target
+}
+
 // ─── I/O interfaces ───
 
 /**
@@ -784,6 +807,30 @@ interface GokeOutputStream {
 interface GokeConsole {
   log(...args: unknown[]): void
   error(...args: unknown[]): void
+  warn(...args: unknown[]): void
+  info(...args: unknown[]): void
+}
+
+interface GokeProcess {
+  argv: string[]
+  stdout: GokeOutputStream
+  stderr: GokeOutputStream
+  exit(code: number): never | void
+}
+
+interface GokeExecutionContext {
+  console: GokeConsole
+  process: GokeProcess
+}
+
+class GokeProcessExit extends Error {
+  code: number
+
+  constructor(code: number) {
+    super(`process.exit(${code})`)
+    this.name = 'GokeProcessExit'
+    this.code = code
+  }
 }
 
 /**
@@ -819,6 +866,12 @@ function createConsole(stdout: GokeOutputStream, stderr: GokeOutputStream): Goke
     },
     error(...args: unknown[]) {
       stderr.write(args.map(String).join(' ') + '\n')
+    },
+    warn(...args: unknown[]) {
+      stderr.write(args.map(String).join(' ') + '\n')
+    },
+    info(...args: unknown[]) {
+      stdout.write(args.map(String).join(' ') + '\n')
     },
   }
 }
@@ -857,7 +910,7 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
   name: string
   commands: Command[]
   /** Middleware functions that run before the matched command action, in registration order */
-  middlewares: Array<{ action: (options: any) => void | Promise<void> }>
+  middlewares: Array<{ action: (options: any, context: GokeExecutionContext) => void | Promise<void> }>
   globalCommand: GlobalCommand
   matchedCommand?: Command
   matchedCommandName?: string
@@ -912,6 +965,52 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
     this.globalCommand.usage('<command> [options]')
   }
 
+  clone(options?: GokeOptions) {
+    const cloned = new Goke<Opts>(this.name, {
+      stdout: options?.stdout ?? this.stdout,
+      stderr: options?.stderr ?? this.stderr,
+      argv: options?.argv ?? this.#defaultArgv,
+      columns: options?.columns ?? this.columns,
+      exit: options?.exit ?? this.exit,
+    })
+
+    cloned.showHelpOnExit = this.showHelpOnExit
+    cloned.showVersionOnExit = this.showVersionOnExit
+    cloned.globalCommand = cloneCommandInto(this.globalCommand, cloned) as GlobalCommand
+    cloned.commands = this.commands.map((command) => cloneCommandInto(command, cloned))
+    for (const command of cloned.commands) {
+      command.globalCommand = cloned.globalCommand
+    }
+    cloned.middlewares = this.middlewares.map((middleware) => ({ action: middleware.action }))
+
+    for (const eventName of this.eventNames()) {
+      for (const listener of this.listeners(eventName)) {
+        cloned.on(eventName, listener)
+      }
+    }
+
+    return cloned
+  }
+
+  private createExecutionContext(argv = this.rawArgs): GokeExecutionContext {
+    return {
+      console: this.console,
+      process: {
+        argv,
+        stdout: this.stdout,
+        stderr: this.stderr,
+        exit: (code: number) => {
+          this.exit(code)
+          throw new GokeProcessExit(code)
+        },
+      },
+    }
+  }
+
+  async createJustBashCommand(options?: { name?: string }) {
+    return createJustBashCommandBridge(this, options)
+  }
+
   /**
    * Add a global usage text.
    *
@@ -958,20 +1057,21 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
    * options (e.g. setting up logging, initializing state).
    *
    * The callback receives the parsed options object, typed according to all
-   * `.option()` calls that precede this `.use()` in the chain.
+   * `.option()` calls that precede this `.use()` in the chain, plus an injected
+   * execution context with `{ console, process }` for portable output and exits.
    *
    * @example
    * ```ts
    * cli
    *   .option('--verbose', z.boolean().default(false).describe('Verbose'))
-   *   .use((options) => {
+   *   .use((options, { console }) => {
    *     if (options.verbose) {
-   *       process.env.LOG_LEVEL = 'debug'
+   *       console.log('verbose mode enabled')
    *     }
    *   })
    * ```
    */
-  use(callback: (options: Opts) => void | Promise<void>): this {
+  use(callback: (options: Opts, context: GokeExecutionContext) => void | Promise<void>): this {
     this.middlewares.push({ action: callback })
     return this
   }
@@ -1376,6 +1476,7 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
 
   runMatchedCommand() {
     const { args, options, matchedCommand: command } = this
+    const executionContext = this.createExecutionContext()
 
     if (!command || !command.commandAction) return
 
@@ -1400,6 +1501,7 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
       }
     })
     actionArgs.push(options)
+    actionArgs.push(executionContext)
 
     const executeAction = () => command.commandAction!.apply(this, actionArgs)
 
@@ -1419,30 +1521,48 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
 
     for (const mw of this.middlewares) {
       if (asyncChain) {
-        asyncChain = asyncChain.then(() => mw.action(options))
+        asyncChain = asyncChain.then(() => mw.action(options, executionContext))
       } else {
         try {
-          const mwResult = mw.action(options)
+          const mwResult = mw.action(options, executionContext)
           if (isPromiseLike(mwResult)) {
             asyncChain = mwResult as Promise<any>
           }
         } catch (err) {
+          if (err instanceof GokeProcessExit) {
+            throw err
+          }
           handleAsyncError(err)
           return
         }
       }
     }
 
-    const result = asyncChain
-      ? asyncChain.then(executeAction)
-      : executeAction()
-
-    // If the result is a promise, catch async errors
-    if (isPromiseLike(result)) {
-      (result as Promise<any>).catch(handleAsyncError)
+    const catchAsyncError = (err: unknown) => {
+      if (err instanceof GokeProcessExit) {
+        throw err
+      }
+      handleAsyncError(err)
     }
 
-    return result
+    if (asyncChain) {
+      return asyncChain
+        .then(executeAction)
+        .catch(catchAsyncError)
+    }
+
+    try {
+      const result = executeAction()
+      return isPromiseLike(result)
+        ? (result as Promise<any>).catch(catchAsyncError)
+        : result
+    } catch (err) {
+      if (err instanceof GokeProcessExit) {
+        throw err
+      }
+      handleAsyncError(err)
+      return
+    }
   }
 }
 
@@ -1475,6 +1595,6 @@ function openInBrowser(url: string): void {
 
 // ─── Exports ───
 
-export type { GokeOutputStream, GokeConsole, GokeOptions }
-export { createConsole, Command, openInBrowser }
+export type { GokeOutputStream, GokeConsole, GokeOptions, GokeProcess, GokeExecutionContext }
+export { createConsole, Command, GokeProcessExit, openInBrowser }
 export default Goke

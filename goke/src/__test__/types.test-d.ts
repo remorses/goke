@@ -119,9 +119,12 @@ describe('type-level: middleware use() callback inference', () => {
     goke('test')
       .option('--port <port>', schema1)
       .option('--host <host>', schema2)
-      .use((options) => {
+      .use((options, { console, process }) => {
         expectTypeOf(options.port).toEqualTypeOf<number>()
         expectTypeOf(options.host).toEqualTypeOf<string>()
+        expectTypeOf(process.argv).toEqualTypeOf<string[]>()
+        expectTypeOf(process.stdout.write).toEqualTypeOf<(data: string) => void>()
+        expectTypeOf(console.log).toBeFunction()
       })
   })
 
@@ -131,16 +134,18 @@ describe('type-level: middleware use() callback inference', () => {
 
     goke('test')
       .option('--verbose', schema1)
-      .use((options) => {
+      .use((options, { process }) => {
         expectTypeOf(options.verbose).toEqualTypeOf<boolean | undefined>()
+        expectTypeOf(process.exit).toEqualTypeOf<(code: number) => void>()
         // @ts-expect-error port is not declared yet
         options.port
       })
       .option('--port <port>', schema2)
-      .use((options) => {
+      .use((options, { console }) => {
         // Now both are visible
         expectTypeOf(options.verbose).toEqualTypeOf<boolean | undefined>()
         expectTypeOf(options.port).toEqualTypeOf<number>()
+        expectTypeOf(console.error).toBeFunction()
       })
   })
 
@@ -149,7 +154,8 @@ describe('type-level: middleware use() callback inference', () => {
 
     goke('test')
       .option('--port <port>', schema)
-      .use((options) => {
+      .use((options, { process }) => {
+        expectTypeOf(process.stderr.write).toEqualTypeOf<(data: string) => void>()
         // @ts-expect-error nonExistent was never defined
         options.nonExistent
       })

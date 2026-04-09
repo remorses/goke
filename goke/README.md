@@ -15,6 +15,7 @@
 - **Yet so powerful**. Enable features like default command, git-like subcommands, validation for required arguments and options, variadic arguments, dot-nested options, automated help message generation and so on.
 - **Space-separated subcommands**: Support multi-word commands like `mcp login`, `git remote add`.
 - **Schema-based type coercion**: Use Zod, Valibot, ArkType, or plain JSON Schema for automatic type coercion and TypeScript type inference. Description and default values are extracted from the schema automatically.
+- **Injected execution context**: Prefer `{ console, process }` in actions and middleware for portable output, simpler tests, and alternate runtimes like JustBash.
 - **Type-safe middleware**: Register `.use()` callbacks that run before commands with full type inference from global options.
 - **Developer friendly**. Written in TypeScript.
 
@@ -43,7 +44,7 @@ cli.option(
 )
 cli.option('--name <name>', 'Provide your name')
 
-cli.command('lint [...files]', 'Lint files').action((files, options) => {
+cli.command('lint [...files]', 'Lint files').action((files, options, { console }) => {
   console.log(files, options)
 })
 
@@ -52,7 +53,7 @@ cli
   .option('--minify', 'Minify output')
   .example('build src/index.ts')
   .example('build src/index.ts --minify')
-  .action(async (entry, options) => { // options is type safe! no need to type it
+  .action(async (entry, options, { console }) => { // options is type safe! no need to type it
     console.log(entry, options)
   })
 
@@ -132,7 +133,7 @@ cli
   .option('--channel <name>', 'Target channel: stable, beta, alpha')
   .option('--notes-file <path>', 'Markdown file used as release notes')
   .option('--dry-run', 'Preview every step without publishing')
-  .action((version, options) => {
+  .action((version, options, { console }) => {
     console.log('release', version, options)
   })
 
@@ -158,7 +159,7 @@ cli
   .option('--target <migration>', 'Apply up to a specific migration id')
   .option('--dry-run', 'Print plan only, do not execute SQL')
   .option('--verbose', 'Show each executed statement')
-  .action((options) => {
+  .action((options, { console }) => {
     console.log('migrate', options)
   })
 
@@ -298,7 +299,7 @@ cli
     z.string().default('production').describe('Target environment'),
   )
   .option('--dry-run', 'Preview without deploying')
-  .action((options) => {
+  .action((options, { console }) => {
     console.log(`Deploying to ${options.env}...`)
   })
 
@@ -306,22 +307,22 @@ cli
 cli
   .command('init', 'Initialize a new project')
   .option('--template <template>', 'Project template')
-  .action((options) => {
+  .action((options, { console }) => {
     console.log('Initializing project...')
   })
 
-cli.command('login', 'Authenticate with the server').action(() => {
+cli.command('login', 'Authenticate with the server').action((options, { console }) => {
   console.log('Opening browser for login...')
 })
 
-cli.command('logout', 'Clear saved credentials').action(() => {
+cli.command('logout', 'Clear saved credentials').action((options, { console }) => {
   console.log('Logged out')
 })
 
 cli
   .command('status', 'Show deployment status')
   .option('--json', 'Output as JSON')
-  .action((options) => {
+  .action((options, { console }) => {
     console.log('Fetching status...')
   })
 
@@ -329,7 +330,7 @@ cli
   .command('logs <deploymentId>', 'Stream logs for a deployment')
   .option('--follow', 'Follow log output')
   .option('--lines <n>', z.number().default(100).describe('Number of lines'))
-  .action((deploymentId, options) => {
+  .action((deploymentId, options, { console }) => {
     console.log(`Streaming logs for ${deploymentId}...`)
   })
 
@@ -351,6 +352,8 @@ deploy --help                   # shows all commands
 
 Global options are defined on the CLI instance and apply to all commands. Use `.use()` to register middleware that runs before any command action — useful for reacting to global options like setting up logging, initializing state, or configuring services.
 
+Prefer the injected `{ console, process }` argument over global `console` and `process.exit`. It keeps commands easier to test and lets the same command code run inside alternate runtimes like JustBash.
+
 Middleware runs in registration order, after option parsing and validation, but before the matched command's `.action()` callback.
 
 ```ts
@@ -362,24 +365,24 @@ const cli = goke('mycli')
 cli
   .option('--verbose', z.boolean().default(false).describe('Enable verbose logging'))
   .option('--api-url [url]', z.string().default('https://api.example.com').describe('API base URL'))
-  .use((options) => {
+  .use((options, { console }) => {
     // options.verbose and options.apiUrl are fully typed here
     if (options.verbose) {
-      process.env.LOG_LEVEL = 'debug'
+      console.log('verbose mode enabled')
     }
   })
 
 cli
   .command('deploy <env>', 'Deploy to an environment')
   .option('--dry-run', 'Preview without deploying')
-  .action((env, options) => {
+  .action((env, options, { console }) => {
     // options includes both command options (dryRun) and global options (verbose, apiUrl)
     console.log(`Deploying to ${env} via ${options.apiUrl}`)
   })
 
 cli
   .command('status', 'Show deployment status')
-  .action((options) => {
+  .action((options, { console }) => {
     console.log('Checking status...')
   })
 
@@ -392,14 +395,16 @@ Type safety is positional — each `.use()` callback only sees options declared 
 ```ts
 cli
   .option('--verbose', z.boolean().default(false).describe('Verbose'))
-  .use((options) => {
+  .use((options, { process }) => {
     options.verbose   // boolean — typed
+    process.argv      // string[] — typed
     options.port      // TypeScript error — not declared yet
   })
   .option('--port <port>', z.number().describe('Port'))
-  .use((options) => {
+  .use((options, { console }) => {
     options.verbose   // boolean — still visible
     options.port      // number — now visible
+    console.error('ready')
   })
 ```
 
@@ -408,9 +413,10 @@ Middleware supports async functions. If any middleware is async, the remaining m
 ```ts
 cli
   .option('--token <token>', z.string().describe('API token'))
-  .use(async (options) => {
+  .use(async (options, { console }) => {
     const client = await connectToApi(options.token)
     globalState.client = client
+    console.log('connected')
   })
 ```
 
@@ -426,7 +432,7 @@ const cli = goke()
 cli
   .command('rm <dir>', 'Remove a dir')
   .option('-r, --recursive', 'Remove recursively')
-  .action((dir, options) => {
+  .action((dir, options, { console }) => {
     console.log('remove ' + dir + (options.recursive ? ' recursively' : ''))
   })
 
@@ -444,17 +450,17 @@ import { goke } from 'goke'
 
 const cli = goke('mycli')
 
-cli.command('mcp login <url>', 'Login to MCP server').action((url) => {
+cli.command('mcp login <url>', 'Login to MCP server').action((url, options, { console }) => {
   console.log('Logging in to', url)
 })
 
-cli.command('mcp logout', 'Logout from MCP server').action(() => {
+cli.command('mcp logout', 'Logout from MCP server').action((options, { console }) => {
   console.log('Logged out')
 })
 
 cli
   .command('git remote add <name> <url>', 'Add a git remote')
-  .action((name, url) => {
+  .action((name, url, options, { console }) => {
     console.log('Adding remote', name, url)
   })
 
@@ -479,7 +485,7 @@ cli
   .option('--workers <workers>', z.int().describe('Worker count'))
   .option('--tags <tag>', z.array(z.string()).describe('Tags (repeatable)'))
   .option('--verbose', 'Verbose output')
-  .action((options) => {
+  .action((options, { console }) => {
     // options.port is number, options.host is string, etc.
     console.log(options)
   })
@@ -510,7 +516,7 @@ cli
   .option('--old-port <port>', z.number().meta({ deprecated: true, description: 'Use --port instead' }))
   // Current option: visible in help
   .option('--port <port>', z.number().describe('Port number'))
-  .action((options) => {
+  .action((options, { console }) => {
     const port = options.port ?? options.oldPort
     console.log('Starting on port', port)
   })
@@ -548,7 +554,7 @@ The last argument of a command can be variadic. To make an argument variadic you
 cli
   .command('build <entry> [...otherFiles]', 'Build your app')
   .option('--foo', 'Foo option')
-  .action((entry, otherFiles, options) => {
+  .action((entry, otherFiles, options, { console }) => {
     console.log(entry)
     console.log(otherFiles)
     console.log(options)
@@ -606,7 +612,7 @@ cli
   .command('build', 'desc')
   .option('--env <env>', 'Set envs')
   .example('--env.API_SECRET xxx')
-  .action((options) => {
+  .action((options, { console }) => {
     console.log(options)
   })
 ```
@@ -619,7 +625,7 @@ Register a command that will be used when no other command is matched.
 cli
   .command('[...files]', 'Build files')
   .option('--minimize', 'Minimize output')
-  .action((files, options) => {
+  .action((files, options, { console }) => {
     console.log(files)
     console.log(options.minimize)
   })
@@ -634,9 +640,44 @@ try {
   cli.parse(process.argv, { run: false })
   await cli.runMatchedCommand()
 } catch (error) {
-  console.error(error.stack)
+  const message = error instanceof Error ? error.stack : String(error)
+  process.stderr.write(String(message) + '\n')
   process.exit(1)
 }
+```
+
+### Testing with mocked console and exit
+
+Because goke derives its injected `{ console, process }` from the CLI's configured output streams and `exit` function, tests can override them directly and assert on the calls.
+
+```ts
+import { describe, expect, test, vi } from 'vitest'
+import { goke, GokeProcessExit } from 'goke'
+
+describe('deploy command', () => {
+  test('writes output and exits with injected mocks', () => {
+    const stdout = { write: vi.fn<(data: string) => void>() }
+    const stderr = { write: vi.fn<(data: string) => void>() }
+    const exit = vi.fn<(code: number) => void>()
+
+    const cli = goke('acme', { stdout, stderr, exit })
+
+    cli
+      .command('deploy', 'Deploy the project')
+      .action((options, { console, process }) => {
+        console.log('deploying')
+        process.exit(2)
+      })
+
+    expect(() => {
+      cli.parse(['node', 'acme', 'deploy'], { run: true })
+    }).toThrow(GokeProcessExit)
+
+    expect(stdout.write).toHaveBeenCalledWith('deploying\n')
+    expect(exit).toHaveBeenCalledWith(2)
+    expect(stderr.write).not.toHaveBeenCalled()
+  })
+})
 ```
 
 ### With TypeScript
@@ -659,7 +700,7 @@ cli
   .command('serve <entry>', 'Start the app')
   .option('--port <port>', z.number().default(3000).describe('Port number'))
   .option('--watch', 'Watch files')
-  .action((entry, options) => {
+  .action((entry, options, { console }) => {
     // entry: string
     // options.port: number
     // options.watch: boolean
@@ -676,6 +717,33 @@ import { openInBrowser } from 'goke'
 
 openInBrowser('https://example.com/dashboard')
 ```
+
+### Expose a goke CLI to JustBash
+
+Use `cli.createJustBashCommand()` to expose a goke CLI as a single JustBash custom command. JustBash command names are single-token executables, but the goke CLI behind them can still use multi-word subcommands like `child commandwithspaces`.
+
+```ts
+import { goke } from 'goke'
+import { z } from 'zod'
+import { Bash } from 'just-bash'
+
+const cli = goke('parent')
+
+cli
+  .command('child commandwithspaces', 'Run nested command')
+  .option('--name <name>', z.string().describe('Name'))
+  .action((options, { console }) => {
+    console.log(`hello ${options.name}`)
+  })
+
+const bash = new Bash({
+  customCommands: [await cli.createJustBashCommand()],
+})
+
+await bash.exec('parent child commandwithspaces --name Tommy')
+```
+
+Prefer the injected `{ console, process }` helpers in command implementations so the same command code works cleanly both in the regular CLI runtime and through the JustBash bridge.
 
 ## References
 
@@ -712,9 +780,9 @@ Add a global option. The second argument is either:
 
 #### cli.use(callback)
 
-- Type: `(callback: (options: Opts) => void | Promise<void>) => CLI`
+- Type: `(callback: (options: Opts, { console, process }) => void | Promise<void>) => CLI`
 
-Register a middleware function that runs before the matched command action. Middleware runs in registration order, after option parsing and validation. The callback receives the parsed global options, typed according to all `.option()` calls that precede the `.use()` in the chain.
+Register a middleware function that runs before the matched command action. Middleware runs in registration order, after option parsing and validation. The callback receives the parsed global options, typed according to all `.option()` calls that precede the `.use()` in the chain, plus an injected `{ console, process }` helper object.
 
 #### cli.parse(argv?)
 
@@ -768,6 +836,8 @@ Basically the same as `cli.option` but this adds the option to specific command.
 
 - Type: `(callback: ActionCallback) => Command`
 
+Command callbacks receive positional args first, then parsed options, then an injected `{ console, process }` object. Prefer those injected helpers over global `console` and `process.exit` so commands stay easier to test and can run inside alternate runtimes like JustBash.
+
 #### command.alias(name)
 
 - Type: `(name: string) => Command`
@@ -798,7 +868,7 @@ cli.on('command:!', () => {
 })
 
 cli.on('command:*', () => {
-  console.error('Invalid command: %s', cli.args.join(' '))
+  process.stderr.write(`Invalid command: ${cli.args.join(' ')}\n`)
   process.exit(1)
 })
 ```
