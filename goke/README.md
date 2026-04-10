@@ -390,6 +390,22 @@ cli
 
 Prefer injected `fs` for CLI storage instead of importing `node:fs/promises` directly inside actions. That keeps the command portable to JustBash and easier to test.
 
+### Path handling
+
+Use relative paths with injected `fs` for routine CLI storage paths. When a helper needs to resolve from the current directory, pass injected `process.cwd` into that helper and resolve from there.
+
+```ts
+await fs.mkdir('.mycli', { recursive: true })
+await fs.writeFile('.mycli/auth.json', json, 'utf8')
+console.log('running from', process.cwd)
+```
+
+Why this works:
+
+- In normal Node.js runs, relative paths resolve against the host cwd.
+- In JustBash runs, the same relative paths resolve against the sandbox cwd.
+- `process.cwd` mirrors that runtime-specific cwd in both environments.
+
 `goke` also exports the runtime types, so helper functions can use dependency injection without reaching for globals:
 
 ```ts
@@ -809,6 +825,77 @@ await bash.exec('parent child commandwithspaces --name Tommy')
 ```
 
 Prefer the injected `{ fs, console, process }` helpers in command implementations so the same command code works cleanly both in the regular CLI runtime and through the JustBash bridge. The injected `fs` defaults to Node `fs/promises`, and `process.cwd` / `process.env` / `process.stdin` reflect host values in Node but sandbox values inside `createJustBashCommand()`.
+
+### Test with real JustBash
+
+When a command reads or writes files, test it through real `just-bash` using the existing app CLI. Do not define the CLI inside the test body.
+
+```ts
+import { describe, expect, test } from 'vitest'
+import { Bash, InMemoryFs } from 'just-bash'
+import { cli } from '../src/cli'
+
+describe('login command', () => {
+  test('writes auth state through the sandbox fs', async () => {
+    const virtualFs = new InMemoryFs()
+    await virtualFs.mkdir('/project', { recursive: true })
+
+    const bash = new Bash({
+      fs: virtualFs,
+      cwd: '/project',
+      customCommands: [await cli.createJustBashCommand()],
+    })
+
+    const result = await bash.exec('parent login --token Tommy')
+
+    expect(result.stdout).toBe('saved credentials\n')
+    expect(await virtualFs.readFile('/project/.mycli/auth.json', 'utf8')).toBe(
+      '{"token":"Tommy","cwd":"/project"}',
+    )
+  })
+})
+```
+
+This is the recommended compatibility test whenever a CLI touches storage: run the same CLI once in normal tests and once through real `just-bash`.
+
+### Exposing your CLI as a skill
+
+If you build a CLI with goke, keep the skill minimal and point agents to the CLI help output. Put detailed usage in the CLI code and README, not in a duplicated skill file.
+
+````markdown
+---
+name: acme
+description: >
+  acme is a deployment CLI. Always run `acme --help` before using it
+  to discover available commands, options, and usage examples.
+---
+
+# acme
+
+Always run `acme --help` before using this CLI.
+For subcommand details: `acme <command> --help`
+````
+
+## Contributor Notes
+
+### Rules
+
+1. Use schema-based options for typed values.
+2. Do not repeat defaults in `.describe(...)` when using `.default()`.
+3. Do not manually type action callback arguments; let goke infer them.
+4. Prefer injected `{ fs, console, process }` over global `console`, `process.exit`, or direct `node:fs/promises` imports.
+5. Use implicit cwd with injected `fs` for CLI storage. When a helper needs current-cwd semantics, pass `process.cwd` from the injected context into that helper.
+6. Define the CLI in app code and import that same CLI in tests; do not construct a separate CLI inside compatibility tests.
+
+### Version
+
+Import `package.json` and use its version field so the CLI stays in sync automatically:
+
+```ts
+import pkg from './package.json' with { type: 'json' }
+
+cli.version(pkg.version)
+```
 
 ## References
 
