@@ -200,6 +200,29 @@ For filesystem access, injected `fs` is the default choice:
 - In normal Node.js runs, `fs` defaults to `node:fs/promises`
 - In JustBash runs, `goke` swaps in a compatible adapter over the JustBash virtual filesystem
 
+### Path handling
+
+Never import `path.resolve()` or `node:path` just to resolve storage paths inside actions or middleware. That ties the command to host Node path semantics and bypasses the JustBash sandbox cwd.
+
+Prefer implicit cwd with injected `fs`:
+
+```ts
+await fs.mkdir('.mycli', { recursive: true })
+await fs.writeFile('.mycli/auth.json', json, 'utf8')
+```
+
+If you need to know where the command is running, use injected `process.cwd`:
+
+```ts
+console.log('running from', process.cwd)
+```
+
+Why this works:
+
+- In normal Node.js runs, relative paths resolve against the host cwd
+- In JustBash runs, the same relative paths resolve against the sandbox cwd
+- `process.cwd` mirrors that runtime-specific cwd in both environments
+
 Use injected `fs` for CLI storage so commands work in both runtimes:
 
 ```ts
@@ -548,11 +571,11 @@ describe('deploy command', () => {
 
     cli
       .command('deploy', 'Deploy the project')
-  .action((options, { console, process }) => {
-    console.log('deploying')
-    console.log(process.cwd)
-    process.exit(2)
-  })
+      .action((options, { console, process }) => {
+        console.log('deploying')
+        console.log(process.cwd)
+        process.exit(2)
+      })
 
     expect(() => {
       cli.parse(['node', 'acme', 'deploy'], { run: true })
@@ -589,6 +612,36 @@ await bash.exec('parent child commandwithspaces --name Tommy')
 ```
 
 This bridge is why the injected `{ fs, console, process }` argument matters: it keeps filesystem access, command output, and runtime metadata portable across the regular CLI runtime, tests, and JustBash.
+
+To verify a CLI behaves the same in both environments, define the CLI in its own module and import that existing CLI into the test. Do not define the CLI inside the test body. Agents tend to cargo-cult examples, so the example should model the real pattern used in apps.
+
+```ts
+import { describe, expect, test } from 'vitest'
+import { Bash, InMemoryFs } from 'just-bash'
+import { cli } from '../src/cli'
+
+describe('login command', () => {
+  test('writes auth state through the sandbox fs', async () => {
+    const virtualFs = new InMemoryFs()
+    await virtualFs.mkdir('/project', { recursive: true })
+
+    const bash = new Bash({
+      fs: virtualFs,
+      cwd: '/project',
+      customCommands: [await cli.createJustBashCommand()],
+    })
+
+    const result = await bash.exec('parent login --token Tommy')
+
+    expect(result.stdout).toBe('saved credentials\n')
+    expect(await virtualFs.readFile('/project/.mycli/auth.json', 'utf8')).toBe(
+      '{"token":"Tommy","cwd":"/project"}',
+    )
+  })
+})
+```
+
+This is the recommended compatibility test whenever a CLI reads or writes files: define the CLI once in app code, then run that same CLI once in normal tests and once through real `just-bash` to confirm the same command code works with the sandbox runtime.
 
 ## @goke/mcp — MCP ↔ CLI bridge
 
