@@ -1,5 +1,11 @@
 # goke
 
+## 6.5.1
+
+1. **Removed the `picocolors` runtime dependency** — `goke` now vendors its color formatter internally, so installs stay more self-contained and avoid pulling an extra package into downstream dependency graphs.
+
+2. **Improved agent and JustBash documentation** — the README now centralizes the goke guidance that used to be duplicated in the skill file, and includes the recommended `npx -y skills add remorses/goke` install flow plus the real JustBash compatibility-testing pattern.
+
 ## 6.5.0
 
 1. **Injected filesystem access via `{ fs }` in actions and middleware** — command callbacks can now read and write files through a dependency-injected `fs` object instead of importing `node:fs/promises` directly:
