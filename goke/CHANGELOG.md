@@ -1,5 +1,46 @@
 # goke
 
+## 6.5.0
+
+1. **Injected filesystem access via `{ fs }` in actions and middleware** — command callbacks can now read and write files through a dependency-injected `fs` object instead of importing `node:fs/promises` directly:
+   ```ts
+   cli
+     .command('login', 'Save auth token')
+     .option('--token <token>', z.string().describe('Auth token'))
+     .action(async (options, { fs, console, process }) => {
+       await fs.mkdir('.mycli', { recursive: true })
+       await fs.writeFile('.mycli/auth.json', JSON.stringify({ token: options.token }), 'utf8')
+       console.log('saved credentials in', process.cwd)
+     })
+   ```
+   In normal Node.js runs `fs` defaults to `node:fs/promises`. In JustBash sandboxes `goke` automatically swaps in a compatible adapter over the virtual filesystem, so the same command code works in both environments.
+
+2. **Injected `process.cwd`, `process.env`, and `process.stdin`** — the runtime context now exposes the active working directory, environment, and standard input alongside existing `argv`, `stdout`, `stderr`, and `exit`:
+   ```ts
+   cli
+     .command('deploy', 'Deploy the project')
+     .action((options, { console, process }) => {
+       console.log(`deploying from ${process.cwd}`)
+       console.log(`NODE_ENV=${process.env.NODE_ENV}`)
+     })
+   ```
+   In JustBash runs these fields reflect the sandbox `cwd`, `env`, and `stdin` rather than the host process. `process.env` is mutable — mutations persist in the underlying env object or sandbox `Map`.
+
+3. **Exported `GokeFs` and `GokeProcess` types** — helper functions can now accept typed runtime objects for clean dependency injection without reaching for globals:
+   ```ts
+   import type { GokeFs, GokeProcess } from 'goke'
+
+   async function saveAuth(args: { fs: GokeFs; process: GokeProcess; token: string }) {
+     await args.fs.mkdir('.mycli', { recursive: true })
+     await args.fs.writeFile('.mycli/auth.json', JSON.stringify({
+       token: args.token,
+       cwd: args.process.cwd,
+     }), 'utf8')
+   }
+   ```
+
+4. **JustBash bridge now wires the full sandbox process context** — `cli.createJustBashCommand()` now forwards sandbox `cwd`, `stdin`, `env`, and `fs` into the injected runtime context automatically, so storage-style CLIs work end-to-end inside a JustBash sandbox without any extra setup.
+
 ## 6.4.0
 
 1. **Added injected `{ console, process }` runtime helpers for actions and middleware** — command callbacks can now write output and exit through dependency-injected runtime objects instead of reaching for globals:
