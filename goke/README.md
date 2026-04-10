@@ -25,6 +25,14 @@
 npm install goke
 ```
 
+## Install skill for AI agents
+
+```bash
+npx -y skills add remorses/goke
+```
+
+This installs the repository skill for AI coding agents. In this repo the shipped skill lives at `skills/goke/SKILL.md`.
+
 ## Usage
 
 ### Simple Parsing
@@ -863,6 +871,7 @@ This is the recommended compatibility test whenever a CLI touches storage: run t
 If you build a CLI with goke, keep the skill minimal and point agents to the CLI help output. Put detailed usage in the CLI code and README, not in a duplicated skill file.
 
 ````markdown
+<!-- skills/acme/SKILL.md -->
 ---
 name: acme
 description: >
@@ -954,6 +963,26 @@ Register a middleware function that runs before the matched command action. Midd
 
 Print the help message to stdout.
 
+#### cli.clone(options?)
+
+- Type: `(options?: GokeOptions) => Goke`
+
+Create a deep copy of the CLI instance with all commands, options, middleware, and event listeners. Override any `GokeOptions` (stdout, stderr, cwd, env, fs, argv, columns, exit) in the clone without affecting the original. Primarily useful in tests to run multiple isolated parses from the same CLI definition:
+
+```ts
+const cli = goke('mycli')
+cli.command('build', 'Build project').action((options, { console }) => {
+  console.log('building')
+})
+cli.help()
+
+// In tests: override streams without touching the original CLI
+const stdout = { write: vi.fn<(data: string) => void>() }
+const isolated = cli.clone({ stdout })
+isolated.parse(['node', 'mycli', 'build'])
+expect(stdout.write).toHaveBeenCalledWith('building\n')
+```
+
 #### cli.helpText()
 
 - Type: `() => string`
@@ -998,6 +1027,21 @@ Command callbacks receive positional args first, then parsed options, then an in
 
 - Type: `() => Command`
 
+#### command.hidden()
+
+- Type: `() => Command`
+
+Hide a command from the help output listing. The command still matches and runs when invoked directly — only the help display is suppressed. Useful for internal, deprecated, or experimental commands you don't want to advertise.
+
+```ts
+cli
+  .command('internal-reset', 'Reset internal state')
+  .hidden()
+  .action((options, { console }) => {
+    console.log('reset done')
+  })
+```
+
 #### command.example(example)
 
 - Type: `(example: CommandExample) => Command`
@@ -1005,6 +1049,12 @@ Command callbacks receive positional args first, then parsed options, then an in
 #### command.usage(text)
 
 - Type: `(text: string) => Command`
+
+#### command.helpText()
+
+- Type: `() => string`
+
+Return the formatted help string for this specific command without printing it. Useful for tests or embedding help text programmatically.
 
 ### Events
 
