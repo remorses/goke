@@ -10,7 +10,7 @@
  * - Utility functions: string helpers, bracket parsing, dot-prop access
  */
 
-import pc from 'picocolors'
+import pc from './picocolors.js'
 import mri from "./mri.js"
 import { GokeError, coerceBySchema, extractJsonSchema, extractSchemaMetadata, isStandardSchema } from "./coerce.js"
 import type { StandardJSONSchemaV1 } from "./coerce.js"
