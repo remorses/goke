@@ -2,22 +2,50 @@
     <br/>
     <br/>
     <h3>goke</h3>
-    <p>simple, type safe, elegant command line framework. CAC replacement</p>
+    <p>Build CLIs like you'd build an API. Type-safe, chainable, zero dependencies.</p>
     <br/>
     <br/>
 </div>
 
+goke is a TypeScript CLI framework with a [Hono](https://hono.dev)-like API. You chain `.use()` for middleware and `.command()` for routes — the same mental model as a REST API, applied to the terminal.
 
-## Features
+```ts
+import { goke } from 'goke'
+import { z } from 'zod'
 
-- **Super light-weight**: No dependency, just a single file.
-- **Easy to learn**. There are only 5 APIs you need to learn for building simple CLIs: `cli.option` `cli.use` `cli.version` `cli.help` `cli.parse`.
-- **Yet so powerful**. Enable features like default command, git-like subcommands, validation for required arguments and options, variadic arguments, dot-nested options, automated help message generation and so on.
-- **Space-separated subcommands**: Support multi-word commands like `mcp login`, `git remote add`.
-- **Schema-based type coercion**: Use Zod, Valibot, ArkType, or plain JSON Schema for automatic type coercion and TypeScript type inference. Description and default values are extracted from the schema automatically.
-- **Injected execution context**: Prefer `{ fs, console, process }` in actions and middleware for portable storage, output, and runtime metadata across Node.js, tests, and JustBash.
-- **Type-safe middleware**: Register `.use()` callbacks that run before commands with full type inference from global options.
-- **Developer friendly**. Written in TypeScript.
+const cli = goke('deploy')
+
+// middleware — runs before every command
+cli
+  .option('--env <env>', z.enum(['staging', 'production']).default('staging').describe('Target environment'))
+  .use((options, { console }) => {
+    console.log(`Environment: ${options.env}`)
+  })
+
+// commands — like route handlers
+cli
+  .command('up', 'Deploy the app')
+  .option('--dry-run', 'Preview without deploying')
+  .action((options, { console, process }) => {
+    console.log(`Deploying from ${process.cwd}`)
+  })
+
+cli
+  .command('logs <deploymentId>', 'Stream logs')
+  .option('--lines <n>', z.number().default(100).describe('Lines to tail'))
+  .action((id, options) => streamLogs(id, options.lines))
+
+cli.help()
+cli.parse()
+```
+
+- **Hono-like chaining** — `.use()` for middleware, `.command()` for handlers. Build a CLI the same way you'd design a REST API.
+- **Zod type safety** — pass a Zod schema to `.option()` and get automatic coercion, TypeScript inference, and help text for free. Works with Valibot, ArkType, or any Standard Schema library.
+- **MCP server in 2 lines** — expose your entire CLI as an MCP server with `createMcpAction({ cli })`. Every command becomes a tool, ready for Claude Desktop, Cursor, VS Code, and [any MCP client](https://github.com/supermemoryai/install-mcp#supported-clients).
+- **JustBash support** — `cli.createJustBashCommand()` exposes your CLI as a sandboxed JustBash command. Same action code, no changes needed.
+- **Space-separated subcommands** — `git remote add`, `mcp login`, `db migrate` — multi-word commands work out of the box.
+- **Injected `{ fs, console, process }`** — commands receive a portable runtime context. Swap it in tests, or let JustBash replace it with a sandbox. No global side effects.
+- **Zero dependencies** — single file, no runtime deps.
 
 ## Install
 
