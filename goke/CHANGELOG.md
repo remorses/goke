@@ -1,5 +1,27 @@
 # goke
 
+## 6.6.1
+
+1. **`wrapJsonSchema` now accepts an `Output` type parameter** — hand-written JSON Schemas can now flow a typed output all the way into `.action()` callbacks without any Zod dependency:
+
+   ```ts
+   cli
+     .command('diff', 'Show diff')
+     .option(
+       '--filter <glob>',
+       wrapJsonSchema<string[]>({
+         type: 'array',
+         items: { type: 'string' },
+         description: 'Glob pattern (repeatable)',
+       }),
+     )
+     .action((options) => {
+       // options.filter: string[] | undefined
+     })
+   ```
+
+   Previously the returned type defaulted to `StandardJSONSchemaV1` with `Output = unknown`, forcing every call site to cast. The default is still `unknown` when you omit the type parameter, so this is non-breaking for existing code.
+
 ## 6.6.0
 
 1. **Optional-value flags now surface as `string | undefined`** — previously, a flag declared as `--host [host]` without a schema reached action callbacks as `string | boolean | undefined`, forcing every caller to write a boilerplate `typeof v === 'string' ? v : undefined` coercion. goke now normalizes the three states to a single clean shape:

@@ -127,13 +127,37 @@ export declare namespace StandardJSONSchemaV1 {
 /**
  * Wraps a plain JSON Schema object into a StandardJSONSchemaV1-compatible object.
  *
- * @internal This is an internal helper used by @goke/mcp to wrap MCP tool schemas.
- * Users should pass Zod or other StandardSchema-compatible schemas to `.option()`.
+ * Originally built for @goke/mcp to wrap MCP tool schemas, but also useful for
+ * any consumer that has a hand-written JSON Schema (e.g. an array of strings
+ * or a tagged union) and wants goke's `.action()` callback to infer the right
+ * option type without reaching for Zod. Pass an explicit `Output` type
+ * parameter to tell TypeScript what the coerced value will look like at
+ * runtime — goke does not validate the output shape, it just propagates it
+ * into the inferred options type for `.action()` callbacks.
+ *
+ * @example
+ * ```ts
+ * cli
+ *   .command('diff', 'Show diff')
+ *   .option(
+ *     '--filter <glob>',
+ *     wrapJsonSchema<string[]>({
+ *       type: 'array',
+ *       items: { type: 'string' },
+ *       description: 'Glob pattern (repeatable)',
+ *     }),
+ *   )
+ *   .action((options) => {
+ *     // options.filter: string[] | undefined
+ *   })
+ * ```
  *
  * @param jsonSchema - A plain JSON Schema object (e.g. `{ type: "number" }`)
  * @returns A StandardJSONSchemaV1-compatible object that Goke can use for coercion
  */
-export function wrapJsonSchema(jsonSchema: Record<string, unknown>): StandardJSONSchemaV1 {
+export function wrapJsonSchema<Output = unknown>(
+  jsonSchema: Record<string, unknown>,
+): StandardJSONSchemaV1<unknown, Output> {
   return {
     "~standard": {
       version: 1,
