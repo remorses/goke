@@ -1000,6 +1000,45 @@ interface GokeExecutionContext {
   process: GokeProcess
 }
 
+/**
+ * Per-request overrides accepted by `Goke#createExecutionContext()`.
+ *
+ * Any field left `undefined` falls back to the `Goke` instance's
+ * defaults (set via `GokeOptions`), which themselves fall back to the
+ * real Node.js `process.*`. Use this to construct an execution context
+ * with tenant-specific values — e.g. a per-user `cwd`/`env`/`fs` pair
+ * for a remote MCP server, or capture streams for stdout/stderr.
+ *
+ * Passing a custom `exit` replaces the default behavior of calling
+ * `this.exit(code)`. The returned `process.exit` still throws
+ * `GokeProcessExit` after the user-provided `exit` returns, so callers
+ * can catch the exit without the outer code needing to know about it.
+ */
+interface GokeExecutionContextOverride {
+  /** Override the argv array exposed as `process.argv`. Defaults to the cli's raw parsed argv. */
+  argv?: string[]
+  /** Override the working directory exposed as `process.cwd`. */
+  cwd?: string
+  /** Override the environment exposed as `process.env`. */
+  env?: Record<string, string | undefined>
+  /** Override the filesystem exposed as `ctx.fs`. */
+  fs?: GokeFs
+  /** Override the stdin content exposed as `process.stdin`. */
+  stdin?: string
+  /** Override the stdout stream used by `ctx.console.log` and exposed as `process.stdout`. */
+  stdout?: GokeOutputStream
+  /** Override the stderr stream used by `ctx.console.error` and exposed as `process.stderr`. */
+  stderr?: GokeOutputStream
+  /**
+   * Override the exit function called by `process.exit(code)`.
+   *
+   * The returned context still throws `GokeProcessExit` after this
+   * callback returns, so callers that want to capture the exit
+   * without killing the host process can pass `() => {}`.
+   */
+  exit?: (code: number) => void
+}
+
 class GokeProcessExit extends Error {
   code: number
 
@@ -1193,19 +1232,63 @@ class Goke<Opts = {}> extends EventEmitter {
     return cloned
   }
 
-  private createExecutionContext(argv = this.rawArgs): GokeExecutionContext {
+  /**
+   * Build a `GokeExecutionContext` using this cli's defaults, optionally
+   * overridden per-request.
+   *
+   * `runMatchedCommand()` calls this internally with no arguments to
+   * construct the context passed to command actions and middlewares.
+   *
+   * The method is also public so adapters (MCP, remote RPC, batch
+   * runners, etc.) can build a context for a single invocation with
+   * tenant-specific values — e.g. capture streams for stdout/stderr,
+   * a per-user `cwd`/`env`/`fs`, or an `exit` that throws instead of
+   * killing the host process. See {@link GokeExecutionContextOverride}.
+   *
+   * @example
+   * ```ts
+   * // Build an execution context that captures output into strings and
+   * // treats `ctx.process.exit(code)` as a `GokeProcessExit` throw
+   * // instead of terminating the host process.
+   * const stdout = createTextCaptureStream()
+   * const stderr = createTextCaptureStream()
+   * const ctx = cli.createExecutionContext({
+   *   stdout,
+   *   stderr,
+   *   exit: () => {},
+   * })
+   * try {
+   *   await action(...args, options, ctx)
+   * } catch (err) {
+   *   if (err instanceof GokeProcessExit) {
+   *     // handle exit code
+   *   } else {
+   *     throw err
+   *   }
+   * }
+   * ```
+   */
+  createExecutionContext(override?: GokeExecutionContextOverride): GokeExecutionContext {
+    const stdout = override?.stdout ?? this.stdout
+    const stderr = override?.stderr ?? this.stderr
+    // Reuse the cached console when streams aren't overridden; otherwise
+    // build a new one so ctx.console.log writes to the overridden streams.
+    const contextConsole = (override?.stdout !== undefined || override?.stderr !== undefined)
+      ? createConsole(stdout, stderr)
+      : this.console
+    const exitFn = override?.exit ?? this.exit
     return {
-      console: this.console,
-      fs: this.fs,
+      console: contextConsole,
+      fs: override?.fs ?? this.fs,
       process: {
-        argv,
-        cwd: this.cwd ?? process.cwd(),
-        env: this.env ?? process.env,
-        stdin: this.stdin ?? '',
-        stdout: this.stdout,
-        stderr: this.stderr,
-        exit: (code: number) => {
-          this.exit(code)
+        argv: override?.argv ?? this.rawArgs,
+        cwd: override?.cwd ?? this.cwd ?? process.cwd(),
+        env: override?.env ?? this.env ?? process.env,
+        stdin: override?.stdin ?? this.stdin ?? '',
+        stdout,
+        stderr,
+        exit: (code) => {
+          exitFn(code)
           throw new GokeProcessExit(code)
         },
       },
@@ -1828,6 +1911,6 @@ class Goke<Opts = {}> extends EventEmitter {
 
 // ─── Exports ───
 
-export type { GokeOutputStream, GokeConsole, GokeOptions, GokeProcess, GokeExecutionContext, GokeFs }
+export type { GokeOutputStream, GokeConsole, GokeOptions, GokeProcess, GokeExecutionContext, GokeExecutionContextOverride, GokeFs }
 export { createConsole, Command, GokeProcessExit, openInBrowser }
 export default Goke

@@ -5,7 +5,33 @@
 import { describe, expect, test } from 'vitest'
 import { z } from 'zod'
 import goke from '../index.js'
-import type { GokeOutputStream, GokeOptions } from '../index.js'
+import type { GokeOutputStream, GokeOptions, GokeFs } from '../index.js'
+
+/**
+ * Build a minimal `GokeFs` stub where every method throws unless the
+ * caller overrides it. Used by `createExecutionContext` tests that
+ * only care about a single method (e.g. `readFile`) but still need
+ * an object that satisfies the full `GokeFs` interface.
+ */
+function stubGokeFs(overrides: Partial<GokeFs>): GokeFs {
+  const notImplemented = () => { throw new Error('not implemented in stub') }
+  return {
+    appendFile: notImplemented,
+    chmod: notImplemented,
+    copyFile: notImplemented,
+    link: notImplemented,
+    mkdir: notImplemented,
+    readFile: notImplemented,
+    readlink: notImplemented,
+    realpath: notImplemented,
+    rename: notImplemented,
+    rm: notImplemented,
+    symlink: notImplemented,
+    utimes: notImplemented,
+    writeFile: notImplemented,
+    ...overrides,
+  }
+}
 
 const ANSI_RE = /\x1B\[[0-9;]*m/g
 
@@ -79,6 +105,80 @@ describe('clone', () => {
     expect(cloned).not.toBe(cli)
     expect(cloned.matchedCommandName).toBe('build')
     expect(cli.matchedCommandName).toBeUndefined()
+  })
+})
+
+describe('createExecutionContext', () => {
+  test('returns a context that mirrors the cli defaults when called with no override', () => {
+    const stdout = createTestOutputStream()
+    const stderr = createTestOutputStream()
+    const cli = gokeTestable('mycli', {
+      cwd: '/workspace',
+      env: { TOKEN: 'abc' },
+      stdin: 'stdin-text',
+      stdout,
+      stderr,
+    })
+
+    const ctx = cli.createExecutionContext()
+
+    expect(ctx.process.cwd).toBe('/workspace')
+    expect(ctx.process.env.TOKEN).toBe('abc')
+    expect(ctx.process.stdin).toBe('stdin-text')
+    expect(ctx.process.stdout).toBe(stdout)
+    expect(ctx.process.stderr).toBe(stderr)
+
+    ctx.console.log('hi')
+    expect(stdout.text).toBe('hi\n')
+  })
+
+  test('honors per-call overrides for stdout, cwd, env, stdin, fs, and exit', async () => {
+    const defaultStdout = createTestOutputStream()
+    const defaultFs = stubGokeFs({ readFile: async () => 'default' })
+    const cli = gokeTestable('mycli', {
+      cwd: '/default',
+      env: { DEFAULT: '1' },
+      stdin: 'default-stdin',
+      stdout: defaultStdout,
+      fs: defaultFs,
+    })
+
+    const overrideStdout = createTestOutputStream()
+    const overrideStderr = createTestOutputStream()
+    const overrideFs = stubGokeFs({ readFile: async () => 'override' })
+    let receivedExitCode: number | undefined
+    const ctx = cli.createExecutionContext({
+      cwd: '/tenant',
+      env: { TOKEN: 'xyz' },
+      stdin: 'tenant-stdin',
+      stdout: overrideStdout,
+      stderr: overrideStderr,
+      fs: overrideFs,
+      exit: (code) => {
+        receivedExitCode = code
+      },
+    })
+
+    expect(ctx.process.cwd).toBe('/tenant')
+    expect(ctx.process.env.TOKEN).toBe('xyz')
+    expect(ctx.process.env.DEFAULT).toBeUndefined()
+    expect(ctx.process.stdin).toBe('tenant-stdin')
+    expect(ctx.process.stdout).toBe(overrideStdout)
+    expect(ctx.process.stderr).toBe(overrideStderr)
+    expect(ctx.fs).toBe(overrideFs)
+    expect(await ctx.fs.readFile('unused')).toBe('override')
+
+    // The cli's own stdout must NOT receive writes made through the
+    // override. This is what makes per-request capturing safe.
+    ctx.console.log('per-tenant')
+    expect(defaultStdout.text).toBe('')
+    expect(overrideStdout.text).toBe('per-tenant\n')
+
+    // Custom exit callback runs, then the wrapper throws GokeProcessExit
+    // so the action's code path stops at the exit site.
+    const { GokeProcessExit } = await import('../goke.js')
+    expect(() => ctx.process.exit(7)).toThrow(GokeProcessExit)
+    expect(receivedExitCode).toBe(7)
   })
 })
 
