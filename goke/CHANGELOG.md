@@ -1,5 +1,29 @@
 # goke
 
+## 6.5.2
+
+1. **Fixed: action callbacks are now fully typed without manual annotations** — positional args, command-local options, and global options are all inferred directly from the command definition. The README TypeScript examples now compile out of the box (closes [#1](https://github.com/remorses/goke/issues/1)):
+
+   ```ts
+   cli
+     .command('serve <entry>', 'Start the app')
+     .option('--port <port>', z.number().default(3000).describe('Port'))
+     .option('--watch', 'Watch files')
+     .action((entry, options, { console, process }) => {
+       // entry: string — inferred from <entry>
+       // options.port: number — inferred from z.number()
+       // options.watch: boolean | undefined — inferred from boolean flag
+       // no manual types needed
+       console.log(entry, options.port, options.watch, process.cwd)
+     })
+   ```
+
+   This works for all arg patterns — required `<arg>`, optional `[arg]`, variadic `[...files]` — and correctly propagates global options declared on the CLI instance into every command's `.action()` callback.
+
+2. **Fixed: `openInBrowser` falls back to stdout (not stderr) in non-TTY environments** — when running in CI, piped output, or agent contexts, the URL is now written to stdout so it can be captured by scripts.
+
+3. **Updated README** — new Hono-like framing, cleaner feature overview, and a new `## Features` heading to aid navigation.
+
 ## 6.5.1
 
 1. **Removed the `picocolors` runtime dependency** — `goke` now vendors its color formatter internally, so installs stay more self-contained and avoid pulling an extra package into downstream dependency graphs.
