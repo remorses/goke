@@ -213,7 +213,7 @@ cli
 
 ### Clone the cli per session
 
-The MCP SDK ships `WebStandardStreamableHTTPServerTransport`, which accepts a Web-Standard `Request` and returns a `Response`. That one shape plugs directly into **any** web framework that speaks web-standard: Hono, Cloudflare Workers, Deno, Bun, Next.js route handlers, SvelteKit endpoints, or a raw `fetch`-based handler. No Express, no `node:http` wiring, no framework lock-in.
+The MCP SDK ships `WebStandardStreamableHTTPServerTransport`, which accepts a Web-Standard `Request` and returns a `Response`. That one shape plugs directly into **any** web framework that speaks web-standard: [Spiceflow](https://github.com/remorses/spiceflow), Cloudflare Workers, Deno, Bun, Next.js route handlers, SvelteKit endpoints, or a raw `fetch`-based handler. No Express, no `node:http` wiring, no framework lock-in.
 
 You build one `handleMcpRequest(request: Request): Promise<Response>` function and mount it wherever you route HTTP:
 
@@ -304,10 +304,17 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
 Now plug `handleMcpRequest` into whichever web runtime you use:
 
 ```ts
-// Hono
-import { Hono } from "hono"
-const app = new Hono()
-app.all("/mcp", (c) => handleMcpRequest(c.req.raw))
+// Spiceflow — runs on Node, Bun, and Cloudflare Workers with the same code
+import { Spiceflow } from "spiceflow"
+
+export const app = new Spiceflow()
+  .route({
+    method: "*",
+    path: "/mcp",
+    handler: ({ request }) => handleMcpRequest(request),
+  })
+
+app.listen(3000)
 
 // Cloudflare Workers / Deno / Bun
 export default {
