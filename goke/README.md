@@ -47,7 +47,7 @@ cli.parse()
 - **JustBash support** — `cli.createJustBashCommand()` exposes your CLI as a sandboxed JustBash command. Same action code, no changes needed.
 - **Space-separated subcommands** — `git remote add`, `mcp login`, `db migrate` — multi-word commands work out of the box.
 - **Injected `{ fs, console, process }`** — commands receive a portable runtime context. Swap it in tests, or let JustBash replace it with a sandbox. No global side effects.
-- **Zero dependencies** — single file, no runtime deps.
+- **Zero runtime dependencies** — install `goke` without pulling extra runtime packages into your CLI.
 
 ## Install
 
