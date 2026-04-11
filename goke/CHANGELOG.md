@@ -1,5 +1,57 @@
 # goke
 
+## 6.8.0
+
+1. **New public `cli.createExecutionContext(override?)`** — build the same injected context a command action sees from `cli.parse()`, but with per-call overrides. Adapters (MCP servers, batch runners, remote RPC, multi-tenant HTTP) can now construct a `GokeExecutionContext` with tenant-specific values without cloning or mutating the cli:
+
+   ```ts
+   import { GokeProcessExit } from 'goke'
+
+   const stdout = createTextCaptureStream()
+   const stderr = createTextCaptureStream()
+
+   const ctx = cli.createExecutionContext({
+     cwd: '/tenant-a/workspace',
+     env: { TOKEN: 'user-token' },
+     fs: tenantFs,        // any GokeFs-compatible filesystem adapter
+     stdin: '',
+     stdout,
+     stderr,
+     exit: () => {},      // throw-only: wrapper still throws GokeProcessExit
+   })
+
+   try {
+     await action(positionalArg, options, ctx)
+   } catch (err) {
+     if (err instanceof GokeProcessExit) {
+       // handle exit code — host process untouched
+     }
+   }
+
+   console.log(stdout.text) // captured output from ctx.console.log
+   ```
+
+   Each field falls through to the cli's own configured value (set via `GokeOptions`), then to the real Node.js `process.*`. When `stdout` or `stderr` is overridden, a fresh `GokeConsole` is built from those streams so `ctx.console.log` routes through the override instead of the cli's cached console — preventing cross-request leaks.
+
+   `runMatchedCommand()` is unchanged — it still calls `createExecutionContext()` with no arguments, so the `cli.parse()` path has zero behavior change.
+
+2. **New exported type `GokeExecutionContextOverride`** — the typed override shape accepted by `createExecutionContext`. Import it for type-safe adapters:
+
+   ```ts
+   import type { GokeExecutionContextOverride } from 'goke'
+
+   function buildTenantContext(tenantId: string): GokeExecutionContextOverride {
+     return {
+       cwd: `/workspaces/${tenantId}`,
+       env: resolveTenantEnv(tenantId),
+       fs: resolveTenantFs(tenantId),
+       stdout: createCaptureStream(),
+       stderr: createCaptureStream(),
+       exit: () => {},
+     }
+   }
+   ```
+
 ## 6.7.0
 
 1. **Schemas with `.default(...)` now surface as required at the type level** — previously, a `[value]` option with a default still produced `options.foo: T | undefined` even though the runtime was always guaranteed to resolve the default. goke now detects this via a new `HasSchemaDefault<S>` type helper (Standard Schema `types.input` allows `undefined` but `types.output` doesn't) and emits the property as required:
