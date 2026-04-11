@@ -30,13 +30,13 @@ describe("createMcpAction", () => {
     cli
       .command("greet", "Say hello")
       .option("--name <name>", z.string().describe("Person to greet"))
-      .action((options: { name: string }) => `Hello ${options.name}!`);
+      .action((options) => `Hello ${options.name}!`);
 
     cli
       .command("add", "Add numbers")
       .option("--a <a>", z.number().describe("First"))
       .option("--b <b>", z.number().describe("Second"))
-      .action((options: { a: number; b: number }) => ({ sum: options.a + options.b }));
+      .action((options) => ({ sum: options.a + options.b }));
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -163,7 +163,7 @@ describe("createMcpAction", () => {
       .command("search", "Search for items")
       .option("--query <query>", z.string().describe("Search query"))
       .option("--limit [limit]", z.number().default(10).describe("Max results"))
-      .action((options: { query: string; limit: number }) => {
+      .action((options) => {
         return { results: [`result for "${options.query}"`], limit: options.limit };
       });
 
@@ -171,7 +171,7 @@ describe("createMcpAction", () => {
     cli
       .command("deploy <env>", "Deploy to environment")
       .option("--dry-run", z.boolean().default(false).describe("Simulate deployment"))
-      .action((env: string, options: { dryRun: boolean }) => {
+      .action((env, options) => {
         return options.dryRun ? `dry-run deploy to ${env}` : `deployed to ${env}`;
       });
 
@@ -189,13 +189,15 @@ describe("createMcpAction", () => {
         throw new Error("something went wrong");
       });
 
-    // Wrapped JSON schema command
+    // Wrapped JSON schema command.
+    // wrapJsonSchema produces a StandardJSONSchemaV1 with `unknown` output, so
+    // values are cast explicitly inside the action.
     cli
       .command("config set", "Set a config value")
       .option("--key <key>", wrapJsonSchema({ type: "string", description: "Config key" }))
       .option("--value <value>", wrapJsonSchema({ type: "string", description: "Config value" }))
-      .action((options: { key: string; value: string }) => {
-        return `set ${options.key} = ${options.value}`;
+      .action((options) => {
+        return `set ${String(options.key)} = ${String(options.value)}`;
       });
 
     // Commands without actions (should NOT appear as tools)

@@ -12,7 +12,7 @@ const fs: GokeFs = nodeFs
 
 function openInBrowser(url: string): void {
   if (!process.stdout.isTTY) {
-    process.stderr.write(url + '\n')
+    process.stdout.write(url + '\n')
     return
   }
 
@@ -25,7 +25,7 @@ function openInBrowser(url: string): void {
       execSync(`xdg-open ${JSON.stringify(url)}`, { stdio: 'ignore' })
     }
   } catch {
-    process.stderr.write(url + '\n')
+    process.stdout.write(url + '\n')
   }
 }
 

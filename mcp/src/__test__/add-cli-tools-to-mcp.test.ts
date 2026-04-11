@@ -19,11 +19,13 @@ function createCli() {
     .command("say hi", "Say hello")
     .option("--name <name>", z.string().describe("Person to greet"))
     .option("--caps", z.boolean().default(false).describe("Uppercase output"))
-    .action((options: { name: string; caps: boolean }) => {
+    .action((options) => {
       const message = `Hello ${options.name}!`;
       return options.caps ? message.toUpperCase() : message;
     });
 
+  // sum-values uses wrapJsonSchema whose output is `unknown`, so values are
+  // cast with Number() inside the action.
   cli
     .command("sum-values", "Add two numbers")
     .option(
@@ -40,8 +42,8 @@ function createCli() {
         description: "Right operand",
       }),
     )
-    .action((options: { left: number; right: number }) => ({
-      sum: options.left + options.right,
+    .action((options) => ({
+      sum: Number(options.left) + Number(options.right),
     }));
 
   cli
@@ -54,8 +56,8 @@ function createCli() {
         description: "Repeat count",
       }),
     )
-    .action((message: string, options: { repeat: number }) => {
-      return message.repeat(options.repeat);
+    .action((message, options) => {
+      return message.repeat(Number(options.repeat));
     });
 
   cli
@@ -63,7 +65,7 @@ function createCli() {
     .option("--title <title>", "Required title")
     .option("--tag [tag]", "Optional tag")
     .option("--dry-run", "Dry run flag")
-    .action((options: { title: string; tag?: string; dryRun?: boolean }) => {
+    .action((options) => {
       return options;
     });
 

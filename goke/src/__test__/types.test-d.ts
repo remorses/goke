@@ -1,12 +1,16 @@
 /**
  * Type-level tests for schema-based option inference.
  * These tests verify that TypeScript infers the correct types from
- * option names (template literals) and StandardJSONSchemaV1 schemas.
+ * option names (template literals) and StandardJSONSchemaV1 schemas,
+ * and that `.action()` callbacks receive fully-typed positional args
+ * and options objects.
  *
  * These use expectTypeOf from vitest for compile-time type assertions.
  */
 import { describe, test, expectTypeOf } from 'vitest'
+import { z } from 'zod'
 import type { StandardTypedV1, StandardJSONSchemaV1 } from '../coerce.js'
+import type { GokeExecutionContext } from '../goke.js'
 import goke from '../index.js'
 
 // ─── Import type helpers from Command.ts ───
@@ -164,6 +168,263 @@ describe('type-level: middleware use() callback inference', () => {
         expectTypeOf(process.stderr.write).toEqualTypeOf<(data: string) => void>()
         // @ts-expect-error nonExistent was never defined
         options.nonExistent
+      })
+  })
+})
+
+describe('type-level: command() .action() positional args inference', () => {
+  test('command with no args → action receives only (options, ctx)', () => {
+    goke('test')
+      .command('deploy', 'Deploy the app')
+      .action((options, ctx) => {
+        expectTypeOf(options).toEqualTypeOf<{}>()
+        expectTypeOf(ctx).toEqualTypeOf<GokeExecutionContext>()
+      })
+  })
+
+  test('command with one required arg → action receives (arg, options, ctx)', () => {
+    goke('test')
+      .command('get <id>', 'Fetch a resource by id')
+      .action((id, options, ctx) => {
+        expectTypeOf(id).toEqualTypeOf<string>()
+        expectTypeOf(options).toEqualTypeOf<{}>()
+        expectTypeOf(ctx).toEqualTypeOf<GokeExecutionContext>()
+      })
+  })
+
+  test('command with two required args → action receives both as strings', () => {
+    goke('test')
+      .command('convert <input> <output>', 'Convert file formats')
+      .action((input, output, options) => {
+        expectTypeOf(input).toEqualTypeOf<string>()
+        expectTypeOf(output).toEqualTypeOf<string>()
+        expectTypeOf(options).toEqualTypeOf<{}>()
+      })
+  })
+
+  test('command with optional arg → arg type includes undefined', () => {
+    goke('test')
+      .command('run [script]', 'Run a script')
+      .action((script, options) => {
+        expectTypeOf(script).toEqualTypeOf<string | undefined>()
+        expectTypeOf(options).toEqualTypeOf<{}>()
+      })
+  })
+
+  test('command with variadic required arg → arg is string[]', () => {
+    goke('test')
+      .command('exec <...args>', 'Run a binary with args')
+      .action((args, options) => {
+        expectTypeOf(args).toEqualTypeOf<string[]>()
+        expectTypeOf(options).toEqualTypeOf<{}>()
+      })
+  })
+
+  test('command with variadic optional arg → arg is string[]', () => {
+    goke('test')
+      .command('run [...rest]', 'Variadic optional')
+      .action((rest, options) => {
+        expectTypeOf(rest).toEqualTypeOf<string[]>()
+        expectTypeOf(options).toEqualTypeOf<{}>()
+      })
+  })
+
+  test('multi-word command with required arg', () => {
+    goke('test')
+      .command('mcp getNodeXml <id>', 'Get XML for a node')
+      .action((id, options) => {
+        expectTypeOf(id).toEqualTypeOf<string>()
+        expectTypeOf(options).toEqualTypeOf<{}>()
+      })
+  })
+
+  test('default command with one positional arg', () => {
+    goke('test')
+      .command('<file>', 'Default command')
+      .action((file, options) => {
+        expectTypeOf(file).toEqualTypeOf<string>()
+        expectTypeOf(options).toEqualTypeOf<{}>()
+      })
+  })
+
+  test('mixed required and optional positional args', () => {
+    goke('test')
+      .command('send <to> [cc]', 'Send a message')
+      .action((to, cc, options) => {
+        expectTypeOf(to).toEqualTypeOf<string>()
+        expectTypeOf(cc).toEqualTypeOf<string | undefined>()
+        expectTypeOf(options).toEqualTypeOf<{}>()
+      })
+  })
+})
+
+describe('type-level: command() .action() option inference', () => {
+  test('single schema-based option is visible on options param', () => {
+    goke('test')
+      .command('serve', 'Start server')
+      .option('--port <port>', z.number())
+      .action((options, ctx) => {
+        expectTypeOf(options.port).toEqualTypeOf<number>()
+        expectTypeOf(ctx).toEqualTypeOf<GokeExecutionContext>()
+      })
+  })
+
+  test('multiple schema-based options are accumulated', () => {
+    goke('test')
+      .command('serve', 'Start server')
+      .option('--port <port>', z.number())
+      .option('--host <host>', z.string())
+      .option('--verbose', z.boolean())
+      .action((options) => {
+        expectTypeOf(options.port).toEqualTypeOf<number>()
+        expectTypeOf(options.host).toEqualTypeOf<string>()
+        // Boolean flag is optional (no <...> brackets)
+        expectTypeOf(options.verbose).toEqualTypeOf<boolean | undefined>()
+      })
+  })
+
+  test('required vs optional option shape', () => {
+    goke('test')
+      .command('cmd', 'Command')
+      .option('--name <name>', z.string())
+      .option('--count [count]', z.number())
+      .action((options) => {
+        expectTypeOf(options.name).toEqualTypeOf<string>()
+        expectTypeOf(options.count).toEqualTypeOf<number | undefined>()
+      })
+  })
+
+  test('camelCase conversion for kebab-case option names', () => {
+    goke('test')
+      .command('build', 'Build')
+      .option('--out-dir <dir>', z.string())
+      .option('--my-long-flag <val>', z.string())
+      .action((options) => {
+        expectTypeOf(options.outDir).toEqualTypeOf<string>()
+        expectTypeOf(options.myLongFlag).toEqualTypeOf<string>()
+      })
+  })
+
+  test('options combined with positional args', () => {
+    goke('test')
+      .command('convert <input> <output>', 'Convert file format')
+      .option('--quality <quality>', z.number())
+      .option('--format <format>', z.enum(['png', 'jpg', 'webp']))
+      .action((input, output, options, ctx) => {
+        expectTypeOf(input).toEqualTypeOf<string>()
+        expectTypeOf(output).toEqualTypeOf<string>()
+        expectTypeOf(options.quality).toEqualTypeOf<number>()
+        expectTypeOf(options.format).toEqualTypeOf<'png' | 'jpg' | 'webp'>()
+        expectTypeOf(ctx).toEqualTypeOf<GokeExecutionContext>()
+      })
+  })
+
+  test('global options from Goke are visible inside command actions', () => {
+    goke('test')
+      .option('--verbose', z.boolean())
+      .command('serve', 'Start server')
+      .option('--port <port>', z.number())
+      .action((options) => {
+        // Global option from cli.option()
+        expectTypeOf(options.verbose).toEqualTypeOf<boolean | undefined>()
+        // Command-local option
+        expectTypeOf(options.port).toEqualTypeOf<number>()
+      })
+  })
+
+  test('untyped option (string description) produces loose value type', () => {
+    goke('test')
+      .command('serve', 'Start server')
+      .option('--port <port>', 'Port number')
+      .action((options) => {
+        // Without a schema the runtime still guarantees required value options are strings.
+        expectTypeOf(options.port).toEqualTypeOf<string>()
+      })
+  })
+
+  test('untyped optional value options keep raw mri sentinel shapes', () => {
+    goke('test')
+      .command('serve', 'Start server')
+      .option('--host [host]', 'Optional host override')
+      .option('--verbose', 'Verbose output')
+      .action((options) => {
+        expectTypeOf(options.host).toEqualTypeOf<string | boolean | undefined>()
+        expectTypeOf(options.verbose).toEqualTypeOf<boolean | undefined>()
+      })
+  })
+
+  test('accessing a non-existent option in action is a type error', () => {
+    goke('test')
+      .command('serve', 'Start server')
+      .option('--port <port>', z.number())
+      .action((options) => {
+        expectTypeOf(options.port).toEqualTypeOf<number>()
+        // @ts-expect-error nonExistent was never declared
+        options.nonExistent
+      })
+  })
+
+  test('accessing a non-existent positional arg in action is a type error', () => {
+    goke('test')
+      .command('get <id>', 'Fetch resource')
+      .action((id, options, ctx, ...rest) => {
+        expectTypeOf(id).toEqualTypeOf<string>()
+        expectTypeOf(options).toEqualTypeOf<{}>()
+        expectTypeOf(ctx).toEqualTypeOf<GokeExecutionContext>()
+        // No more positional slots — rest should be empty
+        expectTypeOf(rest).toEqualTypeOf<[]>()
+      })
+  })
+
+  test('action callback can omit trailing params (fewer-args is valid)', () => {
+    // Dropping context is fine
+    goke('test')
+      .command('serve', 'Start server')
+      .option('--port <port>', z.number())
+      .action((options) => {
+        expectTypeOf(options.port).toEqualTypeOf<number>()
+      })
+
+    // Dropping everything is fine
+    goke('test')
+      .command('serve', 'Start server')
+      .option('--port <port>', z.number())
+      .action(() => {})
+  })
+})
+
+describe('type-level: README TypeScript examples', () => {
+  test('README TypeScript example infers positional args and typed options', () => {
+    goke('my-program')
+      .command('serve <entry>', 'Start the app')
+      .option('--port <port>', z.number().default(3000).describe('Port number'))
+      .option('--watch', 'Watch files')
+      .action((entry, options, { console, process }) => {
+        expectTypeOf(entry).toEqualTypeOf<string>()
+        expectTypeOf(options.port).toEqualTypeOf<number>()
+        expectTypeOf(options.watch).toEqualTypeOf<boolean | undefined>()
+        expectTypeOf(console.log).toBeFunction()
+        expectTypeOf(process.cwd).toEqualTypeOf<string>()
+      })
+  })
+
+  test('README global options and middleware example stays typed end-to-end', () => {
+    goke('mycli')
+      .option('--verbose', z.boolean().default(false).describe('Enable verbose logging'))
+      .option('--api-url [url]', z.string().default('https://api.example.com').describe('API base URL'))
+      .use((options, { process }) => {
+        expectTypeOf(options.verbose).toEqualTypeOf<boolean | undefined>()
+        expectTypeOf(options.apiUrl).toEqualTypeOf<string | undefined>()
+        expectTypeOf(process.stdin).toEqualTypeOf<string>()
+      })
+      .command('deploy <env>', 'Deploy to an environment')
+      .option('--dry-run', 'Preview without deploying')
+      .action((env, options, ctx) => {
+        expectTypeOf(env).toEqualTypeOf<string>()
+        expectTypeOf(options.verbose).toEqualTypeOf<boolean | undefined>()
+        expectTypeOf(options.apiUrl).toEqualTypeOf<string | undefined>()
+        expectTypeOf(options.dryRun).toEqualTypeOf<boolean | undefined>()
+        expectTypeOf(ctx).toEqualTypeOf<GokeExecutionContext>()
       })
   })
 })

@@ -348,6 +348,92 @@ type OptionEntry<RawName extends string, Schema> =
     ? { [K in ExtractOptionName<RawName>]?: InferSchemaOutput<Schema> }
     : { [K in ExtractOptionName<RawName>]: InferSchemaOutput<Schema> }
 
+/**
+ * Infer the raw runtime value shape for an option declared without a schema.
+ *
+ * Required value options (`--port <port>`) always reach actions as strings.
+ * Optional value options (`--host [host]`) can be strings, the sentinel
+ * boolean `true` when passed without a value, or `undefined` when omitted.
+ * Plain flags (`--verbose`) are booleans.
+ */
+type UntypedOptionValue<RawName extends string> =
+  RawName extends `${string}<${string}>` ? string :
+  RawName extends `${string}[${string}]` ? string | boolean | undefined :
+  boolean | undefined
+
+/**
+ * Build the option type entry for a `.option()` call that uses a plain
+ * description (no schema).
+ */
+type UntypedOptionEntry<RawName extends string> =
+  RawName extends `${string}<${string}>`
+    ? { [K in ExtractOptionName<RawName>]: UntypedOptionValue<RawName> }
+    : { [K in ExtractOptionName<RawName>]?: UntypedOptionValue<RawName> }
+
+/**
+ * Tokenize a command raw name by splitting on whitespace.
+ * "mcp getNodeXml <id>" → ["mcp", "getNodeXml", "<id>"]
+ * "" → []
+ */
+type TokenizeName<S extends string, Acc extends readonly string[] = []> =
+  S extends `${infer Head} ${infer Rest}`
+    ? TokenizeName<Rest, [...Acc, Head]>
+    : S extends ''
+      ? Acc
+      : [...Acc, S]
+
+/**
+ * Given a single token, return the corresponding positional arg type or
+ * `never` if the token is not a bracketed arg.
+ *
+ * `<id>`       → string          (required)
+ * `[id]`       → string | undefined (optional)
+ * `<...files>` → string[]        (variadic required)
+ * `[...files]` → string[]        (variadic optional)
+ * Anything else → never (filtered out by ExtractCommandArgs)
+ */
+type TokenToArgType<T extends string> =
+  T extends `<...${string}>` ? string[] :
+  T extends `[...${string}]` ? string[] :
+  T extends `<${string}>` ? string :
+  T extends `[${string}]` ? string | undefined :
+  never
+
+/**
+ * Filter a tokenized command raw name down to the positional arg tokens
+ * and map each to its inferred type.
+ */
+type ExtractCommandArgs<T extends readonly string[]> =
+  T extends readonly [infer Head extends string, ...infer Tail extends string[]]
+    ? [TokenToArgType<Head>] extends [never]
+      ? ExtractCommandArgs<Tail>
+      : [TokenToArgType<Head>, ...ExtractCommandArgs<Tail>]
+    : []
+
+/**
+ * Extract the tuple of positional arg types from a command raw name.
+ *
+ * "mcp getNodeXml <id>"    → [string]
+ * "convert <input> <output>" → [string, string]
+ * "run [script]"           → [string | undefined]
+ * "exec [...args]"         → [string[]]
+ * "deploy"                 → []
+ */
+type ExtractPositionalArgs<RawName extends string> =
+  ExtractCommandArgs<TokenizeName<RawName>>
+
+/**
+ * Build the full argument tuple passed to a command's action callback.
+ *
+ * Format: [...positionalArgs, options, executionContext]
+ *
+ * This matches the runtime behavior in Goke.runMatchedCommand(): the action
+ * is called with positional args from the parsed command, then the parsed
+ * options object, then the injected GokeExecutionContext.
+ */
+type ActionArgs<RawName extends string, Opts> =
+  [...ExtractPositionalArgs<RawName>, Opts, GokeExecutionContext]
+
 interface CommandArg {
   required: boolean
   value: string
@@ -368,7 +454,7 @@ type HelpCallback = (sections: HelpSection[]) => void | HelpSection[]
 
 type CommandExample = ((bin: string) => string) | string
 
-class Command {
+class Command<RawName extends string = string, Opts = {}> {
   options: Option[]
   aliasNames: string[]
   /* Parsed command name */
@@ -383,7 +469,7 @@ class Command {
   _hidden?: boolean
 
   constructor(
-    public rawName: string,
+    public rawName: RawName,
     public description: string,
     public config: CommandConfig = {},
     public cli: Goke<any>
@@ -426,7 +512,9 @@ class Command {
    *
    * The second argument is either a description string or a StandardJSONSchemaV1
    * schema. When a schema is provided, description and default are extracted from
-   * the JSON Schema automatically.
+   * the JSON Schema automatically, and the option's type is tracked on the
+   * Command's `Opts` type parameter so that subsequent `.action()` callbacks
+   * receive a fully-typed options object.
    *
    * @example
    * ```ts
@@ -438,10 +526,16 @@ class Command {
    * ```
    */
   option<
-    RawName extends string,
+    OptionRawName extends string,
     S extends StandardJSONSchemaV1
-  >(rawName: RawName, schema: S): Command & { __opts: OptionEntry<RawName, S> }
-  option(rawName: string, descriptionOrSchema?: string | StandardJSONSchemaV1): this
+  >(
+    rawName: OptionRawName,
+    schema: S,
+  ): Command<RawName, Opts & OptionEntry<OptionRawName, S>>
+  option<OptionRawName extends string>(
+    rawName: OptionRawName,
+    description?: string,
+  ): Command<RawName, Opts & UntypedOptionEntry<OptionRawName>>
   option(rawName: string, descriptionOrSchema?: string | StandardJSONSchemaV1): any {
     const option = new Option(rawName, descriptionOrSchema)
     this.options.push(option)
@@ -458,7 +552,24 @@ class Command {
     return this
   }
 
-  action(callback: (...args: any[]) => any) {
+  /**
+   * Register the action callback that runs when this command is matched.
+   *
+   * The callback receives positional args extracted from the command's raw name,
+   * followed by the parsed options object and the injected GokeExecutionContext.
+   *
+   * Positional arg types are inferred from the raw name at the type level:
+   *   `command('convert <input> <output>')` → `(input: string, output: string, options, ctx)`
+   *   `command('run [script]')`              → `(script: string | undefined, options, ctx)`
+   *   `command('exec [...args]')`            → `(args: string[], options, ctx)`
+   *
+   * The options object is typed according to every `.option()` call chained
+   * on this command, plus any global options declared on the parent Goke
+   * instance before `.command()` was called.
+   */
+  action(
+    callback: (...args: ActionArgs<RawName, Opts>) => unknown | Promise<unknown>,
+  ): this {
     this.commandAction = callback
     return this
   }
@@ -919,14 +1030,14 @@ interface ParsedArgv {
   }
 }
 
-class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
+class Goke<Opts = {}> extends EventEmitter {
   /** The program name to display in help and version message */
   name: string
-  commands: Command[]
+  commands: Command<any, any>[]
   /** Middleware functions that run before the matched command action, in registration order */
   middlewares: Array<{ action: (options: any, context: GokeExecutionContext) => void | Promise<void> }>
   globalCommand: GlobalCommand
-  matchedCommand?: Command
+  matchedCommand?: Command<any, any>
   matchedCommandName?: string
   /**
    * Raw CLI arguments
@@ -1056,10 +1167,24 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
   }
 
   /**
-   * Add a sub-command
+   * Add a sub-command.
+   *
+   * The returned Command is parameterized by the literal `rawName` (so positional
+   * args can be inferred at the type level) and by this Goke's accumulated global
+   * `Opts` (so global options declared before `.command()` are visible inside
+   * `.action()` callbacks alongside the command's own options).
    */
-  command(rawName: string, description?: string, config?: CommandConfig) {
-    const command = new Command(rawName, description || '', config, this)
+  command<CommandRawName extends string>(
+    rawName: CommandRawName,
+    description?: string,
+    config?: CommandConfig,
+  ): Command<CommandRawName, Opts> {
+    const command = new Command<CommandRawName, Opts>(
+      rawName,
+      description || '',
+      config,
+      this,
+    )
     command.globalCommand = this.globalCommand
     this.commands.push(command)
     return command
@@ -1071,13 +1196,21 @@ class Goke<Opts extends Record<string, any> = {}> extends EventEmitter {
    * Which is also applied to sub-commands.
    *
    * When a StandardJSONSchemaV1 schema is provided, the return type is narrowed
-   * to include the inferred option type — enabling type-safe `.use()` callbacks.
+   * to include the inferred option type — enabling type-safe `.use()` callbacks
+   * and typed `options` params inside command `.action()` handlers.
+   *
+   * When a plain description string is provided, the option is still tracked on
+   * the Goke's `Opts` type, but with a loose `string | boolean | undefined` value
+   * type (since no coercion schema is available).
    */
   option<
     RawName extends string,
     S extends StandardJSONSchemaV1
   >(rawName: RawName, schema: S): Goke<Opts & OptionEntry<RawName, S>>
-  option(rawName: string, descriptionOrSchema?: string | StandardJSONSchemaV1): this
+  option<RawName extends string>(
+    rawName: RawName,
+    description?: string,
+  ): Goke<Opts & UntypedOptionEntry<RawName>>
   option(rawName: string, descriptionOrSchema?: string | StandardJSONSchemaV1): any {
     const option = new Option(rawName, descriptionOrSchema)
     this.globalCommand.options.push(option)

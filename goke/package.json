@@ -23,7 +23,7 @@
   "types": "./dist/index.d.ts",
   "imports": {
     "#runtime": {
-      "types": "./src/runtime-node.ts",
+      "types": "./dist/runtime-node.d.ts",
       "development": "./src/runtime-node.ts",
       "node": "./dist/runtime-node.js",
       "default": "./dist/runtime-browser.js"
