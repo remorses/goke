@@ -728,6 +728,54 @@ describe('regression: oracle-found issues', () => {
     expect(options.count).toBe(42)
   })
 
+  test('optional value option with schema default returns default when omitted', () => {
+    // `z.number().default(30)` has input `number | undefined` → output `number`,
+    // so goke marks this option as effectively required and must surface the
+    // default value at runtime when the flag is omitted.
+    const cli = goke()
+    cli.option('--limit [n]', z.number().default(30).describe('Max items'))
+
+    const { options } = cli.parse('node bin'.split(' '))
+    expect(options.limit).toBe(30)
+  })
+
+  test('optional value option with schema default returns default when passed bare', () => {
+    // Bare `--limit` is mri's "flag present, no value" sentinel. Without a
+    // default, goke replaces it with `undefined`. With a default, goke must
+    // preserve the preset default value instead of clobbering it, so the
+    // type-level `HasSchemaDefault` promise ("property is required at runtime")
+    // holds for all three input states: omitted, bare, and with-value.
+    const cli = goke()
+    cli.option('--limit [n]', z.number().default(30).describe('Max items'))
+
+    const { options } = cli.parse('node bin --limit'.split(' '))
+    expect(options.limit).toBe(30)
+  })
+
+  test('optional value option with schema default coerces explicit value', () => {
+    const cli = goke()
+    cli.option('--limit [n]', z.number().default(30).describe('Max items'))
+
+    const { options } = cli.parse('node bin --limit 5'.split(' '))
+    expect(options.limit).toBe(5)
+  })
+
+  test('multiple optional options with defaults all preserve their defaults', () => {
+    // Regression test for the runtime-overwrite bug: when several schema-backed
+    // optional flags have defaults, passing one bare should not clobber the
+    // others, and the bare one should keep its own default.
+    const cli = goke()
+    cli
+      .option('--limit [n]', z.number().default(30))
+      .option('--sort [mode]', z.enum(['asc', 'desc']).default('asc'))
+      .option('--host [host]', z.string().default('localhost'))
+
+    const { options } = cli.parse('node bin --sort'.split(' '))
+    expect(options.limit).toBe(30)
+    expect(options.sort).toBe('asc')
+    expect(options.host).toBe('localhost')
+  })
+
   test('alias + schema coercion works', () => {
     const cli = goke()
 
@@ -783,9 +831,13 @@ describe('edge cases: schema + defaults interaction', () => {
     const { options: opts2 } = cli.parse('node bin --count 42'.split(' '))
     expect(opts2.count).toBe(42)
 
-    // Passed without value → undefined (sentinel replaced)
+    // Passed without value → default preserved. Before goke 6.7.0 this test
+    // expected `undefined` because the bare-flag sentinel overwrote the
+    // preset default. With the HasSchemaDefault type inference, the runtime
+    // must keep the default so that the type-level promise ("options.count
+    // is always a number") holds for all three input states.
     const { options: opts3 } = cli.parse('node bin --count'.split(' '))
-    expect(opts3.count).toBe(undefined)
+    expect(opts3.count).toBe(10)
   })
 })
 

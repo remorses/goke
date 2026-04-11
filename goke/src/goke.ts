@@ -333,19 +333,60 @@ type IsOptionalOption<S extends string> =
   true
 
 /**
+ * Infer the input type from a StandardTypedV1-compatible schema.
+ *
+ * For Zod, this is the type accepted by `.parse()` before any transforms or
+ * defaults are applied (e.g. `z.number().default(30)` has input `number | undefined`).
+ */
+type InferSchemaInput<S> =
+  S extends { readonly "~standard": { readonly types?: { readonly input: infer I } } } ? I : unknown
+
+/**
  * Infer the output type from a StandardTypedV1-compatible schema.
+ *
+ * For Zod, this is the type produced by `.parse()` after transforms/defaults
+ * run (e.g. `z.number().default(30)` has output `number`).
  */
 type InferSchemaOutput<S> =
   S extends { readonly "~standard": { readonly types?: { readonly output: infer O } } } ? O : unknown
 
 /**
+ * Detects whether a Standard Schema has a "default" behavior: its input allows
+ * `undefined` but its output does not. This matches `z.number().default(30)`
+ * and similar `.default(...)` wrappers in other libraries: the schema fills
+ * in a value whenever the caller omits it, so at runtime the property is
+ * always populated and goke can mark it as required in the options type even
+ * when the option is declared with `[value]` square brackets.
+ *
+ * The `unknown extends Input` guard excludes the `wrapJsonSchema` path, where
+ * input defaults to `unknown` because the hand-written schema has no way to
+ * express a separate input type. For those schemas we fall back to the raw
+ * bracket-based optionality, which keeps existing behavior for consumers
+ * that use `wrapJsonSchema<T>()` for truly optional options.
+ */
+type HasSchemaDefault<S> =
+  unknown extends InferSchemaInput<S>
+    ? false
+    : undefined extends InferSchemaInput<S>
+      ? undefined extends InferSchemaOutput<S>
+        ? false
+        : true
+      : false
+
+/**
  * Build the option type entry for a single .option() call.
- * Required options (<...>) produce a required key.
- * Optional options ([...]) and boolean flags produce an optional key.
+ *
+ * Required options (`<...>`) produce a required key.
+ * Optional options (`[...]`) produce an optional key, EXCEPT when the schema
+ * has an effective default (see `HasSchemaDefault`) — in that case goke's
+ * runtime always surfaces the default value, so the property is typed as
+ * required with the post-coercion output type.
  */
 type OptionEntry<RawName extends string, Schema> =
   IsOptionalOption<RawName> extends true
-    ? { [K in ExtractOptionName<RawName>]?: InferSchemaOutput<Schema> }
+    ? HasSchemaDefault<Schema> extends true
+      ? { [K in ExtractOptionName<RawName>]: InferSchemaOutput<Schema> }
+      : { [K in ExtractOptionName<RawName>]?: InferSchemaOutput<Schema> }
     : { [K in ExtractOptionName<RawName>]: InferSchemaOutput<Schema> }
 
 /**
@@ -1619,8 +1660,13 @@ class Goke<Opts = {}> extends EventEmitter {
     // For optional options ([...]) we want a single, uniform shape: `string`
     // with `''` meaning "flag present but no value" — callers get clean
     // `string | undefined` types instead of `string | boolean | undefined`.
+    // The `optionsWithDefault` set tracks options whose schema produced a
+    // non-undefined default — when the user passes such an option bare, we
+    // keep the preset default instead of overwriting it with `undefined`,
+    // which matches what the new `HasSchemaDefault` type inference promises.
     const requiredValueOptions = new Set<string>()
     const optionalValueOptions = new Set<string>()
+    const optionsWithDefault = new Set<string>()
     for (const cliOption of cliOptions) {
       if (cliOption.required === true) {
         for (const name of cliOption.names) {
@@ -1629,6 +1675,11 @@ class Goke<Opts = {}> extends EventEmitter {
       } else if (cliOption.required === false) {
         for (const name of cliOption.names) {
           optionalValueOptions.add(name)
+        }
+      }
+      if (cliOption.default !== undefined) {
+        for (const name of cliOption.names) {
+          optionsWithDefault.add(name)
         }
       }
     }
@@ -1644,14 +1695,22 @@ class Goke<Opts = {}> extends EventEmitter {
         // When value is boolean `true` and the option takes a value, it's mri's sentinel
         // for "flag present, no value given":
         //   - Required options (<...>): preserve `true` so checkOptionValue() throws
-        //   - Optional options ([...]) with schema: replace with `undefined` so
-        //     any `.default(...)` on the schema kicks in (e.g. z.number().default(30)
-        //     should produce 30, not try to coerce the `''` empty-string sentinel).
+        //   - Optional options ([...]) with schema AND a default: skip this
+        //     key entirely so the preset default (written into `options` at
+        //     the top of this function) survives. This keeps the type-level
+        //     `HasSchemaDefault` promise honest at runtime.
+        //   - Optional options ([...]) with schema and NO default: replace
+        //     `true` with `undefined` so the caller sees "flag present, no value"
+        //     as `undefined`.
         const schemaInfo = schemaMap.get(key)
         if (schemaInfo && value !== undefined) {
           if (value === true && requiredValueOptions.has(key)) {
             // Keep sentinel for checkOptionValue() to detect
           } else if (value === true && optionalValueOptions.has(key)) {
+            if (optionsWithDefault.has(key)) {
+              // Preserve the preset default — don't overwrite with undefined.
+              continue
+            }
             value = undefined
           } else {
             value = coerceBySchema(value, schemaInfo.jsonSchema, schemaInfo.optionName)

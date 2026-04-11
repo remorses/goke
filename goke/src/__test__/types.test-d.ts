@@ -362,6 +362,70 @@ describe('type-level: command() .action() option inference', () => {
       })
   })
 
+  test('schema with .default() on [value] is typed as required', () => {
+    // `z.number().default(30)` has Standard Schema input `number | undefined`
+    // but output `number`, so goke recognizes it as "effectively required"
+    // even though the bracket syntax is `[...]`. The property should NOT
+    // be optional in the action options — the runtime always produces 30
+    // when the flag is omitted or passed bare.
+    goke('test')
+      .command('list', 'List stuff')
+      .option('--limit [n]', z.number().default(30).describe('Max items'))
+      .option('--sort [mode]', z.enum(['asc', 'desc']).default('asc'))
+      .action((options) => {
+        expectTypeOf(options.limit).toEqualTypeOf<number>()
+        expectTypeOf(options.sort).toEqualTypeOf<'asc' | 'desc'>()
+      })
+  })
+
+  test('schema without .default() on [value] stays optional', () => {
+    // Without a default, `[value]` remains genuinely optional at the type
+    // level — bare flag or omitted flag both produce `undefined`.
+    goke('test')
+      .command('list', 'List stuff')
+      .option('--limit [n]', z.number().describe('Max items'))
+      .option('--filter [pattern]', z.string())
+      .action((options) => {
+        expectTypeOf(options.limit).toEqualTypeOf<number | undefined>()
+        expectTypeOf(options.filter).toEqualTypeOf<string | undefined>()
+      })
+  })
+
+  test('z.string().optional() on [value] stays optional (no default)', () => {
+    // `.optional()` makes both input and output allow undefined, so
+    // HasSchemaDefault is false and the bracket-based optionality wins.
+    goke('test')
+      .command('serve', 'Start server')
+      .option('--host [host]', z.string().optional().describe('Host'))
+      .action((options) => {
+        expectTypeOf(options.host).toEqualTypeOf<string | undefined>()
+      })
+  })
+
+  test('.default() combined with .optional() stays optional', () => {
+    // `z.number().default(30).optional()` has Input `number | undefined` AND
+    // Output `number | undefined`, so HasSchemaDefault is false — the user
+    // explicitly opted out of the default-inferred-as-required behavior by
+    // re-adding `.optional()`.
+    goke('test')
+      .command('list', 'List stuff')
+      .option('--limit [n]', z.number().default(30).optional())
+      .action((options) => {
+        expectTypeOf(options.limit).toEqualTypeOf<number | undefined>()
+      })
+  })
+
+  test('.default() on <required> is typed as required output', () => {
+    // With `<value>` syntax the property is already required; the schema
+    // default just narrows the output type. This is the "old" behavior.
+    goke('test')
+      .command('serve', 'Start server')
+      .option('--port <port>', z.number().default(3000))
+      .action((options) => {
+        expectTypeOf(options.port).toEqualTypeOf<number>()
+      })
+  })
+
   test('accessing a non-existent option in action is a type error', () => {
     goke('test')
       .command('serve', 'Start server')
@@ -418,20 +482,25 @@ describe('type-level: README TypeScript examples', () => {
   })
 
   test('README global options and middleware example stays typed end-to-end', () => {
+    // `z.boolean().default(false)` and `z.string().default(...)` are
+    // effectively required at runtime: the default applies when the flag is
+    // omitted or passed bare, so goke types the property as required (no
+    // `| undefined`). Raw untyped boolean flags like `--dry-run` stay
+    // `boolean | undefined`.
     goke('mycli')
       .option('--verbose', z.boolean().default(false).describe('Enable verbose logging'))
       .option('--api-url [url]', z.string().default('https://api.example.com').describe('API base URL'))
       .use((options, { process }) => {
-        expectTypeOf(options.verbose).toEqualTypeOf<boolean | undefined>()
-        expectTypeOf(options.apiUrl).toEqualTypeOf<string | undefined>()
+        expectTypeOf(options.verbose).toEqualTypeOf<boolean>()
+        expectTypeOf(options.apiUrl).toEqualTypeOf<string>()
         expectTypeOf(process.stdin).toEqualTypeOf<string>()
       })
       .command('deploy <env>', 'Deploy to an environment')
       .option('--dry-run', 'Preview without deploying')
       .action((env, options, ctx) => {
         expectTypeOf(env).toEqualTypeOf<string>()
-        expectTypeOf(options.verbose).toEqualTypeOf<boolean | undefined>()
-        expectTypeOf(options.apiUrl).toEqualTypeOf<string | undefined>()
+        expectTypeOf(options.verbose).toEqualTypeOf<boolean>()
+        expectTypeOf(options.apiUrl).toEqualTypeOf<string>()
         expectTypeOf(options.dryRun).toEqualTypeOf<boolean | undefined>()
         expectTypeOf(ctx).toEqualTypeOf<GokeExecutionContext>()
       })

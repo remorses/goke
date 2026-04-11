@@ -1,5 +1,27 @@
 # goke
 
+## 6.7.0
+
+1. **Schemas with `.default(...)` now surface as required at the type level** — previously, a `[value]` option with a default still produced `options.foo: T | undefined` even though the runtime was always guaranteed to resolve the default. goke now detects this via a new `HasSchemaDefault<S>` type helper (Standard Schema `types.input` allows `undefined` but `types.output` doesn't) and emits the property as required:
+
+   ```ts
+   cli
+     .command('list', 'List items')
+     .option('--limit [n]', z.number().default(30).describe('Max items'))
+     .option('--sort [mode]', z.enum(['asc', 'desc']).default('asc'))
+     .action((options) => {
+       // options.limit: number      (was: number | undefined)
+       // options.sort:  'asc' | 'desc'  (was: 'asc' | 'desc' | undefined)
+       // no `?? 30` / `?? 'asc'` fallbacks needed anymore
+     })
+   ```
+
+   Works for Zod `.default(...)` and any Standard Schema library that populates `~standard.types.input = T | undefined` and `~standard.types.output = T`. The new inference is gated on `unknown extends Input` so hand-written schemas via `wrapJsonSchema<T>()` keep their existing bracket-based optionality.
+
+2. **Runtime fix: bare `--flag` now preserves the schema default** — passing a schema-backed optional flag without a value (e.g. `mycli list --limit`) used to clobber the preset default with `undefined`. The runtime now detects this and keeps the default, so the type-level `HasSchemaDefault` promise holds for all three input states (omitted, bare, with-value). This is a small but meaningful runtime behavior change: if you previously relied on bare `--limit` producing `undefined` to trigger a different code path, you now need `z.number().default(30).optional()` or an untyped option.
+
+3. **Schemas without defaults are unaffected** — `z.number()` on `[value]` still produces `number | undefined` (bracket syntax wins), and `.default(30).optional()` still produces `number | undefined` (the user explicitly opted back into optionality). Only Input-allows-undefined / Output-is-required schemas change.
+
 ## 6.6.2
 
 1. **README now explains optional-value flag states** — added a dedicated "Optional-value flags" section walking through the three runtime states (omitted / bare / with value), how to detect each with `undefined` vs `''` vs truthy checks, and when the three-way distinction actually matters. Also updated the `--` passthrough example to use `options['--'].join(...)` directly (no `|| []` guard) now that the key is always typed as `string[]`. Docs-only release, no code changes.
