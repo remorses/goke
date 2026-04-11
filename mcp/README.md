@@ -172,6 +172,210 @@ mcp.tool("custom-tool", "A tool defined directly", async () => ({ ... }))
 addCliToolsToMcp({ cli, server: mcp })
 ```
 
+## Multi-tenant remote MCP over HTTP
+
+When you expose a cli as a **remote** MCP (over `StreamableHTTPServerTransport`, SSE, or any other network transport), one server process handles many concurrent users. Each tool call must run against that user's own filesystem, working directory, environment, and stdin — otherwise tenants see each other's state and stdio writes trample the JSON-RPC channel.
+
+The recipe is:
+
+1. Define the cli **once**.
+2. On every new MCP session, **clone** the cli with per-tenant `{ cwd, env, fs, stdin }` and mount it on a fresh session-scoped `Server` via `addCliToolsToMcp({ cli: tenantClone, server })`.
+3. Inside command actions, always use the **injected** `ctx` — `ctx.fs`, `ctx.process.cwd`, `ctx.process.env`, `ctx.console.log` — instead of the Node globals. `@goke/mcp` wires each tool call into the tenant's cloned context, but only code that goes through `ctx` participates in that isolation.
+
+### Write commands against `ctx`
+
+```ts
+import { goke } from "goke"
+import { z } from "zod"
+import path from "node:path"
+
+const cli = goke("notes-app")
+
+cli
+  .command("save <filename>", "Save content into the user's workspace")
+  .option("--content <content>", z.string().describe("File content"))
+  .action(async (filename, options, ctx) => {
+    const full = path.posix.join(ctx.process.cwd, filename)
+    await ctx.fs.writeFile(full, options.content)
+    return { saved: full, tenant: ctx.process.env.TENANT_ID }
+  })
+
+cli
+  .command("load <filename>", "Load a file from the user's workspace")
+  .action(async (filename, _options, ctx) => {
+    const full = path.posix.join(ctx.process.cwd, filename)
+    const text = await ctx.fs.readFile(full, "utf8")
+    return { path: full, text }
+  })
+```
+
+`ctx.fs` satisfies the `GokeFs` interface — a Node-compatible async filesystem API. You can point it at a real directory, a virtual in-memory store, an S3 bucket adapter, a `memfs`, or anything else you can wrap behind that interface.
+
+### Clone the cli per session
+
+The MCP SDK ships `WebStandardStreamableHTTPServerTransport`, which accepts a Web-Standard `Request` and returns a `Response`. That one shape plugs directly into **any** web framework that speaks web-standard: Hono, Cloudflare Workers, Deno, Bun, Next.js route handlers, SvelteKit endpoints, or a raw `fetch`-based handler. No Express, no `node:http` wiring, no framework lock-in.
+
+You build one `handleMcpRequest(request: Request): Promise<Response>` function and mount it wherever you route HTTP:
+
+```ts
+import { randomUUID } from "node:crypto"
+import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js"
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
+import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
+import { addCliToolsToMcp } from "@goke/mcp"
+import type { GokeFs } from "goke"
+
+// Wherever you store per-user state — DB, Redis, config files, etc.
+declare function resolveTenant(tenantId: string): {
+  cwd: string
+  env: Record<string, string>
+  fs: GokeFs   // your filesystem adapter
+}
+
+const transports = new Map<string, WebStandardStreamableHTTPServerTransport>()
+
+export async function handleMcpRequest(request: Request): Promise<Response> {
+  // Pre-parse the body so we can use it for both routing decisions
+  // (is this an `initialize` request?) and as the pre-parsed body
+  // forwarded to the transport via `HandleRequestOptions.parsedBody`.
+  let parsedBody: unknown
+  if (request.method === "POST") {
+    parsedBody = await request.clone().json().catch(() => undefined)
+  }
+
+  const sessionId = request.headers.get("mcp-session-id")
+
+  // Existing session — route to its transport.
+  if (sessionId && transports.has(sessionId)) {
+    return transports.get(sessionId)!.handleRequest(request, { parsedBody })
+  }
+
+  // No session yet — must be an `initialize` request.
+  if (!isInitializeRequest(parsedBody)) {
+    return Response.json(
+      {
+        jsonrpc: "2.0",
+        error: { code: -32000, message: "Bad Request: No valid session ID provided" },
+        id: null,
+      },
+      { status: 400 },
+    )
+  }
+
+  // Derive the tenant from whatever header/cookie/JWT you use.
+  const tenantId = request.headers.get("x-tenant-id")
+  if (!tenantId) return new Response("missing x-tenant-id", { status: 401 })
+  const tenant = resolveTenant(tenantId)
+
+  // Clone the base cli with tenant-specific cwd/env/fs. Every tool
+  // call on this session now sees the tenant's state via `ctx`.
+  const tenantCli = baseCli.clone({
+    cwd: tenant.cwd,
+    env: { ...tenant.env, TENANT_ID: tenantId },
+    fs: tenant.fs,
+  })
+
+  const mcpServer = new McpServer(
+    { name: "notes-app-mcp", version: "1.0.0" },
+    { capabilities: {} },
+  )
+  addCliToolsToMcp({ cli: tenantCli, server: mcpServer })
+
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+    enableJsonResponse: true, // pure request/response; no SSE to manage
+    onsessioninitialized: (sid) => {
+      transports.set(sid, transport)
+    },
+    onsessionclosed: (sid) => {
+      transports.delete(sid)
+    },
+  })
+  transport.onclose = () => {
+    const sid = transport.sessionId
+    if (sid) transports.delete(sid)
+  }
+
+  await mcpServer.connect(transport)
+  return transport.handleRequest(request, { parsedBody })
+}
+```
+
+Now plug `handleMcpRequest` into whichever web runtime you use:
+
+```ts
+// Hono
+import { Hono } from "hono"
+const app = new Hono()
+app.all("/mcp", (c) => handleMcpRequest(c.req.raw))
+
+// Cloudflare Workers / Deno / Bun
+export default {
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url)
+    if (url.pathname === "/mcp") return handleMcpRequest(request)
+    return new Response("not found", { status: 404 })
+  },
+}
+
+// Next.js app router
+export async function POST(request: Request) {
+  return handleMcpRequest(request)
+}
+```
+
+**Key guarantees**
+
+- Every tool call inside a session runs against `tenantCli`'s `cwd` / `env` / `fs` — not the base cli's and not another tenant's.
+- `ctx.console.log` / `ctx.console.error` / `ctx.process.stdout.write` / `ctx.process.stderr.write` are captured into the `CallToolResult.content`. They never reach the host process stdio, so they can't corrupt the JSON-RPC channel or leak between users.
+- `ctx.process.exit(code)` throws `GokeProcessExit` instead of killing the server. The tool call resolves as `{ isError: code !== 0, content: [captured output] }` and the next request keeps running.
+- Actions that `throw` are caught and returned as `{ isError: true, content: [message, stderr] }`.
+
+**Bypass hazards**
+
+Only code that flows through `ctx` participates in the isolation. The following **bypass** it and will leak across tenants or kill the host process:
+
+- `import fs from "node:fs"` inside a command action — reads/writes the real disk.
+- `console.log(...)` / `console.error(...)` — writes to the real server stdio.
+- `process.exit(1)` — terminates the entire host process.
+- `process.cwd()` / `process.env.X` at module load time — snapshots the server's values, not the tenant's.
+
+Port those to `ctx.fs`, `ctx.console`, `ctx.process.*` and you're multi-tenant-safe.
+
+For a runnable end-to-end example (including two concurrent in-memory-fs tenants writing separate files), see [`src/__test__/http-multi-tenant.test.ts`](./src/__test__/http-multi-tenant.test.ts).
+
+### Lower-level primitive: `cli.createExecutionContext(override)`
+
+If you're building a custom transport or a non-HTTP multi-tenant adapter, the underlying goke primitive is:
+
+```ts
+import { GokeProcessExit, type GokeExecutionContextOverride } from "goke"
+
+const override: GokeExecutionContextOverride = {
+  cwd: tenant.cwd,
+  env: tenant.env,
+  fs: tenant.fs,
+  stdin: tenant.stdin,
+  stdout: captureStdoutStream,
+  stderr: captureStderrStream,
+  exit: () => {}, // throw-only: the wrapper still throws GokeProcessExit
+}
+
+const ctx = cli.createExecutionContext(override)
+
+try {
+  await action(...positionalArgs, options, ctx)
+} catch (err) {
+  if (err instanceof GokeProcessExit) {
+    // handle the exit code — the host process is untouched
+  } else {
+    throw err
+  }
+}
+```
+
+`addCliToolsToMcp` builds this context for you on every tool call. Call it yourself if you need finer control (e.g. per-request capture streams for custom routing, synthetic `argv`, or serving MCP from a non-Node runtime that implements `GokeFs` differently).
+
 ## Full example (with config persistence)
 
 This is the pattern used by [notion-mcp-cli](../notion-mcp-cli):

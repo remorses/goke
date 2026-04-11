@@ -7,7 +7,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
-import { goke, wrapJsonSchema } from "goke";
+import { goke, wrapJsonSchema, type Goke } from "goke";
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
 import { addCliToolsToMcp } from "../cli-to-mcp.js";
@@ -457,5 +457,302 @@ describe("addCliToolsToMcp", () => {
       await client.close();
       await server.close();
     }
+  });
+});
+
+/**
+ * Spin up a live MCP client/server pair wired to a single cli.
+ *
+ * Used by the execution-context tests below to keep the boilerplate
+ * out of each test body.
+ */
+async function withMcpClient<T>(
+  cli: Goke,
+  fn: (client: Client) => Promise<T>,
+): Promise<T> {
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = new Server({ name: "test-server", version: "1.0.0" }, { capabilities: {} });
+  addCliToolsToMcp({ cli, server });
+
+  const client = new Client({ name: "test-client", version: "1.0.0" }, { capabilities: {} });
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    return await fn(client);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+}
+
+function textBlocks(result: Awaited<ReturnType<Client["callTool"]>>): string[] {
+  const content = "content" in result ? (result as { content: Array<{ type: string; text?: string }> }).content : [];
+  return content.filter((entry) => entry.type === "text").map((entry) => entry.text ?? "");
+}
+
+describe("addCliToolsToMcp execution context", () => {
+  it("passes an execution context as the third argument to the action", async () => {
+    const cli = goke("ctx-cli", {
+      cwd: "/workspace",
+      env: { TOKEN: "abc", USER: "tommy" },
+      stdin: "hello from stdin",
+    });
+
+    cli.command("inspect-ctx", "Return the injected execution context").action((_options, ctx) => {
+      return {
+        hasCtx: ctx != null,
+        hasConsole: typeof ctx?.console?.log === "function",
+        hasFs: typeof ctx?.fs?.readFile === "function",
+        cwd: ctx?.process?.cwd,
+        token: ctx?.process?.env?.TOKEN,
+        user: ctx?.process?.env?.USER,
+        stdin: ctx?.process?.stdin,
+      };
+    });
+
+    const result = await withMcpClient(cli, (client) =>
+      client.callTool({ name: "inspect-ctx", arguments: {} }),
+    );
+
+    expect(firstTextContent(result)).toMatchInlineSnapshot(`
+      "{
+        "hasCtx": true,
+        "hasConsole": true,
+        "hasFs": true,
+        "cwd": "/workspace",
+        "token": "abc",
+        "user": "tommy",
+        "stdin": "hello from stdin"
+      }"
+    `);
+  });
+
+  it("captures ctx.console.log output into the tool result content", async () => {
+    const cli = goke("logs-cli");
+
+    cli.command("noisy", "Write to ctx.console and return nothing").action((_options, ctx) => {
+      ctx.console.log("line one");
+      ctx.console.log("line", "two");
+    });
+
+    const result = await withMcpClient(cli, (client) =>
+      client.callTool({ name: "noisy", arguments: {} }),
+    );
+
+    expect(textBlocks(result)).toMatchInlineSnapshot(`
+      [
+        "line one
+      line two
+      ",
+      ]
+    `);
+  });
+
+  it("captures ctx.console.log output and still uses the action's return value", async () => {
+    const cli = goke("logs-plus-return-cli");
+
+    cli.command("both", "Log and return").action((_options, ctx) => {
+      ctx.console.log("before");
+      return "the-return-value";
+    });
+
+    const result = await withMcpClient(cli, (client) =>
+      client.callTool({ name: "both", arguments: {} }),
+    );
+
+    // Captured stdout first, then the stringified return value, as
+    // separate content blocks. Authors who want a single block can
+    // return a `{ content }` object to bypass this merging.
+    expect(textBlocks(result)).toMatchInlineSnapshot(`
+      [
+        "before
+      ",
+        "the-return-value",
+      ]
+    `);
+  });
+
+  it("treats ctx.process.exit(0) as a success result with captured content", async () => {
+    const cli = goke("exit-ok-cli");
+
+    cli.command("exit-ok", "Exit cleanly").action((_options, ctx) => {
+      ctx.console.log("all good");
+      ctx.process.exit(0);
+    });
+
+    const result = await withMcpClient(cli, (client) =>
+      client.callTool({ name: "exit-ok", arguments: {} }),
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(textBlocks(result)).toMatchInlineSnapshot(`
+      [
+        "all good
+      ",
+      ]
+    `);
+  });
+
+  it("treats ctx.process.exit(1) as an isError result with captured stderr", async () => {
+    const cli = goke("exit-fail-cli");
+
+    cli.command("exit-fail", "Exit with error").action((_options, ctx) => {
+      ctx.console.error("boom");
+      ctx.process.exit(1);
+    });
+
+    const result = await withMcpClient(cli, (client) =>
+      client.callTool({ name: "exit-fail", arguments: {} }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(textBlocks(result)).toMatchInlineSnapshot(`
+      [
+        "boom
+      ",
+      ]
+    `);
+  });
+
+  it("does not corrupt the MCP transport when the action writes to ctx.process.stdout directly", async () => {
+    const cli = goke("stdout-cli");
+
+    cli.command("write-stdout", "Write through ctx.process.stdout").action((_options, ctx) => {
+      ctx.process.stdout.write("from-process-stdout\n");
+    });
+
+    const result = await withMcpClient(cli, (client) =>
+      client.callTool({ name: "write-stdout", arguments: {} }),
+    );
+
+    expect(firstTextContent(result)).toBe("from-process-stdout\n");
+  });
+
+  it("keeps the server alive after a tool action calls ctx.process.exit", async () => {
+    const cli = goke("survive-cli");
+
+    cli.command("boom", "Exit with non-zero code").action((_options, ctx) => {
+      ctx.process.exit(2);
+    });
+
+    cli.command("ping", "Return a value").action(() => "pong");
+
+    await withMcpClient(cli, async (client) => {
+      const boomResult = await client.callTool({ name: "boom", arguments: {} });
+      expect(boomResult.isError).toBe(true);
+
+      // Server must still be able to serve subsequent tool calls.
+      const pingResult = await client.callTool({ name: "ping", arguments: {} });
+      expect(firstTextContent(pingResult)).toBe("pong");
+    });
+  });
+
+  it("does not include captured content when the action returns a ready-made CallToolResult", async () => {
+    const cli = goke("raw-cli");
+
+    cli.command("raw", "Return a raw CallToolResult").action((_options, ctx) => {
+      // This write should be ignored — returning a {content} object is
+      // the explicit escape hatch for authors who want full control.
+      ctx.console.log("ignored-capture");
+      return {
+        content: [
+          { type: "text" as const, text: "authoritative" },
+        ],
+      };
+    });
+
+    const result = await withMcpClient(cli, (client) =>
+      client.callTool({ name: "raw", arguments: {} }),
+    );
+
+    expect(textBlocks(result)).toEqual(["authoritative"]);
+  });
+
+  it("captures ctx.console.error output on the success path", async () => {
+    const cli = goke("success-stderr-cli");
+
+    cli.command("warn-and-return", "Emit a warning and return a value").action((_options, ctx) => {
+      ctx.console.error("something suspicious");
+      return { ok: true };
+    });
+
+    const result = await withMcpClient(cli, (client) =>
+      client.callTool({ name: "warn-and-return", arguments: {} }),
+    );
+
+    // Captured stderr lands in its own text block so authors can spot
+    // the warning even though the action returned successfully. The
+    // stringified return value is appended after it.
+    expect(result.isError).toBeFalsy();
+    expect(textBlocks(result)).toMatchInlineSnapshot(`
+      [
+        "something suspicious
+      ",
+        "{
+        "ok": true
+      }",
+      ]
+    `);
+  });
+
+  it("captures ctx.process.stderr.write output on the success path", async () => {
+    const cli = goke("success-stderr-write-cli");
+
+    cli.command("warn-only", "Write to stderr and return undefined").action((_options, ctx) => {
+      ctx.process.stderr.write("low-level-warning\n");
+    });
+
+    const result = await withMcpClient(cli, (client) =>
+      client.callTool({ name: "warn-only", arguments: {} }),
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(textBlocks(result)).toEqual(["low-level-warning\n"]);
+  });
+
+  it("does not leak tool output into the cli's configured stdout/stderr", async () => {
+    const sentinelStdout: string[] = [];
+    const sentinelStderr: string[] = [];
+    const cli = goke("sentinel-cli", {
+      stdout: { write: (data) => { sentinelStdout.push(data); } },
+      stderr: { write: (data) => { sentinelStderr.push(data); } },
+    });
+
+    cli.command("noisy", "Write to both streams").action((_options, ctx) => {
+      ctx.console.log("stdout-chatter");
+      ctx.console.error("stderr-chatter");
+      ctx.process.stdout.write("direct-stdout\n");
+      ctx.process.stderr.write("direct-stderr\n");
+      return "value";
+    });
+
+    const result = await withMcpClient(cli, (client) =>
+      client.callTool({ name: "noisy", arguments: {} }),
+    );
+
+    // Everything lands in the CallToolResult — the cli's configured
+    // host streams must not receive a single byte during a tool call.
+    expect(sentinelStdout.join("")).toBe("");
+    expect(sentinelStderr.join("")).toBe("");
+    expect(textBlocks(result).join("|")).toBe(
+      "stdout-chatter\ndirect-stdout\n|stderr-chatter\ndirect-stderr\n|value",
+    );
+  });
+
+  it("invokes command actions with the owning cli as `this`", async () => {
+    const cli = goke("this-binding-cli");
+
+    let seenThis: unknown;
+    cli.command("whoami", "Report this-binding").action(function (this: unknown, _options, _ctx) {
+      seenThis = this;
+      return "ok";
+    });
+
+    await withMcpClient(cli, (client) =>
+      client.callTool({ name: "whoami", arguments: {} }),
+    );
+
+    // Same binding Goke#runMatchedCommand uses for parse-path actions.
+    expect(seenThis).toBe(cli);
   });
 });

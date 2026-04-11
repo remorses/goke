@@ -16,7 +16,16 @@ import {
   type CallToolResult,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { coerceBySchema, extractJsonSchema, type Command, type Goke, type StandardJSONSchemaV1 } from "goke";
+import {
+  coerceBySchema,
+  extractJsonSchema,
+  GokeProcessExit,
+  type Command,
+  type Goke,
+  type GokeExecutionContext,
+  type GokeOutputStream,
+  type StandardJSONSchemaV1,
+} from "goke";
 
 const CLI_TO_MCP_STATE = Symbol.for("@goke/mcp/cli-to-mcp-state");
 
@@ -44,9 +53,41 @@ interface OptionBinding {
 interface CliToolBinding {
   tool: Tool;
   command: Command;
+  /**
+   * The goke cli that owns this command. Used at tool-call time to
+   * build a `GokeExecutionContext` (console/fs/process) via
+   * `cli.createExecutionContext(override)` so actions receive the same
+   * injected context they would when invoked from the command line.
+   */
+  cli: Goke;
   positionalArgs: CommandArgLike[];
   options: OptionBinding[];
   requiredNames: string[];
+}
+
+/**
+ * A `GokeOutputStream` that accumulates writes into a string.
+ *
+ * Used to capture what an action writes through `ctx.console.log` /
+ * `ctx.console.error` / `ctx.process.stdout` / `ctx.process.stderr`
+ * so it can be surfaced in the MCP `CallToolResult.content` instead of
+ * leaking into the host process stdout (which, for the stdio MCP
+ * transport, is the JSON-RPC channel itself).
+ */
+interface TextCaptureStream extends GokeOutputStream {
+  readonly text: string;
+}
+
+function createTextCaptureStream(): TextCaptureStream {
+  const chunks: string[] = [];
+  return {
+    get text() {
+      return chunks.join("");
+    },
+    write(data: string) {
+      chunks.push(data);
+    },
+  };
 }
 
 interface CliToMcpState {
@@ -254,6 +295,107 @@ function isToolNotFoundResult(result: unknown, toolName: string): boolean {
   return text.includes("tool") && text.includes("not found") && text.includes(toolName.toLowerCase());
 }
 
+/**
+ * Build the same `GokeExecutionContext` an action would receive from
+ * `cli.parse()`, but with capture streams for stdout/stderr and an
+ * `exit` that throws `GokeProcessExit` instead of killing the host
+ * process.
+ *
+ * Capturing is required for the stdio MCP transport because the host
+ * `process.stdout` is the JSON-RPC channel — any write to it would
+ * corrupt the protocol. Capturing is also what lets us surface
+ * `ctx.console.log` output in the `CallToolResult.content`.
+ */
+function createCallToolExecutionContext(cli: Goke): {
+  ctx: GokeExecutionContext;
+  stdout: TextCaptureStream;
+  stderr: TextCaptureStream;
+} {
+  const stdout = createTextCaptureStream();
+  const stderr = createTextCaptureStream();
+  const ctx = cli.createExecutionContext({
+    stdout,
+    stderr,
+    // Swallow the user-level exit: the outer createExecutionContext
+    // wrapper will still throw `GokeProcessExit` after this returns,
+    // which `runCliTool` catches and turns into a `CallToolResult`.
+    exit: () => {},
+  });
+  return { ctx, stdout, stderr };
+}
+
+/**
+ * Build a `CallToolResult` from an action's return value plus any
+ * text that was captured from the injected `ctx.console` /
+ * `ctx.process.stdout` / `ctx.process.stderr` streams.
+ *
+ * Precedence rules:
+ *   1. If the action returned a ready-made `CallToolResult` (object
+ *      with a `content` key), honor it as-is. Captured output is
+ *      ignored to give authors a fully manual escape hatch.
+ *   2. If anything was captured on stdout or stderr, emit one text
+ *      block per non-empty stream (stdout first, then stderr) and
+ *      append the stringified return value as a trailing block when
+ *      it is non-empty. This keeps warnings written via
+ *      `ctx.console.error` / `ctx.process.stderr.write` from being
+ *      silently dropped when the action also returns a value.
+ *   3. Otherwise fall back to the legacy behavior (stringify the
+ *      return value, empty string when `undefined`).
+ */
+function buildCallToolResult(
+  returnValue: unknown,
+  capturedStdout: string,
+  capturedStderr: string,
+): CallToolResult {
+  if (returnValue && typeof returnValue === "object" && "content" in returnValue) {
+    return returnValue as CallToolResult;
+  }
+
+  if (capturedStdout || capturedStderr) {
+    const blocks: Array<{ type: "text"; text: string }> = [];
+    if (capturedStdout) {
+      blocks.push({ type: "text", text: capturedStdout });
+    }
+    if (capturedStderr) {
+      blocks.push({ type: "text", text: capturedStderr });
+    }
+    const valueText = formatTextResult(returnValue);
+    if (valueText) {
+      blocks.push({ type: "text", text: valueText });
+    }
+    return { content: blocks };
+  }
+
+  return toCallToolResult(returnValue);
+}
+
+/**
+ * Build an error `CallToolResult` from captured output + the process
+ * exit code thrown by `ctx.process.exit(code)`. Mirrors the
+ * `{ stdout, stderr, exitCode }` shape just-bash produces, but in the
+ * MCP content-block format.
+ */
+function buildProcessExitResult(
+  exitCode: number,
+  capturedStdout: string,
+  capturedStderr: string,
+): CallToolResult {
+  const content: Array<{ type: "text"; text: string }> = [];
+  if (capturedStdout) {
+    content.push({ type: "text", text: capturedStdout });
+  }
+  if (capturedStderr) {
+    content.push({ type: "text", text: capturedStderr });
+  }
+  if (content.length === 0) {
+    content.push({ type: "text", text: `Process exited with code ${exitCode}` });
+  }
+  return {
+    isError: exitCode !== 0,
+    content,
+  };
+}
+
 async function runCliTool(binding: CliToolBinding, argumentsObject: Record<string, unknown>): Promise<CallToolResult> {
   for (const requiredName of binding.requiredNames) {
     if (getToolCallArguments(argumentsObject, requiredName) === undefined) {
@@ -303,19 +445,38 @@ async function runCliTool(binding: CliToolBinding, argumentsObject: Record<strin
     throw new McpError(ErrorCode.InvalidParams, `Command ${binding.command.name} has no action`);
   }
 
+  // Build the same execution context an action would see when invoked
+  // from the command line, but with capture streams + a no-op `exit`
+  // so tool calls can't corrupt the MCP transport or kill the host.
+  const { ctx, stdout, stderr } = createCallToolExecutionContext(binding.cli);
+
   try {
-    const result = await Promise.resolve(action(...positionalValues, optionsObject));
-    return toCallToolResult(result);
+    // Match `Goke#runMatchedCommand` by calling the action with the
+    // owning cli as `this`. Keeps behavior parity for JS authors who
+    // reference `this.name` / `this.options` from inside an action.
+    const result = await Promise.resolve(
+      action.apply(binding.cli, [...positionalValues, optionsObject, ctx]),
+    );
+    return buildCallToolResult(result, stdout.text, stderr.text);
   } catch (error) {
+    if (error instanceof GokeProcessExit) {
+      return buildProcessExitResult(error.code, stdout.text, stderr.text);
+    }
     const message = error instanceof Error ? error.message : String(error);
+    const content: Array<{ type: "text"; text: string }> = [
+      { type: "text", text: message },
+    ];
+    if (stderr.text) {
+      content.push({ type: "text", text: stderr.text });
+    }
     return {
       isError: true,
-      content: [{ type: "text", text: message }],
+      content,
     };
   }
 }
 
-function createBinding(command: Command, toolName: string): CliToolBinding {
+function createBinding(cli: Goke, command: Command, toolName: string): CliToolBinding {
   const positionalArgs = command.args as unknown as CommandArgLike[];
   const options = command.options as unknown as OptionLike[];
 
@@ -370,6 +531,7 @@ function createBinding(command: Command, toolName: string): CliToolBinding {
       inputSchema,
     },
     command,
+    cli,
     positionalArgs,
     options: optionBindings,
     requiredNames: Array.from(new Set(requiredNames)),
@@ -561,7 +723,7 @@ export function addCliToolsToMcp(options: AddCliToolsToMcpOptions): void {
     const toolName = uniqueToolName(baseToolName, usedNames);
     usedNames.add(toolName);
 
-    const binding = createBinding(command, toolName);
+    const binding = createBinding(cli, command, toolName);
     state.toolsByName.set(toolName, binding);
     state.commandToToolName.set(command.name, toolName);
   }
