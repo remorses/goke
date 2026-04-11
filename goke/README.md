@@ -654,6 +654,60 @@ When using brackets in option name, angled brackets indicate that a string / num
 
 **Optionality is determined solely by bracket syntax, not by the schema.** `[square brackets]` makes an option optional regardless of whether the schema is `z.string()` or `z.string().optional()`. The schema's `.optional()` is never consulted for this — it only affects type coercion. This means `z.string()` with `[--name]` is treated as optional: if the flag is omitted, `options.name` is `undefined` even though the schema has no `.optional()`.
 
+### Optional-value flags — `--flag` vs `--flag value` vs omitted
+
+A flag declared with square brackets (`--host [host]`) has **three distinct runtime states**, not two. The user can:
+
+1. **Omit the flag entirely** — no `--host` on the command line at all
+2. **Pass the flag bare** — `--host` by itself, with no value following it
+3. **Pass the flag with a value** — `--host example.com`
+
+goke surfaces all three cases through a single `string | undefined` type. There is no `boolean` in the union — bare flags are normalized to the **empty string `''`** so callers only ever deal with strings:
+
+```ts
+cli
+  .command('serve', 'Start the server')
+  .option('--host [host]', 'Optional host override')
+  .action((options) => {
+    // options.host: string | undefined
+    //   --host              → ''                (flag present, no value)
+    //   --host example.com  → 'example.com'
+    //   (omitted)           → undefined
+  })
+```
+
+**Detecting each case:**
+
+```ts
+.action((options) => {
+  if (options.host === undefined) {
+    // Flag was not passed at all — use a sensible default
+    console.log('using default host: localhost')
+  } else if (options.host === '') {
+    // Flag was passed bare: `--host` with no value following it
+    // Treat this as an explicit "opt in, but use the default/automatic value"
+    console.log('host flag passed with no value — enabling auto-discovery')
+  } else {
+    // Flag was passed with an explicit value
+    console.log(`host = ${options.host}`)
+  }
+})
+```
+
+**In most cases you don't need the three-way distinction** — a plain truthy check collapses "omitted" and "bare flag" into the same "fall back to default" branch:
+
+```ts
+.action((options) => {
+  // `--host` bare AND omitted both fall through to the default
+  const host = options.host || 'localhost'
+  startServer({ host })
+})
+```
+
+Reserve the `=== ''` check for cases where "opt in without a value" is a meaningful signal distinct from "flag omitted" — for example, `--direct` meaning "auto-discover a Chrome instance" vs `--direct ws://…` meaning "connect to this specific endpoint" vs no `--direct` meaning "don't use direct mode".
+
+> **Breaking change note (goke 6.6.0):** prior versions surfaced bare flags as `boolean` `true` inside a `string | boolean | undefined` union, forcing every call site to write `typeof options.host === 'string' ? options.host : undefined`. Code that used `options.host === true` to detect the bare-flag case must be updated to `options.host === ''`. Schema-based optional flags with `.default(...)` are unaffected — the default still kicks in when the flag is passed bare.
+
 ### Negated Options
 
 To allow an option whose value is `false`, you need to manually specify a negated option:
@@ -684,6 +738,8 @@ cli
 
 The `--` token signals the end of options. Everything after `--` is available via `options['--']` as a separate array, not mixed into positional args. This lets you distinguish between your command's own arguments and passthrough args — the same pattern used by `doppler`, `npm`, `pnpm`, and `docker`.
 
+`options['--']` is **always present** on the inferred options type as `string[]`. When no `--` token appears on the command line, it's the empty array — you never need to guard with `||` or `?.` or an `Array.isArray` cast.
+
 ```ts
 import { goke } from 'goke'
 import { z } from 'zod'
@@ -700,10 +756,10 @@ cli
     // runner run --env staging server.js -- --port 3000 --verbose
     // script = 'server.js'           (positional arg)
     // options.env = 'staging'         (runner's own option)
-    // options['--'] = ['--port', '3000', '--verbose']  (passthrough)
+    // options['--'] = ['--port', '3000', '--verbose']  (passthrough, always string[])
 
     const secrets = loadSecrets(options.env)
-    const extraArgs = (options['--'] || []).join(' ')
+    const extraArgs = options['--'].join(' ')
     execSync(`node ${script} ${extraArgs}`, {
       env: { ...process.env, ...secrets },
       stdio: 'inherit',
@@ -914,6 +970,90 @@ description: >
 Always run `acme --help` before using this CLI.
 For subcommand details: `acme <command> --help`
 ````
+
+## YAML Output for Agent-Friendly CLIs
+
+When a command returns structured data, print it as YAML on stdout. YAML is the best middle ground between human-readable output and machine-processable output:
+
+- Humans can read it at a glance — no surrounding quotes on keys, less punctuation noise than JSON.
+- Agents can process it with [`yq`](https://github.com/mikefarah/yq), the YAML equivalent of `jq`, to extract specific fields or filter results.
+- It is more context-efficient than verbose prose: a compact YAML block conveys the same information in fewer tokens.
+
+```ts
+import { goke } from 'goke'
+import { stringify } from 'yaml'
+
+const cli = goke('deploy')
+
+cli
+  .command('status', 'Show deployment status')
+  .action(async (options, { console }) => {
+    const status = await fetchStatus()
+    // Output structured data as YAML on stdout
+    console.log(stringify(status))
+  })
+```
+
+Example output:
+
+```yaml
+deployment: prod-v2
+status: running
+replicas: 3
+lastDeploy: "2026-01-15T10:30:00Z"
+health:
+  cpu: 42%
+  memory: 1.2GB
+```
+
+### Processing YAML output with yq
+
+Agents can pipe the output through `yq` to extract specific fields or filter results — the same way they would use `jq` with JSON, but with cleaner, more readable output:
+
+```bash
+# Extract a single field
+deploy status | yq '.deployment'
+
+# Access nested fields
+deploy status | yq '.health.cpu'
+
+# Filter an array of results
+deploy list | yq '.[] | select(.status == "running")'
+
+# Combine multiple fields
+deploy list | yq '.[] | {name: .name, status: .status}'
+
+# Count items matching a condition
+deploy list | yq '[.[] | select(.status == "error")] | length'
+```
+
+### Keep stdout clean — send non-YAML to stderr
+
+If a command outputs YAML on stdout, all unrelated content must go to stderr: error messages, progress indicators, informational logs, warnings. This keeps stdout pipeable through `yq` without breaking the YAML parse.
+
+```ts
+cli
+  .command('deploy <env>', 'Deploy to environment')
+  .action(async (env, options, { console }) => {
+    // Progress and logs → stderr (won't pollute yq pipes)
+    console.error(`Deploying to ${env}...`)
+    console.error('Building artifacts...')
+
+    const result = await deploy(env)
+
+    // Structured result → stdout as YAML
+    console.log(stringify(result))
+  })
+```
+
+Now agents can process the output cleanly:
+
+```bash
+# Only the YAML result reaches yq — progress lines go to the terminal
+deploy deploy production | yq '.version'
+```
+
+If an error occurs, throw or write to `console.error` / `process.stderr`, and exit with a non-zero code. Never mix error text into stdout when the command is expected to output YAML.
 
 ## Contributor Notes
 

@@ -1,5 +1,9 @@
 # goke
 
+## 6.6.2
+
+1. **README now explains optional-value flag states** — added a dedicated "Optional-value flags" section walking through the three runtime states (omitted / bare / with value), how to detect each with `undefined` vs `''` vs truthy checks, and when the three-way distinction actually matters. Also updated the `--` passthrough example to use `options['--'].join(...)` directly (no `|| []` guard) now that the key is always typed as `string[]`. Docs-only release, no code changes.
+
 ## 6.6.1
 
 1. **`wrapJsonSchema` now accepts an `Output` type parameter** — hand-written JSON Schemas can now flow a typed output all the way into `.action()` callbacks without any Zod dependency:
