@@ -352,13 +352,17 @@ type OptionEntry<RawName extends string, Schema> =
  * Infer the raw runtime value shape for an option declared without a schema.
  *
  * Required value options (`--port <port>`) always reach actions as strings.
- * Optional value options (`--host [host]`) can be strings, the sentinel
- * boolean `true` when passed without a value, or `undefined` when omitted.
+ * Optional value options (`--host [host]`) reach actions as strings: the
+ * empty string `''` when the flag is passed bare (`--host`), the given
+ * value when passed with one (`--host example.com`), and `undefined` when
+ * the flag is omitted entirely. This lets callers use a single `typeof`
+ * check and, if they really care, distinguish "omitted" from "present but
+ * empty" via `=== undefined` vs `=== ''`.
  * Plain flags (`--verbose`) are booleans.
  */
 type UntypedOptionValue<RawName extends string> =
   RawName extends `${string}<${string}>` ? string :
-  RawName extends `${string}[${string}]` ? string | boolean | undefined :
+  RawName extends `${string}[${string}]` ? string :
   boolean | undefined
 
 /**
@@ -423,6 +427,14 @@ type ExtractPositionalArgs<RawName extends string> =
   ExtractCommandArgs<TokenizeName<RawName>>
 
 /**
+ * Everything after a literal `--` on the command line is collected into
+ * `options['--']` as a string array (empty when `--` is absent). This key
+ * is always present at runtime, so it's merged into every action's options
+ * type regardless of which options the user declared.
+ */
+type DoubleDashOptions = { '--': string[] }
+
+/**
  * Build the full argument tuple passed to a command's action callback.
  *
  * Format: [...positionalArgs, options, executionContext]
@@ -430,9 +442,16 @@ type ExtractPositionalArgs<RawName extends string> =
  * This matches the runtime behavior in Goke.runMatchedCommand(): the action
  * is called with positional args from the parsed command, then the parsed
  * options object, then the injected GokeExecutionContext.
+ *
+ * The options type is always extended with `{ '--': string[] }` because the
+ * parser always populates that key (see `Goke.parse()`).
  */
 type ActionArgs<RawName extends string, Opts> =
-  [...ExtractPositionalArgs<RawName>, Opts, GokeExecutionContext]
+  [
+    ...ExtractPositionalArgs<RawName>,
+    Opts & DoubleDashOptions,
+    GokeExecutionContext,
+  ]
 
 interface CommandArg {
   required: boolean
@@ -1239,7 +1258,12 @@ class Goke<Opts = {}> extends EventEmitter {
    *   })
    * ```
    */
-  use(callback: (options: Opts, context: GokeExecutionContext) => void | Promise<void>): this {
+  use(
+    callback: (
+      options: Opts & DoubleDashOptions,
+      context: GokeExecutionContext,
+    ) => void | Promise<void>,
+  ): this {
     this.middlewares.push({ action: callback })
     return this
   }
@@ -1592,7 +1616,9 @@ class Goke<Opts = {}> extends EventEmitter {
     //
     // When mri returns `true` for value-taking options, it means "flag present, no value given".
     // For required options (<...>), the sentinel is preserved so checkOptionValue() throws.
-    // For optional options ([...]) with a schema, we replace `true` with `undefined`.
+    // For optional options ([...]) we want a single, uniform shape: `string`
+    // with `''` meaning "flag present but no value" — callers get clean
+    // `string | undefined` types instead of `string | boolean | undefined`.
     const requiredValueOptions = new Set<string>()
     const optionalValueOptions = new Set<string>()
     for (const cliOption of cliOptions) {
@@ -1618,18 +1644,25 @@ class Goke<Opts = {}> extends EventEmitter {
         // When value is boolean `true` and the option takes a value, it's mri's sentinel
         // for "flag present, no value given":
         //   - Required options (<...>): preserve `true` so checkOptionValue() throws
-        //   - Optional options ([...]) with schema: replace with `undefined` (no typed value)
-        //   - Optional options ([...]) without schema: preserve `true` (original goke behavior)
+        //   - Optional options ([...]) with schema: replace with `undefined` so
+        //     any `.default(...)` on the schema kicks in (e.g. z.number().default(30)
+        //     should produce 30, not try to coerce the `''` empty-string sentinel).
         const schemaInfo = schemaMap.get(key)
         if (schemaInfo && value !== undefined) {
           if (value === true && requiredValueOptions.has(key)) {
             // Keep sentinel for checkOptionValue() to detect
           } else if (value === true && optionalValueOptions.has(key)) {
-            // Optional value not given — schema expects a typed value, so return undefined
             value = undefined
           } else {
             value = coerceBySchema(value, schemaInfo.jsonSchema, schemaInfo.optionName)
           }
+        } else if (value === true && optionalValueOptions.has(key)) {
+          // Untyped optional-value flag with no schema: normalize bare `true`
+          // to `''` so callers get a clean `string | undefined` shape. `''`
+          // means "flag passed with no argument", distinct from `undefined`
+          // (flag omitted). This matches the new type inference that treats
+          // `[value]` as `string` instead of `string | boolean`.
+          value = ''
         }
 
         setDotProp(options, keys, value)

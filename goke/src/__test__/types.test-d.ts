@@ -76,6 +76,11 @@ describe('type-level: IsOptionalOption', () => {
   })
 })
 
+// Every action callback's options param is extended with `{ '--': string[] }`
+// because the runtime always populates that key. Use this alias everywhere
+// we used to write `{}` to mean "no user-declared options".
+type Base = { '--': string[] }
+
 describe('type-level: InferSchemaOutput', () => {
   test('infers output from StandardTypedV1', () => {
     type Schema = StandardTypedV1<unknown, number>
@@ -177,7 +182,7 @@ describe('type-level: command() .action() positional args inference', () => {
     goke('test')
       .command('deploy', 'Deploy the app')
       .action((options, ctx) => {
-        expectTypeOf(options).toEqualTypeOf<{}>()
+        expectTypeOf(options).toEqualTypeOf<Base>()
         expectTypeOf(ctx).toEqualTypeOf<GokeExecutionContext>()
       })
   })
@@ -187,7 +192,7 @@ describe('type-level: command() .action() positional args inference', () => {
       .command('get <id>', 'Fetch a resource by id')
       .action((id, options, ctx) => {
         expectTypeOf(id).toEqualTypeOf<string>()
-        expectTypeOf(options).toEqualTypeOf<{}>()
+        expectTypeOf(options).toEqualTypeOf<Base>()
         expectTypeOf(ctx).toEqualTypeOf<GokeExecutionContext>()
       })
   })
@@ -198,7 +203,7 @@ describe('type-level: command() .action() positional args inference', () => {
       .action((input, output, options) => {
         expectTypeOf(input).toEqualTypeOf<string>()
         expectTypeOf(output).toEqualTypeOf<string>()
-        expectTypeOf(options).toEqualTypeOf<{}>()
+        expectTypeOf(options).toEqualTypeOf<Base>()
       })
   })
 
@@ -207,7 +212,7 @@ describe('type-level: command() .action() positional args inference', () => {
       .command('run [script]', 'Run a script')
       .action((script, options) => {
         expectTypeOf(script).toEqualTypeOf<string | undefined>()
-        expectTypeOf(options).toEqualTypeOf<{}>()
+        expectTypeOf(options).toEqualTypeOf<Base>()
       })
   })
 
@@ -216,7 +221,7 @@ describe('type-level: command() .action() positional args inference', () => {
       .command('exec <...args>', 'Run a binary with args')
       .action((args, options) => {
         expectTypeOf(args).toEqualTypeOf<string[]>()
-        expectTypeOf(options).toEqualTypeOf<{}>()
+        expectTypeOf(options).toEqualTypeOf<Base>()
       })
   })
 
@@ -225,7 +230,7 @@ describe('type-level: command() .action() positional args inference', () => {
       .command('run [...rest]', 'Variadic optional')
       .action((rest, options) => {
         expectTypeOf(rest).toEqualTypeOf<string[]>()
-        expectTypeOf(options).toEqualTypeOf<{}>()
+        expectTypeOf(options).toEqualTypeOf<Base>()
       })
   })
 
@@ -234,7 +239,7 @@ describe('type-level: command() .action() positional args inference', () => {
       .command('mcp getNodeXml <id>', 'Get XML for a node')
       .action((id, options) => {
         expectTypeOf(id).toEqualTypeOf<string>()
-        expectTypeOf(options).toEqualTypeOf<{}>()
+        expectTypeOf(options).toEqualTypeOf<Base>()
       })
   })
 
@@ -243,7 +248,7 @@ describe('type-level: command() .action() positional args inference', () => {
       .command('<file>', 'Default command')
       .action((file, options) => {
         expectTypeOf(file).toEqualTypeOf<string>()
-        expectTypeOf(options).toEqualTypeOf<{}>()
+        expectTypeOf(options).toEqualTypeOf<Base>()
       })
   })
 
@@ -253,7 +258,7 @@ describe('type-level: command() .action() positional args inference', () => {
       .action((to, cc, options) => {
         expectTypeOf(to).toEqualTypeOf<string>()
         expectTypeOf(cc).toEqualTypeOf<string | undefined>()
-        expectTypeOf(options).toEqualTypeOf<{}>()
+        expectTypeOf(options).toEqualTypeOf<Base>()
       })
   })
 })
@@ -342,13 +347,17 @@ describe('type-level: command() .action() option inference', () => {
       })
   })
 
-  test('untyped optional value options keep raw mri sentinel shapes', () => {
+  test('untyped optional value options surface as string | undefined', () => {
     goke('test')
       .command('serve', 'Start server')
       .option('--host [host]', 'Optional host override')
       .option('--verbose', 'Verbose output')
       .action((options) => {
-        expectTypeOf(options.host).toEqualTypeOf<string | boolean | undefined>()
+        // `[value]` options always resolve to `string | undefined`:
+        //   - omitted           → undefined
+        //   - `--host`          → ''  (flag present, no value)
+        //   - `--host example`  → 'example'
+        expectTypeOf(options.host).toEqualTypeOf<string | undefined>()
         expectTypeOf(options.verbose).toEqualTypeOf<boolean | undefined>()
       })
   })
@@ -369,7 +378,7 @@ describe('type-level: command() .action() option inference', () => {
       .command('get <id>', 'Fetch resource')
       .action((id, options, ctx, ...rest) => {
         expectTypeOf(id).toEqualTypeOf<string>()
-        expectTypeOf(options).toEqualTypeOf<{}>()
+        expectTypeOf(options).toEqualTypeOf<Base>()
         expectTypeOf(ctx).toEqualTypeOf<GokeExecutionContext>()
         // No more positional slots — rest should be empty
         expectTypeOf(rest).toEqualTypeOf<[]>()

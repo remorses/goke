@@ -1,5 +1,41 @@
 # goke
 
+## 6.6.0
+
+1. **Optional-value flags now surface as `string | undefined`** — previously, a flag declared as `--host [host]` without a schema reached action callbacks as `string | boolean | undefined`, forcing every caller to write a boilerplate `typeof v === 'string' ? v : undefined` coercion. goke now normalizes the three states to a single clean shape:
+
+   ```ts
+   cli
+     .command('serve', 'Start the server')
+     .option('--host [host]', 'Optional host override')
+     .action((options) => {
+       // options.host: string | undefined
+       //   --host              → ''         (flag present, no value)
+       //   --host example.com  → 'example.com'
+       //   (omitted)           → undefined
+       if (options.host) console.log(`host = ${options.host}`)
+     })
+   ```
+
+   Callers that need to distinguish "flag passed bare" from "flag omitted" can still do it via `=== undefined` vs `=== ''`, but the common case is now just a truthy check. **This is a breaking change** for code that treated `options.foo === true` as "bare flag" — replace with `options.foo === ''`.
+
+   Schema-based optional-value flags are unchanged: `.option('--count [count]', z.number().default(30))` still returns `30` when `--count` is passed bare, so any defaults on the schema keep working.
+
+2. **`options['--']` is now always present in action callback types** — every parsed options object already contained a `'--': string[]` entry at runtime (the array of args after a literal `--`), but the type only surfaced it if you cast. Action and middleware callbacks now see it typed directly:
+
+   ```ts
+   cli
+     .command('run <script>', 'Run a script with passthrough args')
+     .action((script, options) => {
+       // options['--']: string[]
+       //   goke run build -- --watch --coverage
+       //   → options['--'] === ['--watch', '--coverage']
+       console.log('passthrough:', options['--'])
+     })
+   ```
+
+   No more `(options as Record<string, unknown>)['--']` casts in consumer code.
+
 ## 6.5.2
 
 1. **Fixed: action callbacks are now fully typed without manual annotations** — positional args, command-local options, and global options are all inferred directly from the command definition. The README TypeScript examples now compile out of the box (closes [#1](https://github.com/remorses/goke/issues/1)):

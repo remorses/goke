@@ -278,7 +278,9 @@ test('dot-nested options', () => {
     `node bin --externals.env.prod production --scale`.split(' ')
   )
   expect(options1.externals).toEqual({ env: { prod: 'production' } })
-  expect(options1.scale).toEqual(true)
+  // Bare `--scale` normalizes to `''` (new uniform string-or-undefined shape
+  // for untyped optional-value flags).
+  expect(options1.scale).toEqual('')
 })
 
 describe('schema-based options', () => {
@@ -418,11 +420,14 @@ describe('no-schema behavior (mri no longer auto-converts)', () => {
     expect(options.verbose).toBe(true)
   })
 
-  test('optional value flag returns true when no value given', () => {
+  test('optional value flag returns empty string when no value given', () => {
+    // Bare `--format` is normalized from the mri `true` sentinel to `''` so
+    // callers see a uniform `string | undefined` shape. `''` still lets them
+    // distinguish "flag present but no value" from "flag omitted entirely".
     const cli = goke()
     cli.option('--format [fmt]', 'Format')
     const { options } = cli.parse('node bin --format'.split(' '))
-    expect(options.format).toBe(true)
+    expect(options.format).toBe('')
   })
 
   test('optional value flag returns string when value given', () => {
@@ -699,14 +704,19 @@ describe('regression: oracle-found issues', () => {
     expect(options.count).toBe(undefined)
   })
 
-  test('optional value option without schema preserves true sentinel', () => {
+  test('optional value option without schema normalizes bare flag to empty string', () => {
     const cli = goke()
 
     cli.option('--count [count]', 'Count')
 
-    // Without schema, original goke behavior: true means "flag present"
+    // Untyped optional-value flags uniformly expose `string | undefined`:
+    //   - `--count`       → ''          (flag present, no value)
+    //   - `--count 42`    → '42'        (flag present, with value)
+    //   - (omitted)       → undefined   (flag absent)
+    // This lets callers use a single `typeof options.count === 'string'`
+    // check and distinguish the three cases via `=== ''` if they need to.
     const { options } = cli.parse('node bin --count'.split(' '))
-    expect(options.count).toBe(true)
+    expect(options.count).toBe('')
   })
 
   test('optional value option with schema coerces when value given', () => {
