@@ -160,6 +160,39 @@ describe('error formatting', () => {
   })
 })
 
+describe('anonymous action naming', () => {
+  test('inline anonymous function gets named after the command', () => {
+    const cli = gokeTestable('mycli')
+    const cmd = cli.command('deploy', 'Deploy app')
+    // Inline arrow functions passed directly to .action() have no name,
+    // so goke assigns one based on the command name for better stack traces.
+    cmd.action(() => {})
+    expect(cmd.commandAction!.name).toBe('command:deploy')
+  })
+
+  test('inline anonymous function on multi-word command gets full name', () => {
+    const cli = gokeTestable('mycli')
+    const cmd = cli.command('db migrate', 'Run migrations')
+    cmd.action(() => {})
+    expect(cmd.commandAction!.name).toBe('command:db migrate')
+  })
+
+  test('named function keeps its original name', () => {
+    const cli = gokeTestable('mycli')
+    const cmd = cli.command('build', 'Build app')
+    function myBuildAction() {}
+    cmd.action(myBuildAction)
+    expect(cmd.commandAction!.name).toBe('myBuildAction')
+  })
+
+  test('default command action gets "command:default" name', () => {
+    const cli = gokeTestable('mycli')
+    const cmd = cli.command('', 'Default command')
+    cmd.action(() => {})
+    expect(cmd.commandAction!.name).toBe('command:default')
+  })
+})
+
 describe('injected fs', () => {
   test('command actions can use the default node fs for cli storage', async () => {
     const stdout = createTestOutputStream()

@@ -630,6 +630,12 @@ class Command<RawName extends string = string, Opts = {}> {
   action(
     callback: (...args: ActionArgs<RawName, Opts>) => unknown | Promise<unknown>,
   ): this {
+    // Give anonymous functions a name derived from the command so stack traces
+    // show e.g. "command:deploy" instead of "<anonymous>"
+    if (!callback.name) {
+      const label = this.name ? `command:${this.name}` : 'command:default'
+      Object.defineProperty(callback, 'name', { value: label })
+    }
     this.commandAction = callback
     return this
   }
