@@ -25,7 +25,7 @@ curl -L https://raw.githubusercontent.com/remorses/goke/main/README.md
 ## Install
 
 ```bash
-npm install goke
+npm install goke # or bun, pnpm, etc
 ```
 
 ## Quick Notes
