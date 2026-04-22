@@ -7,19 +7,18 @@
    ```ts
    // commands/deploy.ts
    import { goke } from 'goke'
-   export const deployCli = goke()
-   deployCli
+   export default goke()
      .command('deploy', 'Deploy the app')
      .option('--env <env>', z.enum(['staging', 'production']))
      .action((options) => { /* ... */ })
 
    // cli.ts
-   import { deployCli } from './commands/deploy.js'
-   import { authCli } from './commands/auth.js'
+   import deploy from './commands/deploy.js'
+   import auth from './commands/auth.js'
 
    const cli = goke('mycli')
-     .use(deployCli)
-     .use(authCli)
+     .use(deploy)
+     .use(auth)
 
    cli.parse()
    ```

@@ -395,32 +395,23 @@ As your CLI grows, define each command (or command group) in its own file and co
 import { goke } from 'goke'
 import { z } from 'zod'
 
-export const deployCli = goke()
-
-deployCli
+export default goke()
   .command('deploy', 'Deploy the app')
   .option('--env <env>', z.enum(['staging', 'production']).describe('Target environment'))
   .option('--dry-run', 'Preview without deploying')
   .action((options, { console, process }) => {
     console.log(`Deploying to ${options.env} from ${process.cwd}`)
   })
-
-deployCli
-  .command('rollback <deploymentId>', 'Rollback a deployment')
-  .option('--force', 'Skip confirmation')
-  .action((deploymentId, options, { console }) => {
-    console.log(`Rolling back ${deploymentId}`)
-  })
 ```
 
 ```ts
-// commands/auth.ts
+// commands/auth.ts — multiple commands need a variable
 import { goke } from 'goke'
 import { z } from 'zod'
 
-export const authCli = goke()
+const auth = goke()
 
-authCli
+auth
   .command('login', 'Authenticate with the server')
   .option('--token [token]', z.string().describe('API token (skips browser login)'))
   .action(async (options, { fs, console }) => {
@@ -430,23 +421,25 @@ authCli
     console.log('Logged in')
   })
 
-authCli
+auth
   .command('logout', 'Clear saved credentials')
   .action(async (options, { fs, console }) => {
     await fs.rm('.mycli/auth.json', { force: true })
     console.log('Logged out')
   })
+
+export default auth
 ```
 
 ```ts
 // cli.ts
 import { goke } from 'goke'
-import { deployCli } from './commands/deploy.js'
-import { authCli } from './commands/auth.js'
+import deploy from './commands/deploy.js'
+import auth from './commands/auth.js'
 
 const cli = goke('mycli')
-  .use(deployCli)
-  .use(authCli)
+  .use(deploy)
+  .use(auth)
 
 cli.help()
 cli.version('1.0.0')
@@ -461,8 +454,7 @@ import type { DeployOptions } from './types.js'
 export function deployAction(options: DeployOptions) { /* ... */ }
 
 // GOOD: types are always derived from the goke chain
-export const deployCli = goke()
-deployCli
+export default goke()
   .command('deploy', 'Deploy')
   .option('--env <env>', z.enum(['staging', 'production']).describe('Environment'))
   .action((options) => {
@@ -1151,6 +1143,29 @@ If an error occurs, throw or write to `console.error` / `process.stderr`, and ex
 4. Prefer injected `{ fs, console, process }` over global `console`, `process.exit`, or direct `node:fs/promises` imports.
 5. Use implicit cwd with injected `fs` for CLI storage. When a helper needs current-cwd semantics, pass `process.cwd` from the injected context into that helper.
 6. Define the CLI in app code and import that same CLI in tests; do not construct a separate CLI inside compatibility tests.
+7. **Never extract an action callback into a separate function.** Keep the action inline in the `.command().option().action()` chain. Extracting it loses inferred type safety and forces you to duplicate the option/arg types manually. If a file gets too large, split into separate files that each export a `goke()` instance and compose them with `.use()`. See [Splitting a Large CLI into Files](#splitting-a-large-cli-into-files).
+
+   ```ts
+   // BAD: action in a separate function — types are lost, args/options duplicated
+   projectsCli
+     .command("projects list", "List all projects")
+     .action((_options, ctx) => listProjectsAction(ctx));
+
+   // GOOD: action inline — types inferred from the chain
+   projectsCli
+     .command("projects list", "List all projects")
+     .action((_options, { console }) => {
+       // implementation here, fully typed
+     });
+
+   // GOOD: split into files with .use() when commands get large
+   // commands/projects.ts
+   export default goke()
+     .command("projects list", "List all projects")
+     .action((_options, { console }) => {
+       // implementation here
+     });
+   ```
 
 ### Version
 
