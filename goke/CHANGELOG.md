@@ -1,5 +1,33 @@
 # goke
 
+## 6.9.0
+
+1. **New `.use(subCli)` for composing CLI instances across files** — split a large CLI into separate files, each exporting a `goke()` instance with its own commands, then compose them in the entry point:
+
+   ```ts
+   // commands/deploy.ts
+   import { goke } from 'goke'
+   export const deployCli = goke()
+   deployCli
+     .command('deploy', 'Deploy the app')
+     .option('--env <env>', z.enum(['staging', 'production']))
+     .action((options) => { /* ... */ })
+
+   // cli.ts
+   import { deployCli } from './commands/deploy.js'
+   import { authCli } from './commands/auth.js'
+
+   const cli = goke('mycli')
+     .use(deployCli)
+     .use(authCli)
+
+   cli.parse()
+   ```
+
+   Only commands are composed. Middlewares and global options from the sub-CLI are not copied, keeping composition predictable. Type safety is fully preserved: each sub-CLI command's `.action()` callback keeps its inferred types from the original `.command()`/`.option()` chain.
+
+2. **JustBash output capture now respects `maxOutputSize` limits** — when a command produces output exceeding the configured `maxOutputSize`, the captured text is truncated and a `[output truncated]` notice is appended. Prevents memory issues with commands that produce large output.
+
 ## 6.8.0
 
 1. **New public `cli.createExecutionContext(override?)`** — build the same injected context a command action sees from `cli.parse()`, but with per-call overrides. Adapters (MCP servers, batch runners, remote RPC, multi-tenant HTTP) can now construct a `GokeExecutionContext` with tenant-specific values without cloning or mutating the cli:
