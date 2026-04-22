@@ -26,17 +26,90 @@ interface JustBashCommand {
   execute(args: string[], context?: JustBashExecutionContext): Promise<JustBashExecResult>
 }
 
-type JustBashExecutionContext = Pick<CommandContext, 'cwd' | 'env' | 'fs' | 'stdin'>
-type JustBashEncoding = 'utf8' | 'utf-8' | 'ascii' | 'binary' | 'base64' | 'hex' | 'latin1'
+type JustBashExecutionContext = Pick<CommandContext, 'cwd' | 'env' | 'fs' | 'stdin' | 'limits'>
 
-function createTextCaptureStream(): GokeOutputStream & { readonly text: string } {
-  const chunks: string[] = []
-  return {
-    get text() {
-      return chunks.join('')
-    },
+const TRUNCATION_MESSAGE = '\n[output truncated]\n'
+
+function createTextCaptureStreams(maxLength?: number): {
+  stdout: GokeOutputStream
+  stderr: GokeOutputStream
+  getResult(): { stdout: string; stderr: string }
+} {
+  const stdoutChunks: string[] = []
+  const stderrChunks: string[] = []
+  const limit = maxLength != null && maxLength > 0 ? maxLength : Number.POSITIVE_INFINITY
+  let totalLength = 0
+  let stdoutTruncated = false
+  let stderrTruncated = false
+
+  const createStream = (stream: 'stdout' | 'stderr'): GokeOutputStream => ({
     write(data: string) {
-      chunks.push(data)
+      if (totalLength >= limit) {
+        if (stream === 'stdout') {
+          stdoutTruncated = true
+        } else {
+          stderrTruncated = true
+        }
+        return
+      }
+
+      const remaining = limit - totalLength
+      const text = data.length <= remaining ? data : data.slice(0, remaining)
+      if (stream === 'stdout') {
+        stdoutChunks.push(text)
+        stdoutTruncated ||= text.length !== data.length
+      } else {
+        stderrChunks.push(text)
+        stderrTruncated ||= text.length !== data.length
+      }
+      totalLength += text.length
+    },
+  })
+
+  const trimEnd = (value: string, count: number) => value.slice(0, Math.max(0, value.length - count))
+
+  return {
+    stdout: createStream('stdout'),
+    stderr: createStream('stderr'),
+    getResult() {
+      let stdout = stdoutChunks.join('')
+      let stderr = stderrChunks.join('')
+
+      if (!stdoutTruncated && !stderrTruncated) {
+        return { stdout, stderr }
+      }
+
+      const target = stderrTruncated ? 'stderr' : 'stdout'
+      const message = limit === Number.POSITIVE_INFINITY
+        ? TRUNCATION_MESSAGE
+        : TRUNCATION_MESSAGE.slice(0, Math.min(TRUNCATION_MESSAGE.length, limit))
+
+      let overflow = stdout.length + stderr.length + message.length - limit
+      if (Number.isFinite(limit) && overflow > 0) {
+        if (target === 'stderr') {
+          const stderrTrim = Math.min(overflow, stderr.length)
+          stderr = trimEnd(stderr, stderrTrim)
+          overflow -= stderrTrim
+          if (overflow > 0) {
+            stdout = trimEnd(stdout, overflow)
+          }
+        } else {
+          const stdoutTrim = Math.min(overflow, stdout.length)
+          stdout = trimEnd(stdout, stdoutTrim)
+          overflow -= stdoutTrim
+          if (overflow > 0) {
+            stderr = trimEnd(stderr, overflow)
+          }
+        }
+      }
+
+      if (target === 'stderr') {
+        stderr += message
+      } else {
+        stdout += message
+      }
+
+      return { stdout, stderr }
     },
   }
 }
@@ -55,7 +128,7 @@ const getEncoding = (options?: GokeFsEncodingOption) => {
   return options.encoding
 }
 
-const toJustBashEncoding = (encoding?: BufferEncoding | null): JustBashEncoding | null | undefined => {
+const toJustBashEncoding = (encoding?: BufferEncoding | null): 'utf8' | 'utf-8' | 'ascii' | 'binary' | 'base64' | 'hex' | 'latin1' | null | undefined => {
   if (encoding == null) {
     return encoding
   }
@@ -232,16 +305,15 @@ export function createJustBashCommand(
     name,
     trusted: true,
     async execute(args: string[], context?: JustBashExecutionContext) {
-      const stdout = createTextCaptureStream()
-      const stderr = createTextCaptureStream()
+      const output = createTextCaptureStreams(context?.limits?.maxOutputSize)
       const argv = ['node', name, ...args]
       const cloned = cli.clone({
         cwd: context?.cwd,
         env: context ? createJustBashEnvProxy(context.env) : cli.env,
         fs: context ? createJustBashFs(context.fs, context.cwd) : cli.fs,
         stdin: context?.stdin,
-        stdout,
-        stderr,
+        stdout: output.stdout,
+        stderr: output.stderr,
         argv,
         exit: (code) => {
           throw new GokeProcessExit(code)
@@ -253,16 +325,18 @@ export function createJustBashCommand(
       try {
         cloned.parse(argv, { run: false })
         await cloned.runMatchedCommand()
+        const result = output.getResult()
         return {
-          stdout: stdout.text,
-          stderr: stderr.text,
+          stdout: result.stdout,
+          stderr: result.stderr,
           exitCode: 0,
         }
       } catch (error) {
         if (error instanceof GokeProcessExit) {
+          const result = output.getResult()
           return {
-            stdout: stdout.text,
-            stderr: stderr.text,
+            stdout: result.stdout,
+            stderr: result.stderr,
             exitCode: error.code,
           }
         }

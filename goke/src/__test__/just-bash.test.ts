@@ -389,4 +389,28 @@ describe('createJustBashCommand', () => {
       exitCode: 7,
     })
   })
+
+  test('truncates captured output to just-bash maxOutputSize and appends a notice', async () => {
+    const { Bash } = await import('just-bash')
+    const cli = gokeTestable('parent')
+
+    cli
+      .command('spam-stderr', 'Write too much stderr')
+      .action((options, { console }) => {
+        console.error('x'.repeat(60))
+        console.error('y'.repeat(60))
+      })
+
+    const bash = new Bash({
+      executionLimits: { maxOutputSize: 80 },
+      customCommands: [await cli.createJustBashCommand()],
+    })
+
+    const result = await bash.exec('parent spam-stderr')
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toBe('')
+    expect(result.stderr.length).toBeLessThanOrEqual(80)
+    expect(result.stderr).toBe(`${'x'.repeat(60)}\n[output truncated]\n`)
+  })
 })
