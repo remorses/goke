@@ -1381,14 +1381,48 @@ class Goke<Opts = {}> extends EventEmitter {
    *     }
    *   })
    * ```
+   *
+   * Alternatively, pass another `Goke` instance to compose commands from
+   * separate files. All commands defined on the sub-CLI are merged into
+   * this CLI. Middlewares and global options from the sub-CLI are NOT
+   * copied; only commands are composed.
+   *
+   * @example
+   * ```ts
+   * // selfhost.ts
+   * export const selfhostCli = goke()
+   * selfhostCli
+   *   .command('selfhost', 'Set up on your own workspace')
+   *   .option('-t, --token [token]', 'Admin token')
+   *   .action((options) => { ... })
+   *
+   * // main.ts
+   * import { selfhostCli } from './selfhost.js'
+   * goke('mycli')
+   *   .use(selfhostCli)
+   *   .help()
+   *   .parse(process.argv)
+   * ```
    */
+  use(subCli: Goke<any>): this
   use(
     callback: (
       options: Opts & DoubleDashOptions,
       context: GokeExecutionContext,
     ) => void | Promise<void>,
+  ): this
+  use(
+    callbackOrCli:
+      | Goke<any>
+      | ((options: Opts & DoubleDashOptions, context: GokeExecutionContext) => void | Promise<void>),
   ): this {
-    this.middlewares.push({ action: callback })
+    if (callbackOrCli instanceof Goke) {
+      for (const command of callbackOrCli.commands) {
+        this.commands.push(cloneCommandInto(command, this))
+      }
+      return this
+    }
+    this.middlewares.push({ action: callbackOrCli })
     return this
   }
 

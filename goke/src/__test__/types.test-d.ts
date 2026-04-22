@@ -481,6 +481,47 @@ describe('type-level: README TypeScript examples', () => {
       })
   })
 
+  test('use() with sub-CLI preserves parent middleware typing', () => {
+    const sub = goke()
+    sub
+      .command('deploy', 'Deploy the app')
+      .option('--force', z.boolean())
+      .action((options) => {
+        // Sub-CLI command's action sees its own options
+        expectTypeOf(options.force).toEqualTypeOf<boolean | undefined>()
+      })
+
+    goke('test')
+      .option('--verbose', z.boolean().default(false).describe('Verbose'))
+      .use(sub)
+      .use((options) => {
+        // Parent middleware still sees parent's accumulated options after .use(subCli)
+        expectTypeOf(options.verbose).toEqualTypeOf<boolean>()
+      })
+      .command('build', 'Build')
+      .option('--target <target>', z.string())
+      .action((options) => {
+        // Parent's inline command still sees global options
+        expectTypeOf(options.verbose).toEqualTypeOf<boolean>()
+        expectTypeOf(options.target).toEqualTypeOf<string>()
+      })
+  })
+
+  test('use() with sub-CLI does not leak sub-CLI types to parent', () => {
+    const sub = goke()
+      .option('--sub-only <val>', z.string())
+    sub.command('sub-cmd', 'Sub command').action(() => {})
+
+    goke('test')
+      .option('--parent-only <val>', z.number())
+      .use(sub)
+      .use((options) => {
+        expectTypeOf(options.parentOnly).toEqualTypeOf<number>()
+        // @ts-expect-error subOnly is not declared on the parent
+        options.subOnly
+      })
+  })
+
   test('README global options and middleware example stays typed end-to-end', () => {
     // `z.boolean().default(false)` and `z.string().default(...)` are
     // effectively required at runtime: the default applies when the flag is

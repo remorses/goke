@@ -2336,3 +2336,169 @@ describe('middleware', () => {
     expect(order).toEqual(['sync1', 'async', 'sync2', 'action'])
   })
 })
+
+describe('use() with sub-CLI composition', () => {
+  test('basic composition: sub-CLI command runs via parent', () => {
+    const parent = goke('mycli')
+    const sub = goke()
+    let matched = ''
+
+    sub
+      .command('deploy', 'Deploy the app')
+      .action(() => { matched = 'deploy' })
+
+    parent.use(sub)
+    parent.parse(['node', 'bin', 'deploy'], { run: true })
+    expect(matched).toBe('deploy')
+  })
+
+  test('multiple sub-CLIs composed together', () => {
+    const parent = goke('mycli')
+    const subA = goke()
+    const subB = goke()
+    let matched = ''
+
+    subA.command('login', 'Login').action(() => { matched = 'login' })
+    subB.command('deploy', 'Deploy').action(() => { matched = 'deploy' })
+
+    parent.use(subA).use(subB)
+
+    parent.parse(['node', 'bin', 'login'], { run: true })
+    expect(matched).toBe('login')
+
+    matched = ''
+    parent.parse(['node', 'bin', 'deploy'], { run: true })
+    expect(matched).toBe('deploy')
+  })
+
+  test('sub-CLI command with options and schema coercion', () => {
+    const parent = goke('mycli')
+    const sub = goke()
+    let result: any = {}
+
+    sub
+      .command('serve', 'Start server')
+      .option('--port <port>', z.number().describe('Port'))
+      .option('--host <host>', z.string().describe('Host'))
+      .action((options) => { result = options })
+
+    parent.use(sub)
+    parent.parse('node bin serve --port 3000 --host localhost'.split(' '), { run: true })
+
+    expect(result.port).toBe(3000)
+    expect(typeof result.port).toBe('number')
+    expect(result.host).toBe('localhost')
+  })
+
+  test('sub-CLI command with positional args', () => {
+    const parent = goke('mycli')
+    const sub = goke()
+    let receivedId = ''
+
+    sub
+      .command('get <id>', 'Get a resource')
+      .action((id) => { receivedId = id })
+
+    parent.use(sub)
+    parent.parse(['node', 'bin', 'get', 'abc123'], { run: true })
+
+    expect(receivedId).toBe('abc123')
+  })
+
+  test('sub-CLI with multi-word commands', () => {
+    const parent = goke('mycli')
+    const sub = goke()
+    let matched = ''
+
+    sub.command('mcp login', 'Login to MCP').action(() => { matched = 'mcp login' })
+    sub.command('mcp logout', 'Logout from MCP').action(() => { matched = 'mcp logout' })
+
+    parent.use(sub)
+
+    parent.parse(['node', 'bin', 'mcp', 'login'], { run: true })
+    expect(matched).toBe('mcp login')
+
+    matched = ''
+    parent.parse(['node', 'bin', 'mcp', 'logout'], { run: true })
+    expect(matched).toBe('mcp logout')
+  })
+
+  test('help output includes composed commands', () => {
+    const stdout = createTestOutputStream()
+    const parent = goke('mycli', { stdout })
+    const sub = goke()
+
+    sub.command('selfhost', 'Set up on your own workspace')
+      .option('-t, --token [token]', 'Admin token')
+
+    parent.command('init', 'Initialize project')
+    parent.use(sub)
+    parent.help()
+    parent.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toContain('init')
+    expect(stdout.text).toContain('selfhost')
+    expect(stdout.text).toContain('Set up on your own workspace')
+  })
+
+  test('sub-CLI middlewares are NOT copied to parent', () => {
+    const parent = goke('mycli')
+    const sub = goke()
+    let subMiddlewareCalled = false
+    const order: string[] = []
+
+    sub.use(() => { subMiddlewareCalled = true })
+    sub.command('deploy', 'Deploy').action(() => { order.push('deploy') })
+
+    parent.use(() => { order.push('parent-mw') })
+    parent.use(sub)
+
+    parent.parse(['node', 'bin', 'deploy'], { run: true })
+
+    expect(subMiddlewareCalled).toBe(false)
+    expect(order).toEqual(['parent-mw', 'deploy'])
+  })
+
+  test('parent global options are available to composed commands', () => {
+    const parent = goke('mycli')
+    const sub = goke()
+    let result: any = {}
+
+    parent.option('--verbose', 'Verbose output')
+
+    sub
+      .command('build', 'Build')
+      .option('--target <target>', 'Build target')
+      .action((options) => { result = options })
+
+    parent.use(sub)
+    parent.parse('node bin build --verbose --target production'.split(' '), { run: true })
+
+    expect(result.verbose).toBe(true)
+    expect(result.target).toBe('production')
+  })
+
+  test('composed commands coexist with inline commands', () => {
+    const parent = goke('mycli')
+    const sub = goke()
+    let matched = ''
+
+    parent.command('init', 'Initialize').action(() => { matched = 'init' })
+
+    sub.command('deploy', 'Deploy').action(() => { matched = 'deploy' })
+    sub.command('rollback', 'Rollback').action(() => { matched = 'rollback' })
+
+    parent.use(sub)
+
+    parent.parse(['node', 'bin', 'init'], { run: true })
+    expect(matched).toBe('init')
+
+    matched = ''
+    parent.parse(['node', 'bin', 'deploy'], { run: true })
+    expect(matched).toBe('deploy')
+
+    matched = ''
+    parent.parse(['node', 'bin', 'rollback'], { run: true })
+    expect(matched).toBe('rollback')
+  })
+})

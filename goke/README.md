@@ -386,6 +386,92 @@ deploy logs abc123 --follow     # subcommand with args + options
 deploy --help                   # shows all commands
 ```
 
+### Splitting a Large CLI into Files
+
+As your CLI grows, define each command (or command group) in its own file and compose them with `.use()`. This keeps each file focused and avoids a single giant entry point.
+
+```ts
+// commands/deploy.ts
+import { goke } from 'goke'
+import { z } from 'zod'
+
+export const deployCli = goke()
+
+deployCli
+  .command('deploy', 'Deploy the app')
+  .option('--env <env>', z.enum(['staging', 'production']).describe('Target environment'))
+  .option('--dry-run', 'Preview without deploying')
+  .action((options, { console, process }) => {
+    console.log(`Deploying to ${options.env} from ${process.cwd}`)
+  })
+
+deployCli
+  .command('rollback <deploymentId>', 'Rollback a deployment')
+  .option('--force', 'Skip confirmation')
+  .action((deploymentId, options, { console }) => {
+    console.log(`Rolling back ${deploymentId}`)
+  })
+```
+
+```ts
+// commands/auth.ts
+import { goke } from 'goke'
+import { z } from 'zod'
+
+export const authCli = goke()
+
+authCli
+  .command('login', 'Authenticate with the server')
+  .option('--token [token]', z.string().describe('API token (skips browser login)'))
+  .action(async (options, { fs, console }) => {
+    const token = options.token ?? await browserOAuth()
+    await fs.mkdir('.mycli', { recursive: true })
+    await fs.writeFile('.mycli/auth.json', JSON.stringify({ token }), 'utf8')
+    console.log('Logged in')
+  })
+
+authCli
+  .command('logout', 'Clear saved credentials')
+  .action(async (options, { fs, console }) => {
+    await fs.rm('.mycli/auth.json', { force: true })
+    console.log('Logged out')
+  })
+```
+
+```ts
+// cli.ts
+import { goke } from 'goke'
+import { deployCli } from './commands/deploy.js'
+import { authCli } from './commands/auth.js'
+
+const cli = goke('mycli')
+  .use(deployCli)
+  .use(authCli)
+
+cli.help()
+cli.version('1.0.0')
+cli.parse()
+```
+
+**Prefer this over importing just the action function.** When you define the command inline with goke, the action callback's types are computed automatically from the `.command()` and `.option()` chain. If you split the action into a separate function, you'd have to manually duplicate the option types to keep things in sync. With `.use(subCli)`, the types stay derived from the source of truth.
+
+```ts
+// BAD: duplicated types that can drift out of sync
+import type { DeployOptions } from './types.js'
+export function deployAction(options: DeployOptions) { /* ... */ }
+
+// GOOD: types are always derived from the goke chain
+export const deployCli = goke()
+deployCli
+  .command('deploy', 'Deploy')
+  .option('--env <env>', z.enum(['staging', 'production']).describe('Environment'))
+  .action((options) => {
+    options.env // ← always in sync, inferred from the chain
+  })
+```
+
+When `.use(subCli)` is called, only **commands** are composed into the parent. Middlewares and global options defined on the sub-CLI are not copied. Define shared middleware on the parent CLI instead.
+
 ### Global Options and Middleware
 
 Global options are defined on the CLI instance and apply to all commands. Use `.use()` to register middleware that runs before any command action — useful for reacting to global options like setting up logging, initializing state, or configuring services.
@@ -1114,6 +1200,12 @@ Add a global option. The second argument is either:
 - Type: `(callback: (options: Opts, { fs, console, process }) => void | Promise<void>) => CLI`
 
 Register a middleware function that runs before the matched command action. Middleware runs in registration order, after option parsing and validation. The callback receives the parsed global options, typed according to all `.option()` calls that precede the `.use()` in the chain, plus an injected `{ fs, console, process }` helper object.
+
+#### cli.use(subCli)
+
+- Type: `(subCli: Goke) => CLI`
+
+Compose commands from another goke instance into this CLI. All commands defined on `subCli` are merged into the parent. Middlewares and global options from the sub-CLI are **not** copied. See [Splitting a Large CLI into Files](#splitting-a-large-cli-into-files).
 
 #### cli.parse(argv?)
 
