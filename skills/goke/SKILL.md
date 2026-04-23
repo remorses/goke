@@ -37,6 +37,39 @@ npm install goke # or bun, pnpm, etc
 
 The README is the source of truth for rules, examples, testing patterns, JustBash integration, and API details.
 
+## Command Naming Conventions
+
+**ALWAYS read existing commands before adding a new one.** Scan the CLI for option names, verbs, and noun patterns already in use. New commands must stay consistent with what exists.
+
+### Consistent option names
+
+Options that do the same thing across different commands must use the same name. For example, if `list` commands already use `--limit` to cap results, never introduce `--max` or `--count` for the same purpose in a new command. Grep the codebase for similar options before picking a name.
+
+### CRUD-style spaced commands
+
+Prefer spaced subcommands that read like `noun verb`:
+
+```
+project list
+project add
+project remove
+```
+
+Pick **singular or plural** for the noun and stick with it across the entire CLI. If `project list` exists, don't add `projects add`.
+
+### Consistent verbs
+
+Choose one verb per action and reuse it everywhere:
+
+| Action | Pick one | Not both |
+|--------|----------|----------|
+| Create | `add` or `create` | not both |
+| Delete | `remove` or `delete` | not both |
+| Show   | `show` or `get` | not both |
+| Update | `update` or `edit` | not both |
+
+Check which verbs the CLI already uses and match them. If existing commands use `add`, every new "create something" command should also use `add`.
+
 ## Interactive Prompts with @clack/prompts
 
 Use `@clack/prompts` for interactive CLI prompts like `select`, `confirm`, and text input.
