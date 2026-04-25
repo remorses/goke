@@ -1949,8 +1949,181 @@ class Goke<Opts = {}> extends EventEmitter {
   }
 }
 
+// ─── Doc generation ───
+
+interface DocPage {
+  /** The command name, e.g. "event view". Empty string for the root CLI page. */
+  command: string
+  /** URL-friendly slug, e.g. "event-view". "index" for the root CLI page. */
+  slug: string
+  /** Full markdown content for this command's documentation page. */
+  content: string
+}
+
+interface GenerateDocsOptions {
+  /** The Goke CLI instance to generate docs from. */
+  cli: Goke<any>
+}
+
+/**
+ * Generate markdown documentation pages for every command in a CLI.
+ *
+ * Returns one `DocPage` per non-hidden command, plus a root index page
+ * that lists all available commands. Each page includes an arguments table,
+ * options table, global options, and examples when available.
+ *
+ * @example
+ * ```ts
+ * import { goke, generateDocs } from 'goke'
+ * import fs from 'node:fs'
+ *
+ * const cli = goke('mycli')
+ *   .command('deploy <env>', 'Deploy to an environment')
+ *   .option('--force', 'Skip confirmation')
+ *
+ * const pages = generateDocs({ cli })
+ * for (const page of pages) {
+ *   fs.writeFileSync(`docs/${page.slug}.md`, page.content)
+ * }
+ * ```
+ */
+function generateDocs({ cli }: GenerateDocsOptions): DocPage[] {
+  const pages: DocPage[] = []
+
+  // Collect global options (from globalCommand), excluding deprecated
+  const globalOptions = cli.globalCommand.options.filter((o) => !o.deprecated)
+
+  // Root index page listing all commands
+  const visibleCommands = cli.commands.filter((cmd) => !cmd._hidden)
+  if (visibleCommands.length > 0) {
+    const lines: string[] = []
+    lines.push(`# ${cli.name}`)
+    lines.push('')
+
+    const { versionNumber } = cli.globalCommand
+    if (versionNumber) {
+      lines.push(`Version: ${versionNumber}`)
+      lines.push('')
+    }
+
+    lines.push('## Commands')
+    lines.push('')
+    lines.push('| Command | Description |')
+    lines.push('|---------|-------------|')
+    for (const cmd of visibleCommands) {
+      if (cmd.isDefaultCommand) continue
+      const desc = cmd.description.split('\n')[0].trim()
+      const slug = cmd.name.replace(/\s+/g, '-')
+      lines.push(`| [\`${cmd.name}\`](./${slug}.md) | ${desc} |`)
+    }
+    lines.push('')
+
+    if (globalOptions.length > 0) {
+      lines.push('## Global Options')
+      lines.push('')
+      lines.push(formatOptionsTable(globalOptions))
+      lines.push('')
+    }
+
+    pages.push({ command: '', slug: 'index', content: lines.join('\n') })
+  }
+
+  // One page per command
+  for (const cmd of visibleCommands) {
+    if (cmd.isDefaultCommand) continue
+    const lines: string[] = []
+    const title = cmd.name
+    lines.push(`# ${title}`)
+    lines.push('')
+
+    if (cmd.description) {
+      lines.push(cmd.description)
+      lines.push('')
+    }
+
+    // Usage line
+    const usage = cmd.usageText || cmd.rawName
+    lines.push('## Usage')
+    lines.push('')
+    lines.push('```sh')
+    lines.push(`${cli.name} ${usage}`)
+    lines.push('```')
+    lines.push('')
+
+    // Arguments table
+    if (cmd.args.length > 0) {
+      lines.push('## Arguments')
+      lines.push('')
+      lines.push('| Argument | Required | Description |')
+      lines.push('|----------|----------|-------------|')
+      for (const arg of cmd.args) {
+        const bracket = arg.required
+          ? `<${arg.variadic ? '...' : ''}${arg.value}>`
+          : `[${arg.variadic ? '...' : ''}${arg.value}]`
+        const required = arg.required ? 'Yes' : 'No'
+        const desc = arg.variadic ? `${arg.value} (variadic)` : arg.value
+        lines.push(`| \`${bracket}\` | ${required} | ${desc} |`)
+      }
+      lines.push('')
+    }
+
+    // Command-specific options
+    const cmdOptions = cmd.options.filter((o) => !o.deprecated)
+    if (cmdOptions.length > 0) {
+      lines.push('## Options')
+      lines.push('')
+      lines.push(formatOptionsTable(cmdOptions))
+      lines.push('')
+    }
+
+    // Global options section
+    if (globalOptions.length > 0) {
+      lines.push('## Global Options')
+      lines.push('')
+      lines.push(formatOptionsTable(globalOptions))
+      lines.push('')
+    }
+
+    // Examples
+    if (cmd.examples.length > 0) {
+      lines.push('## Examples')
+      lines.push('')
+      for (const example of cmd.examples) {
+        const text = typeof example === 'function' ? example(cli.name) : example
+        // Auto-wrap in ```sh if not already fenced
+        if (text.trimStart().startsWith('```')) {
+          lines.push(text)
+        } else {
+          lines.push('```sh')
+          lines.push(text)
+          lines.push('```')
+        }
+        lines.push('')
+      }
+    }
+
+    const slug = cmd.name.replace(/\s+/g, '-')
+    pages.push({ command: cmd.name, slug, content: lines.join('\n') })
+  }
+
+  return pages
+}
+
+function formatOptionsTable(options: Option[]): string {
+  const lines: string[] = []
+  lines.push('| Option | Default | Description |')
+  lines.push('|--------|---------|-------------|')
+  for (const opt of options) {
+    const defaultVal = opt.default !== undefined ? `\`${String(opt.default)}\`` : '-'
+    // Escape pipe characters in description for markdown tables
+    const desc = opt.description.replace(/\|/g, '\\|').replace(/\n/g, ' ')
+    lines.push(`| \`${opt.rawName}\` | ${defaultVal} | ${desc} |`)
+  }
+  return lines.join('\n')
+}
+
 // ─── Exports ───
 
-export type { GokeOutputStream, GokeConsole, GokeOptions, GokeProcess, GokeExecutionContext, GokeExecutionContextOverride, GokeFs }
-export { createConsole, Command, GokeProcessExit, openInBrowser }
+export type { GokeOutputStream, GokeConsole, GokeOptions, GokeProcess, GokeExecutionContext, GokeExecutionContextOverride, GokeFs, DocPage, GenerateDocsOptions }
+export { createConsole, Command, GokeProcessExit, openInBrowser, generateDocs }
 export default Goke

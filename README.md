@@ -1133,6 +1133,106 @@ deploy deploy production | yq '.version'
 
 If an error occurs, throw or write to `console.error` / `process.stderr`, and exit with a non-zero code. Never mix error text into stdout when the command is expected to output YAML.
 
+## Generating Markdown Docs
+
+`generateDocs` creates markdown documentation pages for every command in your CLI. Each page includes a usage block, arguments table, options table, global options, and examples. You get back an array of `{ command, slug, content }` objects you can write to disk however you want.
+
+This is useful to auto-generate docs for your CLI and feed them into documentation platforms like [Holocron](https://holocron.so) or [Mintlify](https://mintlify.com).
+
+```ts
+// scripts/generate-docs.ts
+import { goke, generateDocs } from 'goke'
+import { z } from 'zod'
+import fs from 'node:fs'
+
+const cli = goke('sentry')
+  .version('1.0.0')
+  .help()
+
+cli
+  .command('event view <id>', 'View details of a specific event')
+  .option('-w, --web', 'Open in browser')
+  .option('--spans <spans>', z.string().default('3').describe('Span tree depth limit'))
+  .example('```\nsentry event view abc123\n```')
+
+cli
+  .command('event list <issue>', 'List events for an issue')
+  .option('-n, --limit <limit>', z.number().default(25).describe('Number of events'))
+  .option('-q, --query <query>', 'Search query')
+
+const pages = generateDocs({ cli })
+
+fs.mkdirSync('docs', { recursive: true })
+for (const page of pages) {
+  fs.writeFileSync(`docs/${page.slug}.md`, page.content)
+  console.log(`wrote docs/${page.slug}.md`)
+}
+```
+
+Running `npx tsx scripts/generate-docs.ts` produces files like `docs/index.md`, `docs/event-view.md`, `docs/event-list.md`. Each command page looks like this:
+
+```md
+# event view
+
+View details of a specific event
+
+## Usage
+
+\```sh
+sentry event view <id>
+\```
+
+## Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `<id>` | Yes | id |
+
+## Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-w, --web` | - | Open in browser |
+| `--spans <spans>` | `3` | Span tree depth limit |
+
+## Global Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-v, --version` | - | Display version number |
+| `-h, --help` | - | Display this message |
+
+## Examples
+
+\```
+sentry event view abc123
+\```
+```
+
+The index page lists all commands with links:
+
+```md
+# sentry
+
+Version: 1.0.0
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| [`event view`](./event-view.md) | View details of a specific event |
+| [`event list`](./event-list.md) | List events for an issue |
+
+## Global Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-v, --version` | - | Display version number |
+| `-h, --help` | - | Display this message |
+```
+
+Hidden commands and deprecated options are excluded automatically. Add this script to your CI or `package.json` scripts to keep docs in sync with the CLI code.
+
 ## Contributor Notes
 
 ### Rules
@@ -1265,6 +1365,12 @@ expect(stdout.write).toHaveBeenCalledWith('building\n')
 - Type: `() => string`
 
 Return the formatted help string without printing it. Useful for embedding help text in documentation, tests, or other programmatic uses.
+
+#### generateDocs({ cli })
+
+- Type: `(options: { cli: Goke }) => DocPage[]`
+
+Generate markdown documentation pages for every non-hidden command. Returns an array of `{ command, slug, content }` objects. See [Generating Markdown Docs](#generating-markdown-docs) for full usage.
 
 ```ts
 const cli = goke('mycli')

@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from 'vitest'
 import { z } from 'zod'
-import goke, { openInBrowser } from '../index.js'
+import goke, { openInBrowser, generateDocs } from '../index.js'
 import type { GokeOptions, GokeOutputStream } from '../index.js'
 
 const ANSI_RE = /\x1B\[[0-9;]*m/g
@@ -221,5 +221,153 @@ describe('documented command APIs', () => {
 
     expect(stdout).toBe(`${url}\n`)
     expect(stderr).toBe('')
+  })
+})
+
+describe('generateDocs', () => {
+  test('generates pages for CLI with multiple commands', () => {
+    const cli = gokeTestable('sentry')
+      .version('1.0.0')
+      .help()
+
+    cli
+      .command('event view <id>', 'View details of a specific event')
+      .option('-w, --web', 'Open in browser')
+      .option('--spans <spans>', z.string().default('3').describe('Span tree depth limit'))
+      .example('```\nsentry event view abc123\n```')
+
+    cli
+      .command('event list <issue>', 'List events for an issue')
+      .option('-n, --limit <limit>', z.number().default(25).describe('Number of events'))
+      .option('-q, --query <query>', 'Search query')
+
+    cli
+      .command('hidden-cmd', 'Should not appear')
+      .hidden()
+
+    const pages = generateDocs({ cli })
+
+    expect(pages.map((p) => p.slug)).toMatchInlineSnapshot(`
+      [
+        "index",
+        "event-view",
+        "event-list",
+      ]
+    `)
+
+    // Index page
+    expect(pages[0].content).toMatchInlineSnapshot(`
+      "# sentry
+
+      Version: 1.0.0
+
+      ## Commands
+
+      | Command | Description |
+      |---------|-------------|
+      | [\`event view\`](./event-view.md) | View details of a specific event |
+      | [\`event list\`](./event-list.md) | List events for an issue |
+
+      ## Global Options
+
+      | Option | Default | Description |
+      |--------|---------|-------------|
+      | \`-v, --version\` | - | Display version number |
+      | \`-h, --help\` | - | Display this message |
+      "
+    `)
+
+    // Command page with examples
+    expect(pages[1].content).toMatchInlineSnapshot(`
+      "# event view
+
+      View details of a specific event
+
+      ## Usage
+
+      \`\`\`sh
+      sentry event view <id>
+      \`\`\`
+
+      ## Arguments
+
+      | Argument | Required | Description |
+      |----------|----------|-------------|
+      | \`<id>\` | Yes | id |
+
+      ## Options
+
+      | Option | Default | Description |
+      |--------|---------|-------------|
+      | \`-w, --web\` | - | Open in browser |
+      | \`--spans <spans>\` | \`3\` | Span tree depth limit |
+
+      ## Global Options
+
+      | Option | Default | Description |
+      |--------|---------|-------------|
+      | \`-v, --version\` | - | Display version number |
+      | \`-h, --help\` | - | Display this message |
+
+      ## Examples
+
+      \`\`\`
+      sentry event view abc123
+      \`\`\`
+      "
+    `)
+
+    // Command page without examples
+    expect(pages[2].content).toMatchInlineSnapshot(`
+      "# event list
+
+      List events for an issue
+
+      ## Usage
+
+      \`\`\`sh
+      sentry event list <issue>
+      \`\`\`
+
+      ## Arguments
+
+      | Argument | Required | Description |
+      |----------|----------|-------------|
+      | \`<issue>\` | Yes | issue |
+
+      ## Options
+
+      | Option | Default | Description |
+      |--------|---------|-------------|
+      | \`-n, --limit <limit>\` | \`25\` | Number of events |
+      | \`-q, --query <query>\` | - | Search query |
+
+      ## Global Options
+
+      | Option | Default | Description |
+      |--------|---------|-------------|
+      | \`-v, --version\` | - | Display version number |
+      | \`-h, --help\` | - | Display this message |
+      "
+    `)
+  })
+
+  test('handles CLI with no commands', () => {
+    const cli = gokeTestable('empty')
+    const pages = generateDocs({ cli })
+    expect(pages).toEqual([])
+  })
+
+  test('skips deprecated options', () => {
+    const cli = gokeTestable('mycli')
+    cli
+      .command('deploy', 'Deploy the app')
+      .option('--force', 'Skip confirmation')
+      .option('--old-flag', z.boolean().meta({ deprecated: true }).describe('Use --force instead'))
+
+    const pages = generateDocs({ cli })
+    const deployPage = pages.find((p) => p.slug === 'deploy')!
+    // The deprecated option should not appear
+    expect(deployPage.content).not.toContain('old-flag')
   })
 })
