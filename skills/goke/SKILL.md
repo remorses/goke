@@ -37,6 +37,16 @@ npm install goke # or bun, pnpm, etc
 
 The README is the source of truth for rules, examples, testing patterns, JustBash integration, and API details.
 
+## openInBrowser is async
+
+`openInBrowser` returns a `Promise<void>` and **must be awaited**. Without `await`, the process may exit before the browser opens.
+
+```ts
+import { openInBrowser } from 'goke'
+
+await openInBrowser('https://example.com/dashboard')
+```
+
 ## Command Naming Conventions
 
 **ALWAYS read existing commands before adding a new one.** Scan the CLI for option names, verbs, and noun patterns already in use. New commands must stay consistent with what exists.

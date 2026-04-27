@@ -86,7 +86,7 @@ const fs: GokeFs = {
   writeFile: createUnsupportedFsMethod<GokeFs['writeFile']>('writeFile'),
 }
 
-function openInBrowser(_url: string): void {
+async function openInBrowser(_url: string): Promise<void> {
   // Browser builds should decide how to surface URLs themselves.
 }
 

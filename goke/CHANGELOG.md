@@ -286,7 +286,7 @@
    ```ts
    import { openInBrowser } from 'goke'
 
-   openInBrowser('https://example.com/dashboard')
+   await openInBrowser('https://example.com/dashboard')
    ```
    Use this after generating URLs (OAuth callbacks, dashboards, auth flows) so interactive users get a browser tab while non-interactive environments get a printable URL.
 

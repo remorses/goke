@@ -965,10 +965,12 @@ cli
 
 `openInBrowser` opens a URL in the default browser. In non-TTY environments (CI, piped output, agents), it prints the URL to stdout instead.
 
+> **Important:** `openInBrowser` is async and must be awaited. Without `await`, the browser may not open before your process exits.
+
 ```ts
 import { openInBrowser } from 'goke'
 
-openInBrowser('https://example.com/dashboard')
+await openInBrowser('https://example.com/dashboard')
 ```
 
 ### Expose a goke CLI to JustBash

@@ -187,7 +187,7 @@ describe('documented command APIs', () => {
     expect(stdout.text).toBe('')
   })
 
-  test('openInBrowser prints the URL to stdout in non-tty environments', () => {
+  test('openInBrowser prints the URL to stdout in non-tty environments', async () => {
     const url = 'https://example.com/dashboard'
     const originalStdoutWrite = process.stdout.write
     const originalStderrWrite = process.stderr.write
@@ -209,7 +209,7 @@ describe('documented command APIs', () => {
     }) as typeof process.stderr.write
 
     try {
-      openInBrowser(url)
+      await openInBrowser(url)
     } finally {
       process.stdout.write = originalStdoutWrite
       process.stderr.write = originalStderrWrite
