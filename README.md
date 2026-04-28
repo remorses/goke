@@ -213,6 +213,8 @@ Why this pattern works well:
   lists, quotes, and inline command snippets.
 - Long descriptions remain maintainable as your CLI grows.
 
+> IMPORTANT! string-dedent initial and ending line must always be empty or it will throw a runtime error. never do dedent`non empty line.`
+
 ### Rich `.example(...)` Blocks with `dedent`
 
 You can also use `dedent` in `.example(...)` so examples stay readable in code and
