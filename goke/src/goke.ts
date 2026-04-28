@@ -640,6 +640,33 @@ class Command<RawName extends string = string, Opts = {}> {
     return this
   }
 
+  /**
+   * Return the registered action callback with full type safety.
+   *
+   * Use this in tests to call the action directly without parsing argv.
+   * The returned function has the same typed signature as the `.action()` callback:
+   * `(..positionalArgs, options, executionContext) => unknown | Promise<unknown>`
+   *
+   * Throws if no action has been registered on this command.
+   *
+   * @example
+   * ```ts
+   * const cmd = cli
+   *   .command('deploy', 'Deploy')
+   *   .option('--env <env>', z.enum(['staging', 'production']))
+   *   .action((options, { console }) => console.log(options.env))
+   *
+   * const action = cmd.getAction()
+   * action({ env: 'staging', '--': [] }, cli.createExecutionContext({ stdout }))
+   * ```
+   */
+  getAction(): (...args: ActionArgs<RawName, Opts>) => unknown | Promise<unknown> {
+    if (!this.commandAction) {
+      throw new GokeError(`No action registered on command "${this.name || '(default)'}"`)
+    }
+    return this.commandAction
+  }
+
   isMatched(args: string[]): { matched: boolean; consumedArgs: number } {
     const nameParts = this.name.split(' ').filter(Boolean)
 

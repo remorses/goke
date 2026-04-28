@@ -2535,3 +2535,45 @@ describe('use() with sub-CLI composition', () => {
     expect(matched).toBe('rollback')
   })
 })
+
+describe('getAction()', () => {
+  test('returns the action callable with correct behavior', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout, exit: () => {} })
+
+    const cmd = cli
+      .command('deploy', 'Deploy the app')
+      .option('--env <env>', z.enum(['staging', 'production']).describe('Target environment'))
+      .action((options, { console }) => {
+        console.log(`Deploying to ${options.env}`)
+      })
+
+    const action = cmd.getAction()
+    const ctx = cli.createExecutionContext()
+    action({ env: 'staging' as const, '--': [] }, ctx)
+    expect(stdout.text).toBe('Deploying to staging\n')
+  })
+
+  test('works with positional args', () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout, exit: () => {} })
+
+    const cmd = cli
+      .command('get <id>', 'Fetch by id')
+      .option('--format <format>', z.string().describe('Output format'))
+      .action((id, options, { console }) => {
+        console.log(`${id}:${options.format}`)
+      })
+
+    const action = cmd.getAction()
+    const ctx = cli.createExecutionContext()
+    action('abc123', { format: 'json', '--': [] }, ctx)
+    expect(stdout.text).toBe('abc123:json\n')
+  })
+
+  test('throws when no action is registered', () => {
+    const cli = goke('mycli')
+    const cmd = cli.command('noop', 'No action')
+    expect(() => cmd.getAction()).toThrow(/No action registered/)
+  })
+})

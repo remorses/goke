@@ -522,6 +522,33 @@ describe('type-level: README TypeScript examples', () => {
       })
   })
 
+  test('getAction() returns correctly typed function', () => {
+    const cmd = goke('test')
+      .command('convert <input> <output>', 'Convert file format')
+      .option('--quality <quality>', z.number())
+      .option('--format <format>', z.enum(['png', 'jpg']))
+      .action((input, output, options, ctx) => {
+        void input; void output; void options; void ctx
+      })
+
+    const action = cmd.getAction()
+    expectTypeOf(action).parameter(0).toEqualTypeOf<string>() // input
+    expectTypeOf(action).parameter(1).toEqualTypeOf<string>() // output
+  })
+
+  test('getAction() with no positional args has (options, ctx) signature', () => {
+    const cmd = goke('test')
+      .command('deploy', 'Deploy')
+      .option('--env <env>', z.enum(['staging', 'production']))
+      .action((options, ctx) => {
+        void options; void ctx
+      })
+
+    const action = cmd.getAction()
+    // First param is options with env
+    expectTypeOf(action).parameter(0).toMatchTypeOf<{ env: 'staging' | 'production' }>()
+  })
+
   test('README global options and middleware example stays typed end-to-end', () => {
     // `z.boolean().default(false)` and `z.string().default(...)` are
     // effectively required at runtime: the default applies when the flag is

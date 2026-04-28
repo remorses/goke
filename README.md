@@ -933,6 +933,34 @@ describe('deploy command', () => {
 })
 ```
 
+### Testing a command action directly
+
+Use `.getAction()` to extract the typed action callback from a command. This lets you call the action directly in tests without parsing argv, while keeping the action inline for type safety.
+
+```ts
+import { describe, expect, test, vi } from 'vitest'
+import { goke } from 'goke'
+import { z } from 'zod'
+
+const cli = goke('mycli')
+
+const deployCmd = cli
+  .command('deploy', 'Deploy the app')
+  .option('--env <env>', z.enum(['staging', 'production']).describe('Target environment'))
+  .action((options, { console }) => {
+    console.log(`Deploying to ${options.env}`)
+  })
+
+test('deploys to staging', () => {
+  const stdout = { write: vi.fn<(data: string) => void>() }
+  const action = deployCmd.getAction()
+  action({ env: 'staging', '--': [] }, cli.createExecutionContext({ stdout }))
+  expect(stdout.write).toHaveBeenCalledWith('Deploying to staging\n')
+})
+```
+
+The returned function has the same typed signature as the `.action()` callback, so TypeScript catches wrong argument types at compile time. If no action was registered, `.getAction()` throws.
+
 ### With TypeScript
 
 ```ts
@@ -963,7 +991,7 @@ cli
 
 ### Open in Browser
 
-`openInBrowser` opens a URL in the default browser. In non-TTY environments (CI, piped output, agents), it prints the URL to stdout instead.
+`openInBrowser` opens a URL in the default browser. In non-TTY environments (CI, piped output, agents), it prints the URL to stderr instead, keeping stdout clean for JSON and structured output.
 
 > **Important:** `openInBrowser` is async and must be awaited. Without `await`, the browser may not open before your process exits.
 
@@ -1245,7 +1273,7 @@ Hidden commands and deprecated options are excluded automatically. Add this scri
 4. Prefer injected `{ fs, console, process }` over global `console`, `process.exit`, or direct `node:fs/promises` imports.
 5. Use implicit cwd with injected `fs` for CLI storage. When a helper needs current-cwd semantics, pass `process.cwd` from the injected context into that helper.
 6. Define the CLI in app code and import that same CLI in tests; do not construct a separate CLI inside compatibility tests.
-7. **Never extract an action callback into a separate function.** Keep the action inline in the `.command().option().action()` chain. Extracting it loses inferred type safety and forces you to duplicate the option/arg types manually. If a file gets too large, split into separate files that each export a `goke()` instance and compose them with `.use()`. See [Splitting a Large CLI into Files](#splitting-a-large-cli-into-files).
+7. **Keep actions inline.** Keep the action inline in the `.command().option().action()` chain. Extracting it into a separate function loses inferred type safety and forces you to duplicate the option/arg types manually. If a file gets too large, split into separate files that each export a `goke()` instance and compose them with `.use()`. See [Splitting a Large CLI into Files](#splitting-a-large-cli-into-files). To test an action directly, use `.getAction()` to extract the typed callback. See [Testing a command action directly](#testing-a-command-action-directly).
 
    ```ts
    // BAD: action in a separate function — types are lost, args/options duplicated
