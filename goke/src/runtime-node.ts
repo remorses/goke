@@ -12,7 +12,7 @@ const fs: GokeFs = nodeFs
 
 async function openInBrowser(url: string): Promise<void> {
   if (!process.stdout.isTTY) {
-    process.stdout.write(url + '\n')
+    process.stderr.write(url + '\n')
     return
   }
 
@@ -33,7 +33,7 @@ async function openInBrowser(url: string): Promise<void> {
       })
     })
   } catch {
-    process.stdout.write(url + '\n')
+    process.stderr.write(url + '\n')
   }
 }
 

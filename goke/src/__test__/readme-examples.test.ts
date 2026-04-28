@@ -219,8 +219,8 @@ describe('documented command APIs', () => {
       })
     }
 
-    expect(stdout).toBe(`${url}\n`)
-    expect(stderr).toBe('')
+    expect(stdout).toBe('')
+    expect(stderr).toBe(`${url}\n`)
   })
 })
 

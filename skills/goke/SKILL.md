@@ -39,7 +39,7 @@ The README is the source of truth for rules, examples, testing patterns, JustBas
 
 ## openInBrowser is async
 
-`openInBrowser` returns a `Promise<void>` and **must be awaited**. Without `await`, the process may exit before the browser opens.
+`openInBrowser` returns a `Promise<void>` and **must be awaited**. Without `await`, the process may exit before the browser opens. In non-TTY environments it writes the URL to stderr, keeping stdout clean for JSON parsing.
 
 ```ts
 import { openInBrowser } from 'goke'
