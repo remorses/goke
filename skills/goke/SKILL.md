@@ -80,6 +80,74 @@ Choose one verb per action and reuse it everywhere:
 
 Check which verbs the CLI already uses and match them. If existing commands use `add`, every new "create something" command should also use `add`.
 
+## Prefer Optional Flags Over Required Flags
+
+**Never make a flag required when it can be optional with an interactive fallback.** Required flags force users to read `--help` before they can run anything. Optional flags let them run the bare command and discover options progressively through prompts.
+
+The pattern: make the flag optional, and when the user omits it, show a `clack.select` prompt in TTY mode or exit with a clear error in non-TTY mode.
+
+```ts
+cli
+  .command('deploy', 'Deploy the app')
+  .option(
+    '--env [env]',
+    z.enum(['staging', 'production']).optional().describe('Target environment'),
+  )
+  .action(async (options) => {
+    let env = options.env
+
+    if (!env) {
+      if (!process.stdin.isTTY) {
+        console.error('Missing --env. Usage: deploy --env staging|production')
+        process.exit(1)
+      }
+
+      const choice = await clack.select({
+        message: 'Which environment?',
+        options: [
+          { value: 'staging', label: 'Staging' },
+          { value: 'production', label: 'Production', hint: 'requires approval' },
+        ],
+      })
+      if (clack.isCancel(choice)) {
+        process.exit(0)
+      }
+      env = choice
+    }
+
+    // env is now guaranteed to be defined
+  })
+```
+
+This applies to every flag that has a finite set of valid values. If you can enumerate the choices, make it a select prompt. The non-TTY error message must show the exact flag name and valid values so agents and CI scripts can self-correct.
+
+**Bad** — forces users to know the flag upfront:
+
+```ts
+.option('--env <env>', z.enum(['staging', 'production']).describe('Target environment'))
+```
+
+**Good** — users can just run `deploy` and get prompted:
+
+```ts
+.option('--env [env]', z.enum(['staging', 'production']).optional().describe('Target environment'))
+```
+
+For flags with free-form string values (not enums), use `clack.text` instead of `clack.select`:
+
+```ts
+if (!options.name) {
+  if (!process.stdin.isTTY) {
+    console.error('Missing --name. Usage: create --name "my-project"')
+    process.exit(1)
+  }
+
+  const name = await clack.text({ message: 'Project name' })
+  if (clack.isCancel(name)) process.exit(0)
+  options.name = name
+}
+```
+
 ## Interactive Prompts with @clack/prompts
 
 Use `@clack/prompts` for interactive CLI prompts like `select`, `confirm`, and text input.
