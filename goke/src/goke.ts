@@ -15,7 +15,7 @@ import mri from "./mri.js"
 import { GokeError, coerceBySchema, extractJsonSchema, extractSchemaMetadata, isStandardSchema } from "./coerce.js"
 import type { StandardJSONSchemaV1 } from "./coerce.js"
 import { createJustBashCommand as createJustBashCommandBridge } from './just-bash.js'
-import { COMPLETION_FLAG, generateCompletionScript, installCompletions, uninstallCompletions, detectShell } from './completions.js'
+import { COMPLETION_FLAG, generateCompletionScript, installCompletions, uninstallCompletions, detectShell, detectCompletionShell, validateShell } from './completions.js'
 import type { ShellType } from './completions.js'
 import type { GokeFs } from './goke-fs.js'
 import { EventEmitter, fs as runtimeFs, openInBrowser, process } from '#runtime'
@@ -1610,9 +1610,9 @@ class Goke<Opts = {}> extends EventEmitter {
     this.command('completions install', 'Install shell completions')
       .option('--shell [shell]', 'Target shell (zsh or bash). Auto-detected if omitted.')
       .action(async (options, { console, process: proc }) => {
-        const shell = options.shell as ShellType | undefined
+        const shell = validateShell(options.shell)
         const cliPath = proc.argv[1] ?? this.name
-        const result = await installCompletions(this.name, cliPath, shell || undefined)
+        const result = await installCompletions(this.name, cliPath, shell)
         console.log(`Wrote ${result.shell} completions to ${result.path}`)
         if (result.shell === 'zsh') {
           console.log('Restart your shell or run: autoload -Uz compinit && compinit')
@@ -1624,8 +1624,8 @@ class Goke<Opts = {}> extends EventEmitter {
     this.command('completions uninstall', 'Remove shell completions')
       .option('--shell [shell]', 'Target shell (zsh or bash). Auto-detected if omitted.')
       .action(async (options, { console }) => {
-        const shell = options.shell as ShellType | undefined
-        const removed = await uninstallCompletions(this.name, shell || undefined)
+        const shell = validateShell(options.shell)
+        const removed = await uninstallCompletions(this.name, shell)
         if (removed.length > 0) {
           for (const p of removed) {
             console.log(`Removed ${p}`)
@@ -1638,7 +1638,7 @@ class Goke<Opts = {}> extends EventEmitter {
     this.command('completions script', 'Print the completion script to stdout')
       .option('--shell [shell]', 'Target shell (zsh or bash). Auto-detected if omitted.')
       .action((options, { console, process: proc }) => {
-        const shell = (options.shell as ShellType | undefined) ?? detectShell()
+        const shell = validateShell(options.shell) ?? detectShell()
         if (!shell) {
           throw new GokeError(
             'Could not detect shell. Set the SHELL environment variable or pass --shell explicitly.',
@@ -1667,21 +1667,65 @@ class Goke<Opts = {}> extends EventEmitter {
     const current = args.length > 0 ? args[args.length - 1] : ''
     const previous = args.slice(0, -1)
 
-    // Detect zsh for description format
-    const isZsh = (process.env.SHELL ?? '').includes('zsh') ||
-      (process.env.ZSH_NAME ?? '').includes('zsh')
+    // Use GOKE_COMPLETION_SHELL (set by the shell shim) over $SHELL to avoid
+    // format mismatch when e.g. a bash shim runs on a machine where $SHELL is zsh.
+    const isZsh = detectCompletionShell() === 'zsh'
 
     const completions: string[] = []
     const escapeColon = (s: string) => s.replace(/:/g, '\\:')
 
     // Extract the long --flag from an option's rawName string.
     // rawName is like "--dry-run", "-v, --verbose", "--port <port>"
-    // We want the longest --flag in its original kebab-case form.
+    // Returns the original kebab-case flag including dashes.
     const getLongFlag = (option: Option): string => {
       const parts = removeBrackets(option.rawName).split(',').map((s) => s.trim())
-      // Find the longest flag (the one with --)
+      // Prefer the -- prefixed part; fall back to the last part (short-only flags like -x)
       const longPart = parts.find((p) => p.startsWith('--')) ?? parts[parts.length - 1]
       return longPart.startsWith('-') ? longPart : `--${longPart}`
+    }
+
+    // Check if the previous token is a non-boolean option expecting a value.
+    // In that case we should NOT suggest more flags or commands; let the shell
+    // fall back to file completion or return nothing.
+    const isAwaitingOptionValue = (): boolean => {
+      if (previous.length === 0) return false
+      const lastToken = previous[previous.length - 1]
+      if (!lastToken.startsWith('-')) return false
+
+      // Find the option matching this token across all registered options
+      const allOptions = [
+        ...this.globalCommand.options,
+        ...this.commands.flatMap((c) => c.options),
+      ]
+      const tokenName = camelcaseOptionName(lastToken.replace(/^-{1,2}/, ''))
+      for (const option of allOptions) {
+        if (option.names.includes(tokenName)) {
+          // If it takes a value (required or optional) and is not boolean, we're awaiting a value
+          return !option.isBoolean && option.required !== undefined
+        }
+      }
+      return false
+    }
+
+    // If the previous token is a non-boolean option, don't suggest anything.
+    // Let the shell fall back to file completion.
+    if (!current.startsWith('-') && isAwaitingOptionValue()) {
+      return []
+    }
+
+    // Helper to push an option as a completion entry
+    const pushOption = (option: Option) => {
+      const flag = getLongFlag(option)
+      if (isZsh && option.description) {
+        completions.push(`${escapeColon(flag)}:${escapeColon(option.description)}`)
+      } else {
+        completions.push(flag)
+      }
+    }
+
+    // Check if any alias of an option has already been used
+    const isOptionUsed = (option: Option, usedOptions: Set<string>): boolean => {
+      return option.names.some((name) => usedOptions.has(name))
     }
 
     // Try to match a command from the previous words
@@ -1717,8 +1761,8 @@ class Goke<Opts = {}> extends EventEmitter {
 
       for (const option of allOptions) {
         if (option.deprecated) continue
-        // Skip already-used boolean options
-        if (option.isBoolean && usedOptions.has(option.name)) continue
+        // Skip already-used options (check all aliases, not just the primary name)
+        if (option.isBoolean && isOptionUsed(option, usedOptions)) continue
 
         const flag = getLongFlag(option)
 
@@ -1728,11 +1772,7 @@ class Goke<Opts = {}> extends EventEmitter {
           continue
         }
 
-        if (isZsh && option.description) {
-          completions.push(`${escapeColon(flag)}:${escapeColon(option.description)}`)
-        } else {
-          completions.push(flag)
-        }
+        pushOption(option)
       }
 
       // If current word doesn't start with -, also suggest subcommands that extend this one
@@ -1814,19 +1854,33 @@ class Goke<Opts = {}> extends EventEmitter {
         }
       }
 
-      // If no commands match and current starts with -, suggest global options
-      if (current.startsWith('-')) {
-        for (const option of this.globalCommand.options) {
+      // Also include default/root command options at root level
+      // (commands with name '' that have their own options)
+      const defaultCommands = this.commands.filter((c) => c.isDefaultCommand)
+      const defaultOptions = defaultCommands.flatMap((c) => c.options)
+
+      // Suggest global options + default command options when current starts with -
+      if (current.startsWith('-') || current === '') {
+        const globalAndDefaultOptions = [...this.globalCommand.options, ...defaultOptions]
+        const seen = new Set<string>()
+
+        for (const option of globalAndDefaultOptions) {
           if (option.deprecated) continue
-          const longName = option.names[option.names.length - 1]
-          const flag = `--${longName}`
-          if (flag.startsWith(current)) {
-            if (isZsh && option.description) {
-              completions.push(`${escapeColon(flag)}:${escapeColon(option.description)}`)
-            } else {
-              completions.push(flag)
-            }
+          if (seen.has(option.name)) continue
+          seen.add(option.name)
+
+          const flag = getLongFlag(option)
+
+          if (current.startsWith('-')) {
+            if (!flag.startsWith(current)) continue
+          } else if (current !== '') {
+            continue
           }
+
+          // Only suggest options when current is - prefixed or empty and no commands matched
+          if (current === '' && completions.length > 0 && !current.startsWith('-')) continue
+
+          pushOption(option)
         }
       }
     }
@@ -2419,5 +2473,5 @@ function formatOptionsTable(options: Option[]): string {
 export type { GokeOutputStream, GokeConsole, GokeOptions, GokeProcess, GokeExecutionContext, GokeExecutionContextOverride, GokeFs, DocPage, GenerateDocsOptions }
 export { createConsole, Command, GokeProcessExit, openInBrowser, generateDocs }
 export type { ShellType }
-export { generateCompletionScript, installCompletions, uninstallCompletions, detectShell }
+export { generateCompletionScript, installCompletions, uninstallCompletions, detectShell, detectCompletionShell, validateShell }
 export default Goke

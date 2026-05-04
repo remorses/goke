@@ -259,4 +259,147 @@ describe('completions commands', () => {
     expect(stdout.text).toContain('complete -o bashdefault')
     expect(stdout.text).toContain('--get-goke-completions')
   })
+
+  test('completions script rejects invalid shell value', async () => {
+    const stderr = createTestOutputStream()
+    const cli = gokeTestable('mycli', { stderr })
+      .completions()
+
+    cli.parse(['node', 'bin', 'completions', 'script', '--shell', 'fish'])
+    // The error is caught by handleCliError and printed to stderr
+    // Wait a tick for the sync action to complete
+    await new Promise((r) => setTimeout(r, 10))
+    expect(stderr.text).toContain('Invalid shell "fish"')
+  })
+})
+
+describe('GOKE_COMPLETION_SHELL env var', () => {
+  let originalShell: string | undefined
+  let originalCompletionShell: string | undefined
+
+  beforeEach(() => {
+    originalShell = process.env.SHELL
+    originalCompletionShell = process.env.GOKE_COMPLETION_SHELL
+  })
+
+  afterEach(() => {
+    if (originalShell !== undefined) process.env.SHELL = originalShell
+    else delete process.env.SHELL
+    if (originalCompletionShell !== undefined) process.env.GOKE_COMPLETION_SHELL = originalCompletionShell
+    else delete process.env.GOKE_COMPLETION_SHELL
+  })
+
+  test('uses GOKE_COMPLETION_SHELL over SHELL for format detection', () => {
+    // Login shell is zsh but the bash shim sets GOKE_COMPLETION_SHELL=bash
+    process.env.SHELL = '/bin/zsh'
+    process.env.GOKE_COMPLETION_SHELL = 'bash'
+    const { cli } = buildTestCli()
+    const completions = cli.getCompletions(['mycli', ''])
+
+    // Should NOT include :description format (that's zsh-only)
+    for (const c of completions) {
+      expect(c).not.toContain(':')
+    }
+  })
+
+  test('zsh template sets GOKE_COMPLETION_SHELL=zsh', () => {
+    const script = generateCompletionScript('zsh', 'mycli')
+    expect(script).toContain('GOKE_COMPLETION_SHELL=zsh')
+  })
+
+  test('bash template sets GOKE_COMPLETION_SHELL=bash', () => {
+    const script = generateCompletionScript('bash', 'mycli')
+    expect(script).toContain('GOKE_COMPLETION_SHELL=bash')
+  })
+})
+
+describe('option value position', () => {
+  let originalShell: string | undefined
+
+  beforeEach(() => {
+    originalShell = process.env.SHELL
+    process.env.SHELL = '/bin/bash'
+    delete process.env.GOKE_COMPLETION_SHELL
+  })
+
+  afterEach(() => {
+    if (originalShell !== undefined) process.env.SHELL = originalShell
+    else delete process.env.SHELL
+  })
+
+  test('returns empty when previous token is a value-taking option', () => {
+    const { cli } = buildTestCli()
+    // mycli deploy --env <TAB> — should not suggest flags
+    const completions = cli.getCompletions(['mycli', 'deploy', '--env', ''])
+
+    expect(completions).toEqual([])
+  })
+
+  test('still suggests flags when previous token is a boolean option', () => {
+    const { cli } = buildTestCli()
+    // mycli deploy --dry-run <TAB> — boolean flag, should still suggest
+    const completions = cli.getCompletions(['mycli', 'deploy', '--dry-run', '--'])
+
+    expect(completions).toContain('--env')
+  })
+})
+
+describe('default command options', () => {
+  let originalShell: string | undefined
+
+  beforeEach(() => {
+    originalShell = process.env.SHELL
+    process.env.SHELL = '/bin/bash'
+    delete process.env.GOKE_COMPLETION_SHELL
+  })
+
+  afterEach(() => {
+    if (originalShell !== undefined) process.env.SHELL = originalShell
+    else delete process.env.SHELL
+  })
+
+  test('includes default command options at root level', () => {
+    const cli = gokeTestable('mycli')
+      .help()
+      .completions()
+
+    cli.command('', 'Default action')
+      .option('--env <env>', 'Target environment')
+      .option('--dry-run', 'Preview')
+
+    const completions = cli.getCompletions(['mycli', '--'])
+
+    expect(completions).toContain('--env')
+    expect(completions).toContain('--dry-run')
+    expect(completions).toContain('--help')
+  })
+})
+
+describe('alias suppression', () => {
+  let originalShell: string | undefined
+
+  beforeEach(() => {
+    originalShell = process.env.SHELL
+    process.env.SHELL = '/bin/bash'
+    delete process.env.GOKE_COMPLETION_SHELL
+  })
+
+  afterEach(() => {
+    if (originalShell !== undefined) process.env.SHELL = originalShell
+    else delete process.env.SHELL
+  })
+
+  test('suppresses --dry-run when -d alias was already used', () => {
+    const cli = gokeTestable('mycli')
+      .completions()
+
+    cli.command('deploy', 'Deploy')
+      .option('-d, --dry-run', 'Preview')
+      .option('--env <env>', 'Environment')
+
+    const completions = cli.getCompletions(['mycli', 'deploy', '-d', '--'])
+
+    expect(completions).not.toContain('--dry-run')
+    expect(completions).toContain('--env')
+  })
 })

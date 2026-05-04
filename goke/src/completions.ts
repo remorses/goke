@@ -34,7 +34,7 @@ export const zshTemplate = `#compdef {{app_name}}
 _{{app_name_safe}}_completions() {
   local reply
   local si=$IFS
-  IFS=$'\\n' reply=($(COMP_CWORD="$((CURRENT-1))" COMP_LINE="$BUFFER" COMP_POINT="$CURSOR" {{app_path}} --get-goke-completions "\${words[@]}"))
+  IFS=$'\\n' reply=($(COMP_CWORD="$((CURRENT-1))" COMP_LINE="$BUFFER" COMP_POINT="$CURSOR" GOKE_COMPLETION_SHELL=zsh {{app_path}} --get-goke-completions "\${words[@]}"))
   IFS=$si
   if [[ \${#reply} -gt 0 ]]; then
     _describe 'values' reply
@@ -65,9 +65,12 @@ _{{app_name_safe}}_completions()
     cur_word="\${COMP_WORDS[COMP_CWORD]}"
     args=("\${COMP_WORDS[@]}")
 
-    mapfile -t type_list < <({{app_path}} --get-goke-completions "\${args[@]}")
-    mapfile -t COMPREPLY < <(compgen -W "$( printf '%q ' "\${type_list[@]}" )" -- "\${cur_word}" |
-        awk '/ / { print "\\""$0"\\"" } /^[^ ]+$/ { print $0 }')
+    # Bash 3 compatible (no mapfile). Works on macOS default bash.
+    local IFS=$'\\n'
+    type_list=($(GOKE_COMPLETION_SHELL=bash {{app_path}} --get-goke-completions "\${args[@]}"))
+    unset IFS
+    COMPREPLY=($(compgen -W "$( printf '%q ' "\${type_list[@]}" )" -- "\${cur_word}" |
+        awk '/ / { print "\\""$0"\\"" } /^[^ ]+$/ { print $0 }'))
 
     if [ \${#COMPREPLY[@]} -eq 0 ]; then
       COMPREPLY=()
@@ -92,6 +95,28 @@ export function detectShell(): ShellType | null {
   if (shell.includes('zsh')) return 'zsh'
   if (shell.includes('bash')) return 'bash'
   return null
+}
+
+/**
+ * Validate and normalize a shell value from user input.
+ * Returns a valid ShellType or throws if the value is invalid.
+ */
+export function validateShell(value: unknown): ShellType | undefined {
+  if (value == null || value === '') return undefined
+  if (value === 'zsh' || value === 'bash') return value
+  throw new Error(`Invalid shell "${String(value)}". Expected "zsh" or "bash".`)
+}
+
+/**
+ * Detect which shell format to use for completion output.
+ * Prefers the explicit GOKE_COMPLETION_SHELL env var (set by the shell shim)
+ * over the login $SHELL. This prevents format mismatch when a bash shim runs
+ * on a system where $SHELL is zsh.
+ */
+export function detectCompletionShell(): ShellType | null {
+  const explicit = process.env.GOKE_COMPLETION_SHELL
+  if (explicit === 'zsh' || explicit === 'bash') return explicit
+  return detectShell()
 }
 
 /**
@@ -137,6 +162,8 @@ const ZSH_FPATH_CANDIDATES = [
   '/usr/local/share/zsh/site-functions',
   // OS vendor
   '/usr/share/zsh/site-functions',
+  // User-level fallback (no sudo needed, but user must add to fpath in .zshrc)
+  `${process.env.HOME}/.zsh/completions`,
 ]
 
 /**
@@ -210,9 +237,19 @@ export async function installCompletions(
     // Deduplicate: fpath dirs first (in order), then well-known fallbacks
     const seen = new Set<string>()
     candidates = []
+    const userZshDir = `${process.env.HOME}/.zsh/completions`
     for (const dir of [...fpathDirs, ...ZSH_FPATH_CANDIDATES]) {
-      if (!seen.has(dir) && existsSync(dir)) {
-        seen.add(dir)
+      if (seen.has(dir)) continue
+      seen.add(dir)
+      // Auto-create the user-level ~/.zsh/completions dir if it's a candidate
+      if (!existsSync(dir) && dir === userZshDir) {
+        try {
+          mkdirSync(dir, { recursive: true })
+        } catch {
+          continue
+        }
+      }
+      if (existsSync(dir)) {
         candidates.push(dir)
       }
     }
