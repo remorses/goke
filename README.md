@@ -36,6 +36,7 @@ cli
   .action((id, options) => streamLogs(id, options.lines))
 
 cli.help()
+cli.completions()
 cli.parse()
 ```
 
@@ -47,6 +48,7 @@ cli.parse()
 - **JustBash support** — `cli.createJustBashCommand()` exposes your CLI as a sandboxed JustBash command. Same action code, no changes needed.
 - **Space-separated subcommands** — `git remote add`, `mcp login`, `db migrate` — multi-word commands work out of the box.
 - **Injected `{ fs, console, process }`** — commands receive a portable runtime context. Swap it in tests, or let JustBash replace it with a sandbox. No global side effects.
+- **Shell completions** — `cli.completions()` adds Tab completion for zsh and bash. Install once with `mycli completions install`; completions stay up-to-date automatically because the shell calls the binary on every Tab press.
 - **Zero runtime dependencies** — install `goke` without pulling extra runtime packages into your CLI.
 - **Agent detection** — `isAgent` and `detectAgent()` tell you if the process is running inside an AI coding agent (Claude, Cursor, Codex, Gemini, etc.). Skip prompts, prefer structured output, adjust behavior automatically.
 
@@ -154,6 +156,7 @@ cli.example((bin) => `${bin} lint src/**/*.ts`)
 
 // Display help message when `-h` or `--help` appears
 cli.help()
+cli.completions()
 // Display version number when `-v` or `--version` appears
 cli.version('0.0.0')
 
@@ -181,6 +184,7 @@ cli
 cli.example((bin) => `${bin} deploy --env production`)
 
 cli.help()
+cli.completions()
 cli.parse()
 ```
 
@@ -257,6 +261,7 @@ cli
   })
 
 cli.help()
+cli.completions()
 cli.parse()
 ```
 
@@ -315,6 +320,7 @@ cli
   })
 
 cli.help()
+cli.completions()
 cli.parse()
 ```
 
@@ -430,6 +436,7 @@ cli
   })
 
 cli.help()
+cli.completions()
 cli.version('1.0.0')
 cli.parse()
 ```
@@ -499,6 +506,7 @@ const cli = goke('mycli')
   .use(auth)
 
 cli.help()
+cli.completions()
 cli.version('1.0.0')
 cli.parse()
 ```
@@ -638,6 +646,7 @@ cli
   })
 
 cli.help()
+cli.completions()
 cli.parse()
 ```
 
@@ -691,6 +700,7 @@ cli
   })
 
 cli.help()
+cli.completions()
 
 cli.parse()
 ```
@@ -719,6 +729,7 @@ cli
   })
 
 cli.help()
+cli.completions()
 cli.parse()
 ```
 
@@ -776,6 +787,7 @@ cli
   })
 
 cli.help()
+cli.completions()
 cli.parse()
 ```
 
@@ -902,6 +914,7 @@ cli
   })
 
 cli.help()
+cli.completions()
 cli.parse()
 ```
 
@@ -1235,6 +1248,7 @@ import fs from 'node:fs'
 const cli = goke('sentry')
   .version('1.0.0')
   .help()
+  .completions()
 
 cli
   .command('event view <id>', 'View details of a specific event')

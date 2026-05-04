@@ -51,6 +51,7 @@ await addMcpCommands({
 })
 
 cli.help()
+cli.completions()
 cli.parse()
 ```
 
@@ -93,6 +94,7 @@ cli.command("mcp", "Start MCP server over stdio")
   .action(createMcpAction({ cli }))
 
 cli.help()
+cli.completions()
 cli.parse()
 ```
 
@@ -452,6 +454,7 @@ cli.command('logout', 'Clear tokens').action(() => {
 })
 
 cli.help()
+cli.completions()
 cli.parse()
 ```
 

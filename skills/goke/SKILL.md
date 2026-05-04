@@ -30,7 +30,7 @@ npm install goke # or bun, pnpm, etc
 
 ## Quick Notes
 
-- Core APIs: `cli.option`, `cli.use`, `cli.version`, `cli.help`, `cli.parse`
+- Core APIs: `cli.option`, `cli.use`, `cli.version`, `cli.help`, `cli.completions`, `cli.parse`
 - Prefer injected `{ fs, console, process }` over globals
 - Use relative paths with injected `fs`; if a helper needs current-cwd semantics, pass injected `process.cwd` into that helper
 - For JustBash compatibility tests, import the existing CLI from app code instead of defining a new CLI inside the test
@@ -59,6 +59,60 @@ if (isAgent || !process.stdin.isTTY) {
 ```
 
 Supported agents: `cursor`, `claude`, `devin`, `replit`, `gemini`, `codex`, `auggie`, `opencode`, `kiro`, `goose`, `pi`. Set `AI_AGENT` env var to override.
+
+## Shell Completions
+
+**Always add `.completions()` next to `.help()` in every CLI.** This gives users Tab completion for free.
+
+```ts
+cli.help()
+cli.completions()
+cli.parse()
+```
+
+### How it works
+
+The shell calls the CLI binary on every Tab press with a hidden `--get-goke-completions` flag. The binary inspects registered commands and options, prints matching candidates to stdout, and exits. No static completion file to regenerate when commands change.
+
+### README section for new CLIs
+
+Every new CLI should include a **Shell Completions** section in its README. Add it after the main usage docs:
+
+````md
+## Shell Completions
+
+Enable Tab completion for your shell:
+
+```bash
+mycli completions install
+```
+
+Restart your shell (or run `autoload -Uz compinit && compinit` for zsh). Then Tab works:
+
+```bash
+mycli <TAB>          # shows all commands
+mycli dep<TAB>       # completes to "deploy"
+mycli deploy --<TAB> # shows available options
+```
+
+Completions stay up-to-date automatically. To remove:
+
+```bash
+mycli completions uninstall
+```
+````
+
+Replace `mycli` with the actual CLI name.
+
+### Available completions commands
+
+`.completions()` registers three subcommands:
+
+- `completions install` — finds a writable shell completion directory and writes the shim script
+- `completions uninstall` — removes installed completion files
+- `completions script` — prints the raw script to stdout (for `eval` or piping)
+
+All three accept `--shell zsh` or `--shell bash` to override auto-detection.
 
 ## openInBrowser is async
 
