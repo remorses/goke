@@ -14,3 +14,5 @@ export { createConsole, GokeProcessExit, openInBrowser, generateDocs } from "./g
 export type { GokeOutputStream, GokeConsole, GokeExecutionContext, GokeExecutionContextOverride, GokeFs, GokeOptions, GokeProcess, DocPage, GenerateDocsOptions } from "./goke.js"
 export type { StandardTypedV1, StandardJSONSchemaV1, JsonSchema } from "./coerce.js"
 export { GokeError, coerceBySchema, extractJsonSchema, wrapJsonSchema, isStandardSchema, extractSchemaMetadata } from "./coerce.js"
+export { detectAgent, agentInfo, agent, isAgent } from "./agents.js"
+export type { AgentName, AgentInfo } from "./agents.js"

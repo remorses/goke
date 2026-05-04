@@ -37,6 +37,29 @@ npm install goke # or bun, pnpm, etc
 
 The README is the source of truth for rules, examples, testing patterns, JustBash integration, and API details.
 
+## Agent Detection
+
+goke exports `isAgent`, `agent`, `agentInfo`, and `detectAgent()` from `goke/src/agents.ts`. Use `isAgent` to detect if the CLI is running inside an AI coding agent and skip interactive prompts or prefer structured output.
+
+```ts
+import { isAgent, agent } from 'goke'
+
+if (isAgent) {
+  // skip clack prompts, output YAML/JSON instead of interactive UI
+}
+```
+
+When guarding interactive prompts, check `isAgent` alongside `!process.stdin.isTTY`:
+
+```ts
+if (isAgent || !process.stdin.isTTY) {
+  console.error('Missing --env. Usage: deploy --env staging|production')
+  process.exit(1)
+}
+```
+
+Supported agents: `cursor`, `claude`, `devin`, `replit`, `gemini`, `codex`, `auggie`, `opencode`, `kiro`, `goose`, `pi`. Set `AI_AGENT` env var to override.
+
 ## openInBrowser is async
 
 `openInBrowser` returns a `Promise<void>` and **must be awaited**. Without `await`, the process may exit before the browser opens. In non-TTY environments it writes the URL to stderr, keeping stdout clean for JSON parsing.

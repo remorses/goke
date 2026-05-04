@@ -48,6 +48,7 @@ cli.parse()
 - **Space-separated subcommands** — `git remote add`, `mcp login`, `db migrate` — multi-word commands work out of the box.
 - **Injected `{ fs, console, process }`** — commands receive a portable runtime context. Swap it in tests, or let JustBash replace it with a sandbox. No global side effects.
 - **Zero runtime dependencies** — install `goke` without pulling extra runtime packages into your CLI.
+- **Agent detection** — `isAgent` and `detectAgent()` tell you if the process is running inside an AI coding agent (Claude, Cursor, Codex, Gemini, etc.). Skip prompts, prefer structured output, adjust behavior automatically.
 
 ## Install
 
@@ -62,6 +63,60 @@ npx -y skills add remorses/goke
 ```
 
 This installs the repository skill for AI coding agents. In this repo the shipped skill lives at `skills/goke/SKILL.md`.
+
+## Agent Detection
+
+goke can detect if your CLI is being run by an AI coding agent. This is useful for skipping interactive prompts, preferring structured output, or adjusting behavior when an agent is driving the CLI.
+
+```ts
+import { isAgent, agent, agentInfo, detectAgent } from 'goke'
+
+if (isAgent) {
+  console.log(`Running inside ${agent}`) // e.g. "claude", "cursor", "codex"
+}
+
+// Re-run detection (e.g. after env changes)
+const info = detectAgent()
+console.log(info) // { name: "claude" } or {}
+```
+
+Detection works by scanning environment variables set by known agents. The `AI_AGENT` env var can be set explicitly to override detection.
+
+**Supported agents:** `cursor`, `claude`, `devin`, `replit`, `gemini`, `codex`, `auggie`, `opencode`, `kiro`, `goose`, `pi`
+
+A common pattern is combining agent detection with the interactive prompt fallback:
+
+```ts
+import { goke, isAgent } from 'goke'
+import * as clack from '@clack/prompts'
+
+cli
+  .command('deploy', 'Deploy the app')
+  .option('--env [env]', z.enum(['staging', 'production']).optional().describe('Target environment'))
+  .action(async (options) => {
+    let env = options.env
+
+    if (!env) {
+      if (isAgent || !process.stdin.isTTY) {
+        // Agent or non-TTY: fail with clear usage instead of hanging on a prompt
+        console.error('Missing --env. Usage: deploy --env staging|production')
+        process.exit(1)
+      }
+
+      const choice = await clack.select({
+        message: 'Which environment?',
+        options: [
+          { value: 'staging', label: 'Staging' },
+          { value: 'production', label: 'Production' },
+        ],
+      })
+      if (clack.isCancel(choice)) process.exit(0)
+      env = choice
+    }
+  })
+```
+
+The detection logic is ported from [unjs/std-env](https://github.com/unjs/std-env). Agent-specific env vars checked include `CLAUDECODE`, `CURSOR_AGENT`, `CODEX_SANDBOX`, `GEMINI_CLI`, `OPENCODE`, and others. IDE-based agents (Cursor, Devin, Kiro) are checked last so that agents running inside those IDEs are detected by their own env vars first.
 
 ## Usage
 
