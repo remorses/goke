@@ -10,8 +10,8 @@ const goke = (name = '', options?: GokeOptions) => new Goke(name, options)
 
 export default goke
 export { goke, Goke, Command }
-export { createConsole, GokeProcessExit, openInBrowser, generateDocs } from "./goke.js"
-export type { GokeOutputStream, GokeConsole, GokeExecutionContext, GokeExecutionContextOverride, GokeFs, GokeOptions, GokeProcess, DocPage, GenerateDocsOptions } from "./goke.js"
+export { createConsole, GokeProcessExit, openInBrowser, generateDocs, generateCompletionScript, installCompletions, uninstallCompletions, detectShell } from "./goke.js"
+export type { GokeOutputStream, GokeConsole, GokeExecutionContext, GokeExecutionContextOverride, GokeFs, GokeOptions, GokeProcess, DocPage, GenerateDocsOptions, ShellType } from "./goke.js"
 export type { StandardTypedV1, StandardJSONSchemaV1, JsonSchema } from "./coerce.js"
 export { GokeError, coerceBySchema, extractJsonSchema, wrapJsonSchema, isStandardSchema, extractSchemaMetadata } from "./coerce.js"
 export { detectAgent, agentInfo, agent, isAgent } from "./agents.js"

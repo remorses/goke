@@ -15,6 +15,8 @@ import mri from "./mri.js"
 import { GokeError, coerceBySchema, extractJsonSchema, extractSchemaMetadata, isStandardSchema } from "./coerce.js"
 import type { StandardJSONSchemaV1 } from "./coerce.js"
 import { createJustBashCommand as createJustBashCommandBridge } from './just-bash.js'
+import { COMPLETION_FLAG, generateCompletionScript, installCompletions, uninstallCompletions, detectShell } from './completions.js'
+import type { ShellType } from './completions.js'
 import type { GokeFs } from './goke-fs.js'
 import { EventEmitter, fs as runtimeFs, openInBrowser, process } from '#runtime'
 
@@ -1585,6 +1587,255 @@ class Goke<Opts = {}> extends EventEmitter {
   }
 
   /**
+   * Register shell completion commands: `completions install` and `completions uninstall`.
+   *
+   * Also wires the hidden `--get-goke-completions` flag that shell scripts call
+   * on each Tab press. When this flag is detected during `parse()`, the CLI
+   * prints matching completions to stdout and exits immediately.
+   *
+   * @example
+   * ```ts
+   * goke('mycli')
+   *   .help()
+   *   .completions()
+   *   .command('deploy', 'Deploy the app')
+   *   .parse(process.argv)
+   *
+   * // Then the user runs:
+   * //   mycli completions install
+   * //   mycli dep<TAB>  →  mycli deploy
+   * ```
+   */
+  completions() {
+    this.command('completions install', 'Install shell completions')
+      .option('--shell [shell]', 'Target shell (zsh or bash). Auto-detected if omitted.')
+      .action(async (options, { console, process: proc }) => {
+        const shell = options.shell as ShellType | undefined
+        const cliPath = proc.argv[1] ?? this.name
+        const result = await installCompletions(this.name, cliPath, shell || undefined)
+        console.log(`Wrote ${result.shell} completions to ${result.path}`)
+        if (result.shell === 'zsh') {
+          console.log('Restart your shell or run: autoload -Uz compinit && compinit')
+        } else {
+          console.log('Restart your shell to enable completions.')
+        }
+      })
+
+    this.command('completions uninstall', 'Remove shell completions')
+      .option('--shell [shell]', 'Target shell (zsh or bash). Auto-detected if omitted.')
+      .action(async (options, { console }) => {
+        const shell = options.shell as ShellType | undefined
+        const removed = await uninstallCompletions(this.name, shell || undefined)
+        if (removed.length > 0) {
+          for (const p of removed) {
+            console.log(`Removed ${p}`)
+          }
+        } else {
+          console.log('No completion files found to remove.')
+        }
+      })
+
+    this.command('completions script', 'Print the completion script to stdout')
+      .option('--shell [shell]', 'Target shell (zsh or bash). Auto-detected if omitted.')
+      .action((options, { console, process: proc }) => {
+        const shell = (options.shell as ShellType | undefined) ?? detectShell()
+        if (!shell) {
+          throw new GokeError(
+            'Could not detect shell. Set the SHELL environment variable or pass --shell explicitly.',
+          )
+        }
+        const cliPath = proc.argv[1] ?? this.name
+        const script = generateCompletionScript(shell, this.name, cliPath)
+        console.log(script)
+      })
+
+    return this
+  }
+
+  /**
+   * Compute completions for the given args (as received from the shell script).
+   *
+   * Returns an array of completion strings. For zsh, each entry is `name:description`.
+   * For bash, each entry is just the name.
+   *
+   * @internal Used by parse() when --get-goke-completions is detected.
+   */
+  getCompletions(argv: string[]): string[] {
+    // argv comes from the shell: ["my-cli", "dep", ""] or ["my-cli", "deploy", "--"]
+    // Strip the binary name (first element, which is the CLI name itself)
+    const args = argv.slice(1)
+    const current = args.length > 0 ? args[args.length - 1] : ''
+    const previous = args.slice(0, -1)
+
+    // Detect zsh for description format
+    const isZsh = (process.env.SHELL ?? '').includes('zsh') ||
+      (process.env.ZSH_NAME ?? '').includes('zsh')
+
+    const completions: string[] = []
+    const escapeColon = (s: string) => s.replace(/:/g, '\\:')
+
+    // Extract the long --flag from an option's rawName string.
+    // rawName is like "--dry-run", "-v, --verbose", "--port <port>"
+    // We want the longest --flag in its original kebab-case form.
+    const getLongFlag = (option: Option): string => {
+      const parts = removeBrackets(option.rawName).split(',').map((s) => s.trim())
+      // Find the longest flag (the one with --)
+      const longPart = parts.find((p) => p.startsWith('--')) ?? parts[parts.length - 1]
+      return longPart.startsWith('-') ? longPart : `--${longPart}`
+    }
+
+    // Try to match a command from the previous words
+    let matchedCommand: Command | undefined
+    let consumedArgs = 0
+
+    // Sort by name length (longest first) for greedy matching
+    const sortedCommands = [...this.commands].sort((a, b) => {
+      const aLen = a.name.split(' ').filter(Boolean).length
+      const bLen = b.name.split(' ').filter(Boolean).length
+      return bLen - aLen
+    })
+
+    for (const command of sortedCommands) {
+      const result = command.isMatched(previous as string[])
+      if (result.matched) {
+        matchedCommand = command
+        consumedArgs = result.consumedArgs
+        break
+      }
+    }
+
+    if (matchedCommand) {
+      // We matched a command, suggest its options
+      const usedOptions = new Set(
+        previous.slice(consumedArgs)
+          .filter((a) => a.startsWith('-'))
+          .map((a) => a.replace(/^-{1,2}/, ''))
+          .map(camelcaseOptionName),
+      )
+
+      const allOptions = [...(matchedCommand.globalCommand?.options ?? []), ...matchedCommand.options]
+
+      for (const option of allOptions) {
+        if (option.deprecated) continue
+        // Skip already-used boolean options
+        if (option.isBoolean && usedOptions.has(option.name)) continue
+
+        const flag = getLongFlag(option)
+
+        if (current.startsWith('-')) {
+          if (!flag.startsWith(current)) continue
+        } else if (current !== '') {
+          continue
+        }
+
+        if (isZsh && option.description) {
+          completions.push(`${escapeColon(flag)}:${escapeColon(option.description)}`)
+        } else {
+          completions.push(flag)
+        }
+      }
+
+      // If current word doesn't start with -, also suggest subcommands that extend this one
+      if (!current.startsWith('-')) {
+        const prefix = matchedCommand.name ? matchedCommand.name + ' ' : ''
+        for (const cmd of this.commands) {
+          if (cmd._hidden) continue
+          if (cmd === matchedCommand) continue
+          if (cmd.name.startsWith(prefix) && cmd.name !== matchedCommand.name) {
+            const sub = cmd.name.slice(prefix.length).split(' ')[0]
+            if (sub.startsWith(current)) {
+              if (isZsh) {
+                const desc = cmd.description.split('\n')[0].trim()
+                completions.push(desc ? `${escapeColon(sub)}:${escapeColon(desc)}` : sub)
+              } else {
+                completions.push(sub)
+              }
+            }
+          }
+        }
+      }
+    } else {
+      // No command matched yet, suggest commands
+      // Check if some previous words partially match a multi-word command prefix
+      const prevJoined = previous.join(' ')
+
+      for (const command of this.commands) {
+        if (command._hidden) continue
+        if (command.isDefaultCommand) continue
+
+        const cmdName = command.name
+        const cmdParts = cmdName.split(' ').filter(Boolean)
+
+        if (cmdParts.length === 0) continue
+
+        // For single-word commands, just check prefix against current
+        if (cmdParts.length === 1) {
+          if (previous.length === 0 && cmdParts[0].startsWith(current)) {
+            if (isZsh) {
+              const desc = command.description.split('\n')[0].trim()
+              completions.push(desc ? `${escapeColon(cmdParts[0])}:${escapeColon(desc)}` : cmdParts[0])
+            } else {
+              completions.push(cmdParts[0])
+            }
+          }
+          continue
+        }
+
+        // Multi-word commands: check if previous matches the prefix parts
+        const matchPrefix = cmdParts.slice(0, -1).join(' ')
+        const lastPart = cmdParts[cmdParts.length - 1]
+        if (prevJoined === matchPrefix && lastPart.startsWith(current)) {
+          if (isZsh) {
+            const desc = command.description.split('\n')[0].trim()
+            completions.push(desc ? `${escapeColon(lastPart)}:${escapeColon(desc)}` : lastPart)
+          } else {
+            completions.push(lastPart)
+          }
+        }
+      }
+
+      // Also suggest first words of multi-word commands when at root level
+      if (previous.length === 0) {
+        const seenFirstWords = new Set<string>()
+        for (const command of this.commands) {
+          if (command._hidden || command.isDefaultCommand) continue
+          const firstWord = command.name.split(' ')[0]
+          if (!firstWord || seenFirstWords.has(firstWord)) continue
+          // Skip if already added as a single-word command above
+          if (completions.some((c) => {
+            const name = c.split(':')[0].replace(/\\:/g, ':')
+            return name === firstWord
+          })) continue
+          seenFirstWords.add(firstWord)
+          if (firstWord.startsWith(current)) {
+            // For first words of multi-word commands, no description (it's a prefix, not a full command)
+            completions.push(firstWord)
+          }
+        }
+      }
+
+      // If no commands match and current starts with -, suggest global options
+      if (current.startsWith('-')) {
+        for (const option of this.globalCommand.options) {
+          if (option.deprecated) continue
+          const longName = option.names[option.names.length - 1]
+          const flag = `--${longName}`
+          if (flag.startsWith(current)) {
+            if (isZsh && option.description) {
+              completions.push(`${escapeColon(flag)}:${escapeColon(option.description)}`)
+            } else {
+              completions.push(flag)
+            }
+          }
+        }
+      }
+    }
+
+    // Deduplicate
+    return [...new Set(completions)]
+  }
+
+  /**
    * Parse argv
    */
   parse(
@@ -1597,6 +1848,20 @@ class Goke<Opts = {}> extends EventEmitter {
     this.rawArgs = argv
     if (!this.name) {
       this.name = argv[1] ? getFileName(argv[1]) : 'cli'
+    }
+
+    // Intercept --get-goke-completions before any command matching/validation.
+    // The shell completion script passes this flag on every Tab press.
+    const completionFlagIndex = argv.indexOf(`--${COMPLETION_FLAG}`)
+    if (completionFlagIndex !== -1) {
+      // Everything after the flag is the words typed so far
+      const completionArgs = argv.slice(completionFlagIndex + 1)
+      const completions = this.getCompletions(completionArgs)
+      for (const c of completions) {
+        this.stdout.write(c + '\n')
+      }
+      this.exit(0)
+      return { args: [], options: {} }
     }
 
     let shouldParse = true
@@ -2153,4 +2418,6 @@ function formatOptionsTable(options: Option[]): string {
 
 export type { GokeOutputStream, GokeConsole, GokeOptions, GokeProcess, GokeExecutionContext, GokeExecutionContextOverride, GokeFs, DocPage, GenerateDocsOptions }
 export { createConsole, Command, GokeProcessExit, openInBrowser, generateDocs }
+export type { ShellType }
+export { generateCompletionScript, installCompletions, uninstallCompletions, detectShell }
 export default Goke
