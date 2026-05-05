@@ -1,5 +1,75 @@
 # goke
 
+## 6.10.0
+
+1. **Shell completion support (zsh + bash)** — generate and install shell completions for any goke CLI. Users get tab-completion for commands, subcommands, and options out of the box:
+
+   ```ts
+   const cli = goke('mycli')
+     .help()
+     .completions() // adds completions install/uninstall/script commands
+     .parse()
+   ```
+
+   Install completions with:
+   ```bash
+   mycli completions install
+   ```
+
+   Completions are context-aware: they suggest subcommands after a matched prefix, filter options by what's already been typed, suppress aliases that were already used, and skip hidden commands. Zsh format includes `name:description` pairs for richer tab menus.
+
+   Also exposes `getCompletions()` for programmatic use and `generateCompletionScript()` for custom installation flows.
+
+2. **Agent detection module** — detect if the CLI is running inside an AI coding agent (Claude, Cursor, Codex, Gemini, Devin, etc.) by scanning environment variables:
+
+   ```ts
+   import { isAgent, agent, agentInfo } from 'goke'
+
+   if (isAgent) {
+     console.log(`Running inside ${agent}`) // e.g. "claude"
+     // Skip interactive prompts, prefer structured output
+   }
+   ```
+
+   Supports 11 agents with the `AI_AGENT` env var as override. Useful for skipping interactive prompts and browser opens when a CLI is invoked by an agent.
+
+3. **New `generateDocs()` for programmatic markdown documentation** — generate markdown doc pages for every non-hidden command in a CLI:
+
+   ```ts
+   import { generateDocs } from 'goke'
+   import { writeFileSync } from 'fs'
+
+   const pages = generateDocs({ cli })
+   for (const page of pages) {
+     writeFileSync(`docs/${page.slug}.md`, page.content)
+   }
+   ```
+
+   Each page includes usage, arguments table, options table (with defaults), and examples. Hidden commands and deprecated options are excluded automatically.
+
+4. **New `getAction()` for testing command actions directly** — extract the typed action callback from a command without parsing argv:
+
+   ```ts
+   const cmd = cli.command('deploy', 'Deploy')
+     .option('--env <env>', 'Environment')
+     .action((options) => deploy(options.env))
+
+   // In tests:
+   const action = cmd.getAction()
+   await action({ env: 'staging', '--': [] })
+   ```
+
+5. **Export vendored picocolors as `colors`** — use terminal colors without adding any color library to your dependencies:
+
+   ```ts
+   import { colors } from 'goke'
+   console.log(colors.green('success'))
+   ```
+
+6. **`openInBrowser` is now async** — returns `Promise<void>` and must be awaited. The Node.js implementation uses non-blocking `exec` instead of `execSync`, so the calling thread is no longer blocked while the browser launches.
+
+7. **Named anonymous action callbacks** — when you pass an inline arrow function to `.action()`, goke now sets its name to `command:<name>` (e.g. `command:deploy`) for better stack traces. Named functions are left untouched.
+
 ## 6.9.0
 
 1. **New `.use(subCli)` for composing CLI instances across files** — split a large CLI into separate files, each exporting a `goke()` instance with its own commands, then compose them in the entry point:
