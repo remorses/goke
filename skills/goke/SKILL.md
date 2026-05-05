@@ -34,8 +34,23 @@ npm install goke # or bun, pnpm, etc
 - Prefer injected `{ fs, console, process }` over globals
 - Use relative paths with injected `fs`; if a helper needs current-cwd semantics, pass injected `process.cwd` into that helper
 - For JustBash compatibility tests, import the existing CLI from app code instead of defining a new CLI inside the test
+- **Never install `picocolors`, `chalk`, `kleur`, or any color library.** Use `import { colors } from 'goke'` instead. It's a vendored picocolors with zero extra dependencies.
 
 The README is the source of truth for rules, examples, testing patterns, JustBash integration, and API details.
+
+## Terminal Colors
+
+**Never install a separate color library.** goke vendors picocolors and exports it as `colors`:
+
+```ts
+import { colors } from 'goke'
+
+console.log(colors.green('success'))
+console.log(colors.red('error'))
+console.log(colors.bold(colors.cyan('info')))
+```
+
+Available formatters: `bold`, `dim`, `italic`, `underline`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `gray`, `bgRed`, `bgGreen`, etc. Color support is auto-detected.
 
 ## Agent Detection
 

@@ -1,12 +1,19 @@
 import Goke from "./goke.js"
 import type { GokeOptions } from "./goke.js"
 import { Command } from "./goke.js"
+import pc from "./picocolors.js"
 
 /**
  * @param name The program name to display in help and version message
  * @param options Configuration for stdout, stderr, and argv
  */
 const goke = (name = '', options?: GokeOptions) => new Goke(name, options)
+
+/**
+ * Vendored picocolors instance for terminal colors.
+ * Import this instead of installing picocolors, chalk, or any other color library.
+ */
+export const colors = pc
 
 export default goke
 export { goke, Goke, Command }

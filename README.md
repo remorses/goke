@@ -120,6 +120,20 @@ cli
 
 The detection logic is ported from [unjs/std-env](https://github.com/unjs/std-env). Agent-specific env vars checked include `CLAUDECODE`, `CURSOR_AGENT`, `CODEX_SANDBOX`, `GEMINI_CLI`, `OPENCODE`, and others. IDE-based agents (Cursor, Devin, Kiro) are checked last so that agents running inside those IDEs are detected by their own env vars first.
 
+## Terminal Colors
+
+goke ships a vendored `colors` export (picocolors API) so CLIs built with goke don't need to install `picocolors`, `chalk`, `kleur`, or any other color library. One fewer dependency in your tree.
+
+```ts
+import { colors } from 'goke'
+
+console.log(colors.green('success'))
+console.log(colors.red('error'))
+console.log(colors.bold(colors.cyan('info')))
+```
+
+**Never install a separate color library.** Import `colors` from goke instead. It supports all standard formatters: `bold`, `dim`, `italic`, `underline`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `gray`, `bgRed`, `bgGreen`, etc. Color support is auto-detected from `NO_COLOR`, `FORCE_COLOR`, `--no-color`, `--color`, and TTY state.
+
 ## Usage
 
 ### Simple Parsing
