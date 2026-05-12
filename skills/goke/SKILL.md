@@ -337,3 +337,144 @@ cli
     }
   })
 ```
+
+## Remote Server Auth & Config
+
+CLIs that talk to a remote server must support multiple server URLs so users can self-host, use a preview/staging environment, or point to localhost during development. Auth tokens and other per-server state live in a JSON config file keyed by API URL.
+
+### Config file location
+
+Store config at `~/.cliname/config.json`. The directory is named after the CLI binary. Use `os.homedir()` to resolve `~`.
+
+### Config structure
+
+The config is an object keyed by server URL. Each entry holds auth tokens and any other per-server state. The CLI reads/writes only the entry matching the current `--api-url`.
+
+```ts
+// ~/.cliname/config.json
+{
+  "https://api.cliname.com": {
+    "accessToken": "tok_abc123",
+    "refreshToken": "rt_xyz789",
+    "expiresAt": "2026-08-01T00:00:00Z"
+  },
+  "https://staging.cliname.com": {
+    "accessToken": "tok_staging_456"
+  },
+  "http://localhost:3000": {
+    "accessToken": "tok_dev_789"
+  }
+}
+```
+
+### Global `--api-url` option
+
+Register `--api-url` as a global option with a default pointing to the production hosted service. Also support an env var (`CLINAME_API_URL` or similar) as a fallback. The option takes precedence over the env var, and both override the default.
+
+```ts
+import { goke } from 'goke'
+import { z } from 'zod'
+
+const DEFAULT_API_URL = 'https://api.cliname.com'
+
+const cli = goke('cliname')
+
+cli.option(
+  '--api-url [url]',
+  z.string().url().optional().describe('Server URL'),
+)
+
+cli.use((options) => {
+  options.apiUrl = options.apiUrl
+    || process.env.CLINAME_API_URL
+    || DEFAULT_API_URL
+
+  // normalize: strip trailing slash so keys are consistent
+  options.apiUrl = options.apiUrl.replace(/\/+$/, '')
+})
+```
+
+### Reading and writing config
+
+```ts
+import fs from 'node:fs'
+import path from 'node:path'
+import os from 'node:os'
+
+const CONFIG_DIR = path.join(os.homedir(), '.cliname')
+const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json')
+
+interface ServerConfig {
+  accessToken?: string
+  refreshToken?: string
+  expiresAt?: string
+}
+
+type Config = Record<string, ServerConfig>
+
+function loadConfig(): Config {
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'))
+  } catch {
+    return {}
+  }
+}
+
+function saveConfig(config: Config) {
+  fs.mkdirSync(CONFIG_DIR, { recursive: true })
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n')
+}
+
+function getServerConfig(apiUrl: string): ServerConfig {
+  return loadConfig()[apiUrl] ?? {}
+}
+
+function setServerConfig(apiUrl: string, data: ServerConfig) {
+  const config = loadConfig()
+  config[apiUrl] = { ...config[apiUrl], ...data }
+  saveConfig(config)
+}
+```
+
+### Using it in commands
+
+Every command receives the resolved `apiUrl` from the middleware. Use it to load the right auth entry and make requests.
+
+```ts
+cli
+  .command('login', 'Authenticate with the server')
+  .action(async (options) => {
+    const { apiUrl } = options
+    // OAuth flow, API key prompt, etc.
+    const token = await doLogin(apiUrl)
+    setServerConfig(apiUrl, { accessToken: token })
+    console.log(`Logged in to ${apiUrl}`)
+  })
+
+cli
+  .command('status', 'Show current config')
+  .action(async (options) => {
+    const { apiUrl } = options
+    const server = getServerConfig(apiUrl)
+    console.log(`Server: ${apiUrl}`)
+    console.log(`Authenticated: ${server.accessToken ? 'yes' : 'no'}`)
+  })
+
+cli
+  .command('logout', 'Clear auth for current server')
+  .action(async (options) => {
+    const { apiUrl } = options
+    const config = loadConfig()
+    delete config[apiUrl]
+    saveConfig(config)
+    console.log(`Logged out from ${apiUrl}`)
+  })
+```
+
+### Why key by URL
+
+- Users can be logged in to production and staging simultaneously
+- Self-hosters get isolated auth without conflicting with the hosted service
+- Developers can point to `http://localhost:3000` during development without losing their production token
+- Switching servers is just `--api-url` or setting an env var; no re-login needed if the server was used before
+```
