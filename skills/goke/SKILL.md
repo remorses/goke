@@ -405,12 +405,12 @@ export function getApiUrl(): string {
 
 ### Reading and writing config
 
-Config helpers use `getApiUrl()` to key into the right entry. No need to pass the URL around.
+Config helpers take the injected `fs` from the action context as an object argument. This keeps them portable across normal Node.js runs and JustBash sandboxes.
 
 ```ts
-import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import type { GokeFs } from 'goke'
 
 const CONFIG_DIR = path.join(os.homedir(), '.cliname')
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json')
@@ -423,61 +423,62 @@ interface ServerConfig {
 
 type Config = Record<string, ServerConfig>
 
-function loadConfig(): Config {
+async function loadConfig({ fs }: { fs: GokeFs }): Promise<Config> {
   try {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'))
+    return JSON.parse(await fs.readFile(CONFIG_PATH, 'utf-8'))
   } catch {
     return {}
   }
 }
 
-function saveConfig(config: Config) {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true })
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n')
+async function saveConfig({ fs, config }: { fs: GokeFs; config: Config }) {
+  await fs.mkdir(CONFIG_DIR, { recursive: true })
+  await fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n')
 }
 
-function getServerConfig(): ServerConfig {
-  return loadConfig()[getApiUrl()] ?? {}
+async function getServerConfig({ fs }: { fs: GokeFs }): Promise<ServerConfig> {
+  const config = await loadConfig({ fs })
+  return config[getApiUrl()] ?? {}
 }
 
-function setServerConfig(data: ServerConfig) {
+async function setServerConfig({ fs, data }: { fs: GokeFs; data: ServerConfig }) {
   const apiUrl = getApiUrl()
-  const config = loadConfig()
+  const config = await loadConfig({ fs })
   config[apiUrl] = { ...config[apiUrl], ...data }
-  saveConfig(config)
+  await saveConfig({ fs, config })
 }
 ```
 
 ### Using it in commands
 
-Commands read the API URL from the env var via `getApiUrl()`. No need to destructure it from options.
+Commands pass the injected `{ fs }` to config helpers and read the API URL via `getApiUrl()`.
 
 ```ts
 cli
   .command('login', 'Authenticate with the server')
-  .action(async () => {
+  .action(async (_options, { fs, console }) => {
     const apiUrl = getApiUrl()
     const token = await doLogin(apiUrl)
-    setServerConfig({ accessToken: token })
+    await setServerConfig({ fs, data: { accessToken: token } })
     console.log(`Logged in to ${apiUrl}`)
   })
 
 cli
   .command('status', 'Show current config')
-  .action(async () => {
+  .action(async (_options, { fs, console }) => {
     const apiUrl = getApiUrl()
-    const server = getServerConfig()
+    const server = await getServerConfig({ fs })
     console.log(`Server: ${apiUrl}`)
     console.log(`Authenticated: ${server.accessToken ? 'yes' : 'no'}`)
   })
 
 cli
   .command('logout', 'Clear auth for current server')
-  .action(async () => {
+  .action(async (_options, { fs, console }) => {
     const apiUrl = getApiUrl()
-    const config = loadConfig()
+    const config = await loadConfig({ fs })
     delete config[apiUrl]
-    saveConfig(config)
+    await saveConfig({ fs, config })
     console.log(`Logged out from ${apiUrl}`)
   })
 ```
