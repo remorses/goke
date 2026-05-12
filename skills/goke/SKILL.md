@@ -369,7 +369,7 @@ The config is an object keyed by server URL. Each entry holds auth tokens and an
 
 ### Global `--api-url` option
 
-Register `--api-url` as a global option with a default pointing to the production hosted service. Also support an env var (`CLINAME_API_URL` or similar) as a fallback. The option takes precedence over the env var, and both override the default.
+Register `--api-url` as a global option with a default pointing to the production hosted service. The `.use()` middleware resolves the final URL from the flag, env var, or default, then **writes it back to `process.env`**. All other code just reads `process.env.CLINAME_API_URL` instead of threading `options.apiUrl` through every function call. This avoids type-safety issues since global options aren't visible in command action types.
 
 ```ts
 import { goke } from 'goke'
@@ -385,16 +385,27 @@ cli.option(
 )
 
 cli.use((options) => {
-  options.apiUrl = options.apiUrl
+  const apiUrl = (
+    options.apiUrl
     || process.env.CLINAME_API_URL
     || DEFAULT_API_URL
+  ).replace(/\/+$/, '') // normalize: strip trailing slash so config keys are consistent
 
-  // normalize: strip trailing slash so keys are consistent
-  options.apiUrl = options.apiUrl.replace(/\/+$/, '')
+  process.env.CLINAME_API_URL = apiUrl
 })
 ```
 
+After this middleware runs, any module can call `getApiUrl()` without receiving it as a parameter:
+
+```ts
+export function getApiUrl(): string {
+  return process.env.CLINAME_API_URL!
+}
+```
+
 ### Reading and writing config
+
+Config helpers use `getApiUrl()` to key into the right entry. No need to pass the URL around.
 
 ```ts
 import fs from 'node:fs'
@@ -425,11 +436,12 @@ function saveConfig(config: Config) {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n')
 }
 
-function getServerConfig(apiUrl: string): ServerConfig {
-  return loadConfig()[apiUrl] ?? {}
+function getServerConfig(): ServerConfig {
+  return loadConfig()[getApiUrl()] ?? {}
 }
 
-function setServerConfig(apiUrl: string, data: ServerConfig) {
+function setServerConfig(data: ServerConfig) {
+  const apiUrl = getApiUrl()
   const config = loadConfig()
   config[apiUrl] = { ...config[apiUrl], ...data }
   saveConfig(config)
@@ -438,32 +450,31 @@ function setServerConfig(apiUrl: string, data: ServerConfig) {
 
 ### Using it in commands
 
-Every command receives the resolved `apiUrl` from the middleware. Use it to load the right auth entry and make requests.
+Commands read the API URL from the env var via `getApiUrl()`. No need to destructure it from options.
 
 ```ts
 cli
   .command('login', 'Authenticate with the server')
-  .action(async (options) => {
-    const { apiUrl } = options
-    // OAuth flow, API key prompt, etc.
+  .action(async () => {
+    const apiUrl = getApiUrl()
     const token = await doLogin(apiUrl)
-    setServerConfig(apiUrl, { accessToken: token })
+    setServerConfig({ accessToken: token })
     console.log(`Logged in to ${apiUrl}`)
   })
 
 cli
   .command('status', 'Show current config')
-  .action(async (options) => {
-    const { apiUrl } = options
-    const server = getServerConfig(apiUrl)
+  .action(async () => {
+    const apiUrl = getApiUrl()
+    const server = getServerConfig()
     console.log(`Server: ${apiUrl}`)
     console.log(`Authenticated: ${server.accessToken ? 'yes' : 'no'}`)
   })
 
 cli
   .command('logout', 'Clear auth for current server')
-  .action(async (options) => {
-    const { apiUrl } = options
+  .action(async () => {
+    const apiUrl = getApiUrl()
     const config = loadConfig()
     delete config[apiUrl]
     saveConfig(config)
