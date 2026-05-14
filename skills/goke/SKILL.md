@@ -38,6 +38,14 @@ npm install goke # or bun, pnpm, etc
 
 The README is the source of truth for rules, examples, testing patterns, JustBash integration, and API details.
 
+If the README or this skill mentions a `goke` export that is missing from the installed package, upgrade `goke` to latest first before adding workarounds or custom local detection code:
+
+```bash
+pnpm update goke --latest
+```
+
+Use the project package manager for the repo you are editing. After upgrading, re-check the export from the installed package and continue with the documented API.
+
 ## Terminal Colors
 
 **Never install a separate color library.** goke vendors picocolors and exports it as `colors`:
@@ -74,6 +82,37 @@ if (isAgent || !process.stdin.isTTY) {
 ```
 
 Supported agents: `cursor`, `claude`, `devin`, `replit`, `gemini`, `codex`, `auggie`, `opencode`, `kiro`, `goose`, `pi`. Set `AI_AGENT` env var to override.
+
+## Long-Running Interactive Commands
+
+Commands that start a browser/device login flow or any other long-running TTY-only interaction must fail fast in non-TTY shells. Do not start the flow and hope the agent notices the URL. The process must stay alive while the user approves the browser prompt, so agents need to launch it in a persistent terminal session like tuistory or tmux.
+
+Always guard these commands with `!process.stdout.isTTY` before making network requests, opening the browser, or starting spinners. Do not fail just because an agent is running the command if the command has a real TTY.
+
+```ts
+import dedent from 'string-dedent'
+import { goke } from 'goke'
+
+cli.command('login', 'Authenticate with browser login').action((options, { console, process }) => {
+  if (!process.stdout.isTTY) {
+    console.error(dedent`
+      mycli login needs an interactive terminal and must stay alive while you approve the browser login.
+
+      Run it in a background terminal session like tuistory or tmux, then wait for the URL/code:
+
+        bunx tuistory launch "mycli login" -s mycli-login --no-wait
+        bunx tuistory -s mycli-login wait "/code:|https?:\\/\\//i" --timeout 15000
+
+      The login command exits by itself after successful browser approval.
+    `)
+    process.exit(1)
+  }
+
+  // Start device/browser login only after the guard.
+})
+```
+
+Use `tuistory wait` for the handoff point that needs user interaction. It returns nearby lines around the match, so agents can show the URL/code without a separate `tuistory read` call. Do not add `tuistory close` to login instructions when the CLI exits by itself after success.
 
 ## Shell Completions
 
