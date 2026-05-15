@@ -323,8 +323,7 @@ export function createJustBashCommand(
       cloned.name = name
 
       try {
-        cloned.parse(argv, { run: false })
-        await cloned.runMatchedCommand()
+        await cloned.parse(argv)
         const result = output.getResult()
         return {
           stdout: result.stdout,

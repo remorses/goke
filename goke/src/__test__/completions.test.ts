@@ -70,7 +70,7 @@ describe('getCompletions', () => {
     }
   })
 
-  test('returns all visible commands when current word is empty', () => {
+  test('returns all visible commands when current word is empty', async () => {
     process.env.SHELL = '/bin/bash'
     const { cli } = buildTestCli()
     const completions = cli.getCompletions(['mycli', ''])
@@ -85,7 +85,7 @@ describe('getCompletions', () => {
     `)
   })
 
-  test('hidden commands are excluded', () => {
+  test('hidden commands are excluded', async () => {
     process.env.SHELL = '/bin/bash'
     const { cli } = buildTestCli()
     const completions = cli.getCompletions(['mycli', ''])
@@ -93,7 +93,7 @@ describe('getCompletions', () => {
     expect(completions).not.toContain('internal-debug')
   })
 
-  test('filters commands by prefix', () => {
+  test('filters commands by prefix', async () => {
     process.env.SHELL = '/bin/bash'
     const { cli } = buildTestCli()
     const completions = cli.getCompletions(['mycli', 'dep'])
@@ -105,7 +105,7 @@ describe('getCompletions', () => {
     `)
   })
 
-  test('suggests options after matched command', () => {
+  test('suggests options after matched command', async () => {
     process.env.SHELL = '/bin/bash'
     const { cli } = buildTestCli()
     const completions = cli.getCompletions(['mycli', 'deploy', '--'])
@@ -115,7 +115,7 @@ describe('getCompletions', () => {
     expect(completions).toContain('--help')
   })
 
-  test('suggests subcommands after matched command prefix', () => {
+  test('suggests subcommands after matched command prefix', async () => {
     process.env.SHELL = '/bin/bash'
     const { cli } = buildTestCli()
     const completions = cli.getCompletions(['mycli', 'deploy', ''])
@@ -123,7 +123,7 @@ describe('getCompletions', () => {
     expect(completions).toContain('rollback')
   })
 
-  test('includes descriptions in zsh format', () => {
+  test('includes descriptions in zsh format', async () => {
     process.env.SHELL = '/bin/zsh'
     const { cli } = buildTestCli()
     const completions = cli.getCompletions(['mycli', ''])
@@ -133,7 +133,7 @@ describe('getCompletions', () => {
     expect(completions.some((c) => c.includes(':Stream deployment logs'))).toBe(true)
   })
 
-  test('zsh option completions include descriptions', () => {
+  test('zsh option completions include descriptions', async () => {
     process.env.SHELL = '/bin/zsh'
     const { cli } = buildTestCli()
     const completions = cli.getCompletions(['mycli', 'deploy', '--'])
@@ -142,7 +142,7 @@ describe('getCompletions', () => {
     expect(completions.some((c) => c.includes('--dry-run:Preview without deploying'))).toBe(true)
   })
 
-  test('filters options by prefix', () => {
+  test('filters options by prefix', async () => {
     process.env.SHELL = '/bin/bash'
     const { cli } = buildTestCli()
     const completions = cli.getCompletions(['mycli', 'deploy', '--dr'])
@@ -154,7 +154,7 @@ describe('getCompletions', () => {
     `)
   })
 
-  test('suggests global options at root level', () => {
+  test('suggests global options at root level', async () => {
     process.env.SHELL = '/bin/bash'
     const { cli } = buildTestCli()
     const completions = cli.getCompletions(['mycli', '--'])
@@ -162,7 +162,7 @@ describe('getCompletions', () => {
     expect(completions).toContain('--help')
   })
 
-  test('multi-word command completion', () => {
+  test('multi-word command completion', async () => {
     process.env.SHELL = '/bin/bash'
     const { cli } = buildTestCli()
     // User typed "mycli deploy " and hits tab
@@ -177,32 +177,32 @@ describe('getCompletions', () => {
 })
 
 describe('--get-goke-completions flag in parse()', () => {
-  test('prints completions to stdout and exits', () => {
+  test('prints completions to stdout and exits', async () => {
     const stdout = createTestOutputStream()
     const { cli } = buildTestCli(stdout)
 
     // Simulate: mycli --get-goke-completions mycli dep
-    cli.parse(['node', 'bin', '--get-goke-completions', 'mycli', 'dep'])
+    await cli.parse(['node', 'bin', '--get-goke-completions', 'mycli', 'dep'])
 
     // Should have printed completions to stdout
     expect(stdout.text).toContain('deploy')
   })
 
-  test('does not run any command action', () => {
+  test('does not run any command action', async () => {
     const stdout = createTestOutputStream()
     const actionSpy = vi.fn()
     const cli = gokeTestable('mycli', { stdout })
       .completions()
     cli.command('deploy', 'Deploy').action(actionSpy)
 
-    cli.parse(['node', 'bin', '--get-goke-completions', 'mycli', 'deploy', ''])
+    await cli.parse(['node', 'bin', '--get-goke-completions', 'mycli', 'deploy', ''])
 
     expect(actionSpy).not.toHaveBeenCalled()
   })
 })
 
 describe('generateCompletionScript', () => {
-  test('zsh template has #compdef header', () => {
+  test('zsh template has #compdef header', async () => {
     const script = generateCompletionScript('zsh', 'my-cli', '/usr/local/bin/my-cli')
 
     expect(script).toContain('#compdef my-cli')
@@ -211,7 +211,7 @@ describe('generateCompletionScript', () => {
     expect(script).toContain('_my_cli_completions')
   })
 
-  test('bash template has complete command', () => {
+  test('bash template has complete command', async () => {
     const script = generateCompletionScript('bash', 'my-cli', '/usr/local/bin/my-cli')
 
     expect(script).toContain('complete -o bashdefault')
@@ -220,13 +220,13 @@ describe('generateCompletionScript', () => {
     expect(script).toContain('_my_cli_completions')
   })
 
-  test('uses cliName as fallback path when cliPath not provided', () => {
+  test('uses cliName as fallback path when cliPath not provided', async () => {
     const script = generateCompletionScript('zsh', 'my-cli')
 
     expect(script).toContain('my-cli --get-goke-completions')
   })
 
-  test('escapes special characters in function names', () => {
+  test('escapes special characters in function names', async () => {
     const script = generateCompletionScript('zsh', 'my-cli.js', './my-cli.js')
 
     // Function name should use underscores
@@ -237,24 +237,24 @@ describe('generateCompletionScript', () => {
 })
 
 describe('completions commands', () => {
-  test('completions script prints zsh script', () => {
+  test('completions script prints zsh script', async () => {
     process.env.SHELL = '/bin/zsh'
     const stdout = createTestOutputStream()
     const cli = gokeTestable('mycli', { stdout })
       .completions()
 
-    cli.parse(['node', 'bin', 'completions', 'script'])
+    await cli.parse(['node', 'bin', 'completions', 'script'])
 
     expect(stdout.text).toContain('#compdef mycli')
     expect(stdout.text).toContain('--get-goke-completions')
   })
 
-  test('completions script prints bash script with --shell', () => {
+  test('completions script prints bash script with --shell', async () => {
     const stdout = createTestOutputStream()
     const cli = gokeTestable('mycli', { stdout })
       .completions()
 
-    cli.parse(['node', 'bin', 'completions', 'script', '--shell', 'bash'])
+    await cli.parse(['node', 'bin', 'completions', 'script', '--shell', 'bash'])
 
     expect(stdout.text).toContain('complete -o bashdefault')
     expect(stdout.text).toContain('--get-goke-completions')
@@ -265,7 +265,7 @@ describe('completions commands', () => {
     const cli = gokeTestable('mycli', { stderr })
       .completions()
 
-    cli.parse(['node', 'bin', 'completions', 'script', '--shell', 'fish'])
+    await cli.parse(['node', 'bin', 'completions', 'script', '--shell', 'fish'])
     // The error is caught by handleCliError and printed to stderr
     // Wait a tick for the sync action to complete
     await new Promise((r) => setTimeout(r, 10))
@@ -289,7 +289,7 @@ describe('GOKE_COMPLETION_SHELL env var', () => {
     else delete process.env.GOKE_COMPLETION_SHELL
   })
 
-  test('uses GOKE_COMPLETION_SHELL over SHELL for format detection', () => {
+  test('uses GOKE_COMPLETION_SHELL over SHELL for format detection', async () => {
     // Login shell is zsh but the bash shim sets GOKE_COMPLETION_SHELL=bash
     process.env.SHELL = '/bin/zsh'
     process.env.GOKE_COMPLETION_SHELL = 'bash'
@@ -302,12 +302,12 @@ describe('GOKE_COMPLETION_SHELL env var', () => {
     }
   })
 
-  test('zsh template sets GOKE_COMPLETION_SHELL=zsh', () => {
+  test('zsh template sets GOKE_COMPLETION_SHELL=zsh', async () => {
     const script = generateCompletionScript('zsh', 'mycli')
     expect(script).toContain('GOKE_COMPLETION_SHELL=zsh')
   })
 
-  test('bash template sets GOKE_COMPLETION_SHELL=bash', () => {
+  test('bash template sets GOKE_COMPLETION_SHELL=bash', async () => {
     const script = generateCompletionScript('bash', 'mycli')
     expect(script).toContain('GOKE_COMPLETION_SHELL=bash')
   })
@@ -327,7 +327,7 @@ describe('option value position', () => {
     else delete process.env.SHELL
   })
 
-  test('returns empty when previous token is a value-taking option', () => {
+  test('returns empty when previous token is a value-taking option', async () => {
     const { cli } = buildTestCli()
     // mycli deploy --env <TAB> — should not suggest flags
     const completions = cli.getCompletions(['mycli', 'deploy', '--env', ''])
@@ -335,7 +335,7 @@ describe('option value position', () => {
     expect(completions).toEqual([])
   })
 
-  test('still suggests flags when previous token is a boolean option', () => {
+  test('still suggests flags when previous token is a boolean option', async () => {
     const { cli } = buildTestCli()
     // mycli deploy --dry-run <TAB> — boolean flag, should still suggest
     const completions = cli.getCompletions(['mycli', 'deploy', '--dry-run', '--'])
@@ -358,7 +358,7 @@ describe('default command options', () => {
     else delete process.env.SHELL
   })
 
-  test('includes default command options at root level', () => {
+  test('includes default command options at root level', async () => {
     const cli = gokeTestable('mycli')
       .help()
       .completions()
@@ -389,7 +389,7 @@ describe('alias suppression', () => {
     else delete process.env.SHELL
   })
 
-  test('suppresses --dry-run when -d alias was already used', () => {
+  test('suppresses --dry-run when -d alias was already used', async () => {
     const cli = gokeTestable('mycli')
       .completions()
 
@@ -453,7 +453,7 @@ describe('completion snapshots: CLI with root default command', () => {
     return cli
   }
 
-  test('app <TAB> — empty after CLI name', () => {
+  test('app <TAB> — empty after CLI name', async () => {
     const cli = buildRootCli()
     expect(cli.getCompletions(['app', ''])).toMatchInlineSnapshot(`
       [
@@ -464,7 +464,7 @@ describe('completion snapshots: CLI with root default command', () => {
     `)
   })
 
-  test('app i<TAB> — partial command', () => {
+  test('app i<TAB> — partial command', async () => {
     const cli = buildRootCli()
     expect(cli.getCompletions(['app', 'i'])).toMatchInlineSnapshot(`
       [
@@ -473,7 +473,7 @@ describe('completion snapshots: CLI with root default command', () => {
     `)
   })
 
-  test('app --<TAB> — flags at root level', () => {
+  test('app --<TAB> — flags at root level', async () => {
     const cli = buildRootCli()
     expect(cli.getCompletions(['app', '--'])).toMatchInlineSnapshot(`
       [
@@ -485,7 +485,7 @@ describe('completion snapshots: CLI with root default command', () => {
     `)
   })
 
-  test('app --p<TAB> — partial flag', () => {
+  test('app --p<TAB> — partial flag', async () => {
     const cli = buildRootCli()
     expect(cli.getCompletions(['app', '--p'])).toMatchInlineSnapshot(`
       [
@@ -494,12 +494,12 @@ describe('completion snapshots: CLI with root default command', () => {
     `)
   })
 
-  test('app --port <TAB> — after value-taking option', () => {
+  test('app --port <TAB> — after value-taking option', async () => {
     const cli = buildRootCli()
     expect(cli.getCompletions(['app', '--port', ''])).toMatchInlineSnapshot(`[]`)
   })
 
-  test('app --verbose <TAB> — after boolean flag', () => {
+  test('app --verbose <TAB> — after boolean flag', async () => {
     const cli = buildRootCli()
     expect(cli.getCompletions(['app', '--verbose', ''])).toMatchInlineSnapshot(`
       [
@@ -508,7 +508,7 @@ describe('completion snapshots: CLI with root default command', () => {
     `)
   })
 
-  test('app --verbose --<TAB> — more flags after boolean', () => {
+  test('app --verbose --<TAB> — more flags after boolean', async () => {
     const cli = buildRootCli()
     expect(cli.getCompletions(['app', '--verbose', '--'])).toMatchInlineSnapshot(`
       [
@@ -520,7 +520,7 @@ describe('completion snapshots: CLI with root default command', () => {
     `)
   })
 
-  test('app init <TAB> — after named command', () => {
+  test('app init <TAB> — after named command', async () => {
     const cli = buildRootCli()
     expect(cli.getCompletions(['app', 'init', ''])).toMatchInlineSnapshot(`
       [
@@ -531,7 +531,7 @@ describe('completion snapshots: CLI with root default command', () => {
     `)
   })
 
-  test('app init --<TAB> — flags for named command', () => {
+  test('app init --<TAB> — flags for named command', async () => {
     const cli = buildRootCli()
     expect(cli.getCompletions(['app', 'init', '--'])).toMatchInlineSnapshot(`
       [
@@ -542,7 +542,7 @@ describe('completion snapshots: CLI with root default command', () => {
     `)
   })
 
-  test('app init --force --<TAB> — remaining flags after used boolean', () => {
+  test('app init --force --<TAB> — remaining flags after used boolean', async () => {
     const cli = buildRootCli()
     expect(cli.getCompletions(['app', 'init', '--force', '--'])).toMatchInlineSnapshot(`
       [
@@ -552,12 +552,12 @@ describe('completion snapshots: CLI with root default command', () => {
     `)
   })
 
-  test('app init --template <TAB> — after value-taking flag', () => {
+  test('app init --template <TAB> — after value-taking flag', async () => {
     const cli = buildRootCli()
     expect(cli.getCompletions(['app', 'init', '--template', ''])).toMatchInlineSnapshot(`[]`)
   })
 
-  test('app config <TAB> — namespace with subcommands', () => {
+  test('app config <TAB> — namespace with subcommands', async () => {
     const cli = buildRootCli()
     expect(cli.getCompletions(['app', 'config', ''])).toMatchInlineSnapshot(`
       [
@@ -568,7 +568,7 @@ describe('completion snapshots: CLI with root default command', () => {
     `)
   })
 
-  test('app config s<TAB> — partial subcommand', () => {
+  test('app config s<TAB> — partial subcommand', async () => {
     const cli = buildRootCli()
     expect(cli.getCompletions(['app', 'config', 's'])).toMatchInlineSnapshot(`
       [
@@ -577,7 +577,7 @@ describe('completion snapshots: CLI with root default command', () => {
     `)
   })
 
-  test('app config list --<TAB> — flags for nested subcommand', () => {
+  test('app config list --<TAB> — flags for nested subcommand', async () => {
     const cli = buildRootCli()
     expect(cli.getCompletions(['app', 'config', 'list', '--'])).toMatchInlineSnapshot(`
       [
@@ -586,12 +586,12 @@ describe('completion snapshots: CLI with root default command', () => {
     `)
   })
 
-  test('app x<TAB> — no matching command', () => {
+  test('app x<TAB> — no matching command', async () => {
     const cli = buildRootCli()
     expect(cli.getCompletions(['app', 'x'])).toMatchInlineSnapshot(`[]`)
   })
 
-  test('hidden commands never appear', () => {
+  test('hidden commands never appear', async () => {
     const cli = buildRootCli()
     const all = cli.getCompletions(['app', ''])
     expect(all).not.toContain('secret')
@@ -651,7 +651,7 @@ describe('completion snapshots: CLI with namespaced commands (no root)', () => {
     return cli
   }
 
-  test('kubectl <TAB> — top-level commands', () => {
+  test('kubectl <TAB> — top-level commands', async () => {
     const cli = buildNamespacedCli()
     expect(cli.getCompletions(['kubectl', ''])).toMatchInlineSnapshot(`
       [
@@ -665,7 +665,7 @@ describe('completion snapshots: CLI with namespaced commands (no root)', () => {
     `)
   })
 
-  test('kubectl g<TAB> — partial match', () => {
+  test('kubectl g<TAB> — partial match', async () => {
     const cli = buildNamespacedCli()
     expect(cli.getCompletions(['kubectl', 'g'])).toMatchInlineSnapshot(`
       [
@@ -674,7 +674,7 @@ describe('completion snapshots: CLI with namespaced commands (no root)', () => {
     `)
   })
 
-  test('kubectl --<TAB> — global options at root', () => {
+  test('kubectl --<TAB> — global options at root', async () => {
     const cli = buildNamespacedCli()
     expect(cli.getCompletions(['kubectl', '--'])).toMatchInlineSnapshot(`
       [
@@ -685,12 +685,12 @@ describe('completion snapshots: CLI with namespaced commands (no root)', () => {
     `)
   })
 
-  test('kubectl --context <TAB> — after global value option', () => {
+  test('kubectl --context <TAB> — after global value option', async () => {
     const cli = buildNamespacedCli()
     expect(cli.getCompletions(['kubectl', '--context', ''])).toMatchInlineSnapshot(`[]`)
   })
 
-  test('kubectl get <TAB> — subcommands under namespace', () => {
+  test('kubectl get <TAB> — subcommands under namespace', async () => {
     const cli = buildNamespacedCli()
     expect(cli.getCompletions(['kubectl', 'get', ''])).toMatchInlineSnapshot(`
       [
@@ -701,7 +701,7 @@ describe('completion snapshots: CLI with namespaced commands (no root)', () => {
     `)
   })
 
-  test('kubectl get p<TAB> — partial subcommand', () => {
+  test('kubectl get p<TAB> — partial subcommand', async () => {
     const cli = buildNamespacedCli()
     expect(cli.getCompletions(['kubectl', 'get', 'p'])).toMatchInlineSnapshot(`
       [
@@ -710,7 +710,7 @@ describe('completion snapshots: CLI with namespaced commands (no root)', () => {
     `)
   })
 
-  test('kubectl get pods --<TAB> — options for nested command', () => {
+  test('kubectl get pods --<TAB> — options for nested command', async () => {
     const cli = buildNamespacedCli()
     expect(cli.getCompletions(['kubectl', 'get', 'pods', '--'])).toMatchInlineSnapshot(`
       [
@@ -724,7 +724,7 @@ describe('completion snapshots: CLI with namespaced commands (no root)', () => {
     `)
   })
 
-  test('kubectl get pods -A --<TAB> — remaining options after used flag', () => {
+  test('kubectl get pods -A --<TAB> — remaining options after used flag', async () => {
     const cli = buildNamespacedCli()
     expect(cli.getCompletions(['kubectl', 'get', 'pods', '-A', '--'])).toMatchInlineSnapshot(`
       [
@@ -737,12 +737,12 @@ describe('completion snapshots: CLI with namespaced commands (no root)', () => {
     `)
   })
 
-  test('kubectl get pods --output <TAB> — after value option', () => {
+  test('kubectl get pods --output <TAB> — after value option', async () => {
     const cli = buildNamespacedCli()
     expect(cli.getCompletions(['kubectl', 'get', 'pods', '--output', ''])).toMatchInlineSnapshot(`[]`)
   })
 
-  test('kubectl describe <TAB> — subcommands', () => {
+  test('kubectl describe <TAB> — subcommands', async () => {
     const cli = buildNamespacedCli()
     expect(cli.getCompletions(['kubectl', 'describe', ''])).toMatchInlineSnapshot(`
       [
@@ -752,7 +752,7 @@ describe('completion snapshots: CLI with namespaced commands (no root)', () => {
     `)
   })
 
-  test('kubectl apply --<TAB> — options for apply', () => {
+  test('kubectl apply --<TAB> — options for apply', async () => {
     const cli = buildNamespacedCli()
     expect(cli.getCompletions(['kubectl', 'apply', '--'])).toMatchInlineSnapshot(`
       [
@@ -765,7 +765,7 @@ describe('completion snapshots: CLI with namespaced commands (no root)', () => {
     `)
   })
 
-  test('kubectl apply --dry-run --<TAB> — after used boolean', () => {
+  test('kubectl apply --dry-run --<TAB> — after used boolean', async () => {
     const cli = buildNamespacedCli()
     expect(cli.getCompletions(['kubectl', 'apply', '--dry-run', '--'])).toMatchInlineSnapshot(`
       [
@@ -777,7 +777,7 @@ describe('completion snapshots: CLI with namespaced commands (no root)', () => {
     `)
   })
 
-  test('kubectl delete pod myapp --<TAB> — options after positional arg', () => {
+  test('kubectl delete pod myapp --<TAB> — options after positional arg', async () => {
     const cli = buildNamespacedCli()
     expect(cli.getCompletions(['kubectl', 'delete', 'pod', 'myapp', '--'])).toMatchInlineSnapshot(`
       [
@@ -790,7 +790,7 @@ describe('completion snapshots: CLI with namespaced commands (no root)', () => {
     `)
   })
 
-  test('kubectl logs mypod --<TAB> — options for logs', () => {
+  test('kubectl logs mypod --<TAB> — options for logs', async () => {
     const cli = buildNamespacedCli()
     expect(cli.getCompletions(['kubectl', 'logs', 'mypod', '--'])).toMatchInlineSnapshot(`
       [
@@ -803,7 +803,7 @@ describe('completion snapshots: CLI with namespaced commands (no root)', () => {
     `)
   })
 
-  test('kubectl logs mypod -f --<TAB> — after short boolean alias', () => {
+  test('kubectl logs mypod -f --<TAB> — after short boolean alias', async () => {
     const cli = buildNamespacedCli()
     expect(cli.getCompletions(['kubectl', 'logs', 'mypod', '-f', '--'])).toMatchInlineSnapshot(`
       [
@@ -815,12 +815,12 @@ describe('completion snapshots: CLI with namespaced commands (no root)', () => {
     `)
   })
 
-  test('kubectl logs mypod --tail <TAB> — after value option', () => {
+  test('kubectl logs mypod --tail <TAB> — after value option', async () => {
     const cli = buildNamespacedCli()
     expect(cli.getCompletions(['kubectl', 'logs', 'mypod', '--tail', ''])).toMatchInlineSnapshot(`[]`)
   })
 
-  test('kubectl nonexistent <TAB> — unknown command', () => {
+  test('kubectl nonexistent <TAB> — unknown command', async () => {
     const cli = buildNamespacedCli()
     expect(cli.getCompletions(['kubectl', 'nonexistent', ''])).toMatchInlineSnapshot(`
       [
@@ -866,7 +866,7 @@ describe('completion snapshots: zsh format', () => {
     return cli
   }
 
-  test('todo <TAB> — commands with descriptions', () => {
+  test('todo <TAB> — commands with descriptions', async () => {
     const cli = buildZshCli()
     expect(cli.getCompletions(['todo', ''])).toMatchInlineSnapshot(`
       [
@@ -878,7 +878,7 @@ describe('completion snapshots: zsh format', () => {
     `)
   })
 
-  test('todo add myitem --<TAB> — options with descriptions', () => {
+  test('todo add myitem --<TAB> — options with descriptions', async () => {
     const cli = buildZshCli()
     expect(cli.getCompletions(['todo', 'add', 'myitem', '--'])).toMatchInlineSnapshot(`
       [
@@ -889,7 +889,7 @@ describe('completion snapshots: zsh format', () => {
     `)
   })
 
-  test('todo list --<TAB> — list options with descriptions', () => {
+  test('todo list --<TAB> — list options with descriptions', async () => {
     const cli = buildZshCli()
     expect(cli.getCompletions(['todo', 'list', '--'])).toMatchInlineSnapshot(`
       [

@@ -54,7 +54,7 @@ function gokeTestable(name = '', options?: Partial<GokeOptions>) {
 }
 
 describe('injected execution context', () => {
-  test('command action receives injected console and process', () => {
+  test('command action receives injected console and process', async () => {
     const stdout = createTestOutputStream()
     const cli = gokeTestable('mycli', { stdout })
     let seenArgv: string[] | undefined
@@ -66,13 +66,13 @@ describe('injected execution context', () => {
         seenArgv = process.argv
       })
 
-    cli.parse(['node', 'bin', 'status'], { run: true })
+    await cli.parse(['node', 'bin', 'status'], { run: true })
 
     expect(stdout.text).toBe('ready\n')
     expect(seenArgv).toEqual(['node', 'bin', 'status'])
   })
 
-  test('middleware receives injected console and process', () => {
+  test('middleware receives injected console and process', async () => {
     const stdout = createTestOutputStream()
     const cli = gokeTestable('mycli', { stdout })
     let seenArgv: string[] | undefined
@@ -85,7 +85,7 @@ describe('injected execution context', () => {
       .command('build', 'Build')
       .action(() => {})
 
-    cli.parse(['node', 'bin', 'build'], { run: true })
+    await cli.parse(['node', 'bin', 'build'], { run: true })
 
     expect(stdout.text).toBe('middleware\n')
     expect(seenArgv).toEqual(['node', 'bin', 'build'])
@@ -93,14 +93,14 @@ describe('injected execution context', () => {
 })
 
 describe('clone', () => {
-  test('clone creates isolated parse state', () => {
+  test('clone creates isolated parse state', async () => {
     const cli = gokeTestable('mycli')
 
     cli.command('build', 'Build').action(() => {})
 
     const cloned = cli.clone({ exit: () => {} })
 
-    cloned.parse(['node', 'bin', 'build'], { run: false })
+    await cloned.parse(['node', 'bin', 'build'], { run: false })
 
     expect(cloned).not.toBe(cli)
     expect(cloned.matchedCommandName).toBe('build')
@@ -109,7 +109,7 @@ describe('clone', () => {
 })
 
 describe('createExecutionContext', () => {
-  test('returns a context that mirrors the cli defaults when called with no override', () => {
+  test('returns a context that mirrors the cli defaults when called with no override', async () => {
     const stdout = createTestOutputStream()
     const stderr = createTestOutputStream()
     const cli = gokeTestable('mycli', {

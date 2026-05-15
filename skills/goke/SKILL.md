@@ -100,7 +100,7 @@ cli.command('login', 'Authenticate with browser login').action((options, { conso
 
       Run it in a background terminal session like tuistory or tmux, then wait for the URL/code:
 
-        bunx tuistory launch "mycli login" -s mycli-login --no-wait
+        bunx tuistory launch "mycli login" -s mycli-login
         bunx tuistory -s mycli-login wait "/code:|https?:\\/\\//i" --timeout 15000
 
       The login command exits by itself after successful browser approval.

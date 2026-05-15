@@ -52,7 +52,7 @@ describe('README smoke tests', () => {
         console.log(`logs ${deploymentId} ${options.lines}`)
       })
 
-    cli.parse(['node', 'bin', '--env', 'production', 'up', '--dry-run'], { run: false })
+    await cli.parse(['node', 'bin', '--env', 'production', 'up', '--dry-run'], { run: false })
     await cli.runMatchedCommand()
 
     expect(stdout.text).toBe(
@@ -61,7 +61,7 @@ describe('README smoke tests', () => {
 
     stdout.lines.length = 0
 
-    cli.parse(['node', 'bin', 'logs', 'dep_123'], { run: false })
+    await cli.parse(['node', 'bin', 'logs', 'dep_123'], { run: false })
     await cli.runMatchedCommand()
 
     expect(stdout.text).toBe('Environment: staging\nlogs dep_123 100\n')
@@ -96,7 +96,7 @@ describe('README smoke tests', () => {
 
     expect(stripAnsi(cli.helpText())).toContain('mycli lint src/**/*.ts')
 
-    cli.parse(['node', 'bin', '--type', 'bun', '--name', 'Tommy', 'build', 'src/index.ts', '--minify'], { run: false })
+    await cli.parse(['node', 'bin', '--type', 'bun', '--name', 'Tommy', 'build', 'src/index.ts', '--minify'], { run: false })
     await cli.runMatchedCommand()
 
     expect(stdout.text).toBe(
@@ -135,7 +135,7 @@ describe('README smoke tests', () => {
         )
       })
 
-    cli.parse(['node', 'bin', '--env', 'staging', '--dry-run'], { run: false })
+    await cli.parse(['node', 'bin', '--env', 'staging', '--dry-run'], { run: false })
     await cli.runMatchedCommand()
 
     expect(stdout.text).toBe(
@@ -144,7 +144,7 @@ describe('README smoke tests', () => {
 
     stdout.lines.length = 0
 
-    cli.parse(['node', 'bin', 'logs', 'abc123', '--follow'], { run: false })
+    await cli.parse(['node', 'bin', 'logs', 'abc123', '--follow'], { run: false })
     await cli.runMatchedCommand()
 
     expect(stdout.text).toBe(
@@ -154,7 +154,7 @@ describe('README smoke tests', () => {
 })
 
 describe('documented command APIs', () => {
-  test('alias runs the same command through a short name', () => {
+  test('alias runs the same command through a short name', async () => {
     const cli = gokeTestable('mycli')
     let seen = ''
 
@@ -162,12 +162,12 @@ describe('documented command APIs', () => {
       seen = 'install'
     })
 
-    cli.parse(['node', 'bin', 'i'], { run: true })
+    await cli.parse(['node', 'bin', 'i'], { run: true })
 
     expect(seen).toBe('install')
   })
 
-  test('command helpText returns command-specific help without printing', () => {
+  test('command helpText returns command-specific help without printing', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout })
 
@@ -225,7 +225,7 @@ describe('documented command APIs', () => {
 })
 
 describe('generateDocs', () => {
-  test('generates pages for CLI with multiple commands', () => {
+  test('generates pages for CLI with multiple commands', async () => {
     const cli = gokeTestable('sentry')
       .version('1.0.0')
       .help()
@@ -352,13 +352,13 @@ describe('generateDocs', () => {
     `)
   })
 
-  test('handles CLI with no commands', () => {
+  test('handles CLI with no commands', async () => {
     const cli = gokeTestable('empty')
     const pages = generateDocs({ cli })
     expect(pages).toEqual([])
   })
 
-  test('skips deprecated options', () => {
+  test('skips deprecated options', async () => {
     const cli = gokeTestable('mycli')
     cli
       .command('deploy', 'Deploy the app')

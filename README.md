@@ -973,15 +973,37 @@ cli
 To handle command errors globally:
 
 ```ts
-try {
-  cli.parse(process.argv, { run: false })
-  await cli.runMatchedCommand()
-} catch (error) {
+cli.parse(process.argv).catch((error) => {
   const message = error instanceof Error ? error.stack : String(error)
   process.stderr.write(String(message) + '\n')
   process.exit(1)
-}
+})
 ```
+
+### Process shutdown after actions
+
+`parse()` resolves only after the matched command action and middleware finish. This makes it safe to add process shutdown code after parsing for CLIs that start background work, native handles, or long-running child processes during an action.
+
+```ts
+import { goke } from 'goke'
+
+const cli = goke('render')
+
+cli
+  .command('screenshot <file>', 'Render a screenshot')
+  .action(async (file, options, { console }) => {
+    await renderScreenshot(file)
+    console.log('saved screenshot')
+  })
+
+await cli.parse(process.argv)
+
+// The command is done here. Use manual exit only for runtimes that leave
+// background handles alive after the user-visible work has completed.
+setTimeout(() => process.exit(0), 500).unref()
+```
+
+Put the forced exit **after** the awaited parse call, not inside the action. That avoids cutting off pending writes, logs, or cleanup that still belongs to the command.
 
 ### Testing with mocked console and exit
 
@@ -992,7 +1014,7 @@ import { describe, expect, test, vi } from 'vitest'
 import { goke, GokeProcessExit } from 'goke'
 
 describe('deploy command', () => {
-  test('writes output and exits with injected mocks', () => {
+  test('writes output and exits with injected mocks', async () => {
     const stdout = { write: vi.fn<(data: string) => void>() }
     const stderr = { write: vi.fn<(data: string) => void>() }
     const exit = vi.fn<(code: number) => void>()
@@ -1006,9 +1028,8 @@ describe('deploy command', () => {
         process.exit(2)
       })
 
-    expect(() => {
-      cli.parse(['node', 'acme', 'deploy'], { run: true })
-    }).toThrow(GokeProcessExit)
+    await expect(cli.parse(['node', 'acme', 'deploy'], { run: true }))
+      .rejects.toThrow(GokeProcessExit)
 
     expect(stdout.write).toHaveBeenCalledWith('deploying\n')
     expect(exit).toHaveBeenCalledWith(2)
@@ -1439,7 +1460,9 @@ Compose commands from another goke instance into this CLI. All commands defined 
 
 #### cli.parse(argv?)
 
-- Type: `(argv = process.argv) => ParsedArgv`
+- Type: `(argv = process.argv) => Promise<ParsedArgv>`
+
+Parse argv, run the matched command by default, and resolve after async middleware and actions complete. Pass `{ run: false }` to parse and inspect args/options without running the matched command.
 
 #### cli.version(version, customFlags?)
 
