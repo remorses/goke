@@ -1295,10 +1295,11 @@ describe('space-separated subcommands', () => {
     expect(stripAnsi(errOutput)).toContain('Unknown command: foo')
   })
 
-  test('unknown command without prefix outputs error', async () => {
+  test('unknown command without prefix outputs error and help', async () => {
     let errOutput = ''
+    let stdOutput = ''
     const cli = goke('mycli', {
-      stdout: { write() {} },
+      stdout: { write(data) { stdOutput += data } },
       stderr: { write(data) { errOutput += data } },
       exit: () => {},
     })
@@ -1313,7 +1314,10 @@ describe('space-separated subcommands', () => {
 
     expect(cli.matchedCommand).toBeUndefined()
     expect(stripAnsi(errOutput)).toContain('Unknown command: something')
-    expect(stripAnsi(errOutput)).toContain('mycli --help')
+    // Should output help so the user can see available commands
+    expect(stripAnsi(stdOutput)).toContain('Usage:')
+    expect(stripAnsi(stdOutput)).toContain('mcp login')
+    expect(stripAnsi(stdOutput)).toContain('build')
   })
 
   test('no args without default command outputs root help', async () => {
@@ -1389,6 +1393,23 @@ describe('space-separated subcommands', () => {
     await cli.parse(['node', 'bin', 'deploy'], { run: true })
 
     expect(receivedScript).toBe('deploy')
+  })
+
+  test('default command WITH positional args alongside other commands', async () => {
+    let defaultScript: string | undefined
+    let buildRan = false
+    const cli = gokeTestable('mycli')
+
+    cli.command('[file]', 'Process a file').action(async (file) => {
+      defaultScript = file
+    })
+    cli.command('build', 'Build project').action(async () => { buildRan = true })
+
+    // Passing an arg that is NOT a known command should route to the default
+    await cli.parse(['node', 'bin', 'readme.md'], { run: true })
+
+    expect(defaultScript).toBe('readme.md')
+    expect(buildRan).toBe(false)
   })
 
   test('default command rejects unknown nonexistent command', async () => {

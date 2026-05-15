@@ -2039,8 +2039,8 @@ class Goke<Opts = {}> extends EventEmitter {
           this.outputHelpForPrefix(firstArg, matchingCommands)
         } else {
           // Unknown command with no matching prefix: show error + root help
-          this.console.error(`Unknown command: ${this.args.join(' ')}`)
-          this.console.error(`Run "${this.name} --help" to see available commands.`)
+          this.console.error(`Unknown command: ${this.args.join(' ')}\n`)
+          this.outputHelp()
         }
         this.exit(1)
       }
