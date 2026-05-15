@@ -1249,6 +1249,7 @@ describe('space-separated subcommands', () => {
     let output = ''
     const cli = goke('mycli', {
       stdout: { write(data) { output += data } },
+      exit: () => {},
     })
 
     cli.command('mcp login', 'Login to MCP')
@@ -1273,8 +1274,11 @@ describe('space-separated subcommands', () => {
 
   test('unknown command without prefix does not show filtered help', async () => {
     let output = ''
+    let errOutput = ''
     const cli = goke('mycli', {
       stdout: { write(data) { output += data } },
+      stderr: { write(data) { errOutput += data } },
+      exit: () => {},
     })
 
     cli.command('mcp login', 'Login to MCP')
@@ -1287,12 +1291,16 @@ describe('space-separated subcommands', () => {
 
     // Should not show filtered help since "foo" is not a prefix of any command
     expect(stripAnsi(output)).not.toContain('Available "foo" commands')
+    // Should show error message instead of root help
+    expect(stripAnsi(errOutput)).toContain('Unknown command: foo')
   })
 
-  test('unknown command without prefix outputs root help', async () => {
-    let output = ''
+  test('unknown command without prefix outputs error', async () => {
+    let errOutput = ''
     const cli = goke('mycli', {
-      stdout: { write(data) { output += data } },
+      stdout: { write() {} },
+      stderr: { write(data) { errOutput += data } },
+      exit: () => {},
     })
 
     cli.command('mcp login', 'Login to MCP')
@@ -1304,10 +1312,8 @@ describe('space-separated subcommands', () => {
     await cli.parse(['node', 'bin', 'something'], { run: true })
 
     expect(cli.matchedCommand).toBeUndefined()
-    expect(stripAnsi(output)).toContain('Usage:')
-    expect(stripAnsi(output)).toContain('$ mycli <command> [options]')
-    expect(stripAnsi(output)).toContain('mcp login')
-    expect(stripAnsi(output)).toContain('build')
+    expect(stripAnsi(errOutput)).toContain('Unknown command: something')
+    expect(stripAnsi(errOutput)).toContain('mycli --help')
   })
 
   test('no args without default command outputs root help', async () => {
@@ -1943,7 +1949,7 @@ describe('stdout/stderr/argv injection', () => {
 
   test('stdout captures prefix help for unknown subcommands', async () => {
     const stdout = createTestOutputStream()
-    const cli = goke('mycli', { stdout })
+    const cli = goke('mycli', { stdout, exit: () => {} })
 
     cli.command('mcp login', 'Login to MCP')
     cli.command('mcp logout', 'Logout from MCP')
@@ -2370,7 +2376,7 @@ describe('middleware', () => {
 
   test('middleware does not run when no command matched', async () => {
     const stdout = createTestOutputStream()
-    const cli = goke('mycli', { stdout })
+    const cli = goke('mycli', { stdout, exit: () => {} })
     let middlewareCalled = false
 
     cli.use(() => { middlewareCalled = true })
