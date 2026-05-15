@@ -54,7 +54,7 @@ function stripStackTrace(text: string): string {
 }
 
 describe('error formatting', () => {
-  test('unknown option prints formatted error to stderr', () => {
+  test('unknown option prints formatted error to stderr', async () => {
     const stderr = createTestOutputStream()
     const cli = goke('mycli', { stderr, exit: () => {} })
 
@@ -64,13 +64,13 @@ describe('error formatting', () => {
       .action(() => {})
 
     try {
-      cli.parse('node bin build --unknown'.split(' '))
+      await cli.parse('node bin build --unknown'.split(' '))
     } catch {}
 
     expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: Unknown option \`--unknown\`"`)
   })
 
-  test('missing required option value prints formatted error to stderr', () => {
+  test('missing required option value prints formatted error to stderr', async () => {
     const stderr = createTestOutputStream()
     const cli = goke('mycli', { stderr, exit: () => {} })
 
@@ -80,26 +80,26 @@ describe('error formatting', () => {
       .action(() => {})
 
     try {
-      cli.parse('node bin serve --port'.split(' '))
+      await cli.parse('node bin serve --port'.split(' '))
     } catch {}
 
     expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: option \`--port <port>\` value is missing"`)
   })
 
-  test('schema coercion error prints formatted error to stderr', () => {
+  test('schema coercion error prints formatted error to stderr', async () => {
     const stderr = createTestOutputStream()
     const cli = goke('mycli', { stderr, exit: () => {} })
 
     cli.option('--port <port>', z.number().describe('Port'))
 
     try {
-      cli.parse('node bin --port abc'.split(' '))
+      await cli.parse('node bin --port abc'.split(' '))
     } catch {}
 
     expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: Invalid value for --port: expected number, got "abc""`)
   })
 
-  test('error includes help hint when help is enabled', () => {
+  test('error includes help hint when help is enabled', async () => {
     const stderr = createTestOutputStream()
     const cli = goke('mycli', { stderr, exit: () => {} })
 
@@ -111,7 +111,7 @@ describe('error formatting', () => {
       .action(() => {})
 
     try {
-      cli.parse('node bin serve --port'.split(' '))
+      await cli.parse('node bin serve --port'.split(' '))
     } catch {}
 
     expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`
@@ -131,7 +131,7 @@ describe('error formatting', () => {
         throw new Error('connection refused')
       })
 
-    cli.parse('node bin deploy'.split(' '))
+    await cli.parse('node bin deploy'.split(' '))
 
     // Wait for the async rejection to be handled
     await new Promise(resolve => setTimeout(resolve, 10))
@@ -140,7 +140,7 @@ describe('error formatting', () => {
     expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: connection refused"`)
   })
 
-  test('error output includes stack trace', () => {
+  test('error output includes stack trace', async () => {
     const stderr = createTestOutputStream()
     const cli = goke('mycli', { stderr, exit: () => {} })
 
@@ -149,7 +149,7 @@ describe('error formatting', () => {
       .action(() => {})
 
     try {
-      cli.parse('node bin build --unknown'.split(' '))
+      await cli.parse('node bin build --unknown'.split(' '))
     } catch {}
 
     // Verify that stderr contains "error:" prefix and a stack trace with "at" lines
@@ -161,7 +161,7 @@ describe('error formatting', () => {
 })
 
 describe('anonymous action naming', () => {
-  test('inline anonymous function gets named after the command', () => {
+  test('inline anonymous function gets named after the command', async () => {
     const cli = gokeTestable('mycli')
     const cmd = cli.command('deploy', 'Deploy app')
     // Inline arrow functions passed directly to .action() have no name,
@@ -170,14 +170,14 @@ describe('anonymous action naming', () => {
     expect(cmd.commandAction!.name).toBe('command:deploy')
   })
 
-  test('inline anonymous function on multi-word command gets full name', () => {
+  test('inline anonymous function on multi-word command gets full name', async () => {
     const cli = gokeTestable('mycli')
     const cmd = cli.command('db migrate', 'Run migrations')
     cmd.action(() => {})
     expect(cmd.commandAction!.name).toBe('command:db migrate')
   })
 
-  test('named function keeps its original name', () => {
+  test('named function keeps its original name', async () => {
     const cli = gokeTestable('mycli')
     const cmd = cli.command('build', 'Build app')
     function myBuildAction() {}
@@ -185,7 +185,7 @@ describe('anonymous action naming', () => {
     expect(cmd.commandAction!.name).toBe('myBuildAction')
   })
 
-  test('default command action gets "command:default" name', () => {
+  test('default command action gets "command:default" name', async () => {
     const cli = gokeTestable('mycli')
     const cmd = cli.command('', 'Default command')
     cmd.action(() => {})
@@ -194,6 +194,22 @@ describe('anonymous action naming', () => {
 })
 
 describe('injected fs', () => {
+  test('parse waits for async command actions before resolving', async () => {
+    const stdout = createTestOutputStream()
+    const cli = gokeTestable('mycli', { stdout })
+
+    cli
+      .command('deploy', 'Deploy app')
+      .action(async (options, { console }) => {
+        await new Promise(resolve => setTimeout(resolve, 10))
+        console.log('deploy complete')
+      })
+
+    await cli.parse(['node', 'bin', 'deploy'])
+
+    expect(stdout.text).toBe('deploy complete\n')
+  })
+
   test('command actions can use the default node fs for cli storage', async () => {
     const stdout = createTestOutputStream()
     const cli = gokeTestable('mycli', { stdout })
@@ -212,7 +228,7 @@ describe('injected fs', () => {
           console.log('saved credentials')
         })
 
-      cli.parse(['node', 'bin', 'login', '--token', 'abc123'], { run: false })
+      await cli.parse(['node', 'bin', 'login', '--token', 'abc123'], { run: false })
       await cli.runMatchedCommand()
 
       expect(stdout.text).toBe('saved credentials\n')
@@ -246,7 +262,7 @@ describe('injected process context', () => {
           }))
         })
 
-      cli.parse(['node', 'bin', 'context'], { run: false })
+      await cli.parse(['node', 'bin', 'context'], { run: false })
       await cli.runMatchedCommand()
 
       expect(stdout.text).toBe(
@@ -275,7 +291,7 @@ describe('injected process context', () => {
         console.log(process.env.TOKEN)
       })
 
-    cli.parse(['node', 'bin', 'context'], { run: false })
+    await cli.parse(['node', 'bin', 'context'], { run: false })
     await cli.runMatchedCommand()
 
     expect(stdout.text).toBe('after\n')
@@ -283,10 +299,10 @@ describe('injected process context', () => {
   })
 })
 
-test('double dashes', () => {
+test('double dashes', async () => {
   const cli = goke()
 
-  const { args, options } = cli.parse([
+  const { args, options } = await cli.parse([
     'node',
     'bin',
     'foo',
@@ -300,14 +316,14 @@ test('double dashes', () => {
   expect(options['--']).toEqual(['npm', 'test'])
 })
 
-test('dot-nested options', () => {
+test('dot-nested options', async () => {
   const cli = goke()
 
   cli
     .option('--externals <external>', 'Add externals')
     .option('--scale [level]', 'Scaling level')
 
-  const { options: options1 } = cli.parse(
+  const { options: options1 } = await cli.parse(
     `node bin --externals.env.prod production --scale`.split(' ')
   )
   expect(options1.externals).toEqual({ env: { prod: 'production' } })
@@ -317,96 +333,96 @@ test('dot-nested options', () => {
 })
 
 describe('schema-based options', () => {
-  test('schema coerces string to number', () => {
+  test('schema coerces string to number', async () => {
     const cli = goke()
 
     cli.option('--port <port>', z.number().describe('Port number'))
 
-    const { options } = cli.parse('node bin --port 3000'.split(' '))
+    const { options } = await cli.parse('node bin --port 3000'.split(' '))
     expect(options.port).toBe(3000)
     expect(typeof options.port).toBe('number')
   })
 
-  test('schema preserves string (no auto-conversion to number)', () => {
+  test('schema preserves string (no auto-conversion to number)', async () => {
     const cli = goke()
 
     cli.option('--id <id>', z.string().describe('ID'))
 
-    const { options } = cli.parse('node bin --id 00123'.split(' '))
+    const { options } = await cli.parse('node bin --id 00123'.split(' '))
     expect(options.id).toBe('00123')
     expect(typeof options.id).toBe('string')
   })
 
-  test('schema coerces string to integer', () => {
+  test('schema coerces string to integer', async () => {
     const cli = goke()
 
     cli.option('--count <count>', z.int().describe('Count'))
 
-    const { options } = cli.parse('node bin --count 42'.split(' '))
+    const { options } = await cli.parse('node bin --count 42'.split(' '))
     expect(options.count).toBe(42)
   })
 
-  test('schema parses JSON object', () => {
+  test('schema parses JSON object', async () => {
     const cli = goke()
 
     cli.option('--config <config>', z.looseObject({}).describe('Config'))
 
-    const { options } = cli.parse(['node', 'bin', '--config', '{"a":1}'])
+    const { options } = await cli.parse(['node', 'bin', '--config', '{"a":1}'])
     expect(options.config).toEqual({ a: 1 })
   })
 
-  test('schema parses JSON array', () => {
+  test('schema parses JSON array', async () => {
     const cli = goke()
 
     cli.option('--items <items>', z.array(z.unknown()).describe('Items'))
 
-    const { options } = cli.parse(['node', 'bin', '--items', '[1,2,3]'])
+    const { options } = await cli.parse(['node', 'bin', '--items', '[1,2,3]'])
     expect(options.items).toEqual([1, 2, 3])
   })
 
-  test('schema throws on invalid number', () => {
+  test('schema throws on invalid number', async () => {
     const cli = gokeTestable()
 
     cli.option('--port <port>', z.number().describe('Port number'))
 
-    expect(() => cli.parse('node bin --port abc'.split(' ')))
-      .toThrow('expected number, got "abc"')
+    await expect(cli.parse('node bin --port abc'.split(' ')))
+      .rejects.toThrow('expected number, got "abc"')
   })
 
-  test('schema with union type ["number", "string"]', () => {
+  test('schema with union type ["number", "string"]', async () => {
     const cli = goke()
 
     cli.option('--val <val>', z.union([z.number(), z.string()]).describe('Value'))
 
-    const { options: opts1 } = cli.parse('node bin --val 123'.split(' '))
+    const { options: opts1 } = await cli.parse('node bin --val 123'.split(' '))
     expect(opts1.val).toBe(123)
 
-    const { options: opts2 } = cli.parse('node bin --val abc'.split(' '))
+    const { options: opts2 } = await cli.parse('node bin --val abc'.split(' '))
     expect(opts2.val).toBe('abc')
   })
 
-  test('options without schema keep values as strings', () => {
+  test('options without schema keep values as strings', async () => {
     const cli = goke()
 
     cli.option('--port <port>', 'Port number')
 
     // Without schema, mri no longer auto-converts — value stays as string.
     // Use a schema to get typed values.
-    const { options } = cli.parse('node bin --port 3000'.split(' '))
+    const { options } = await cli.parse('node bin --port 3000'.split(' '))
     expect(options.port).toBe('3000')
     expect(typeof options.port).toBe('string')
   })
 
-  test('schema with default value', () => {
+  test('schema with default value', async () => {
     const cli = goke()
 
     cli.option('--port [port]', z.number().default(8080).describe('Port number'))
 
-    const { options } = cli.parse('node bin'.split(' '))
+    const { options } = await cli.parse('node bin'.split(' '))
     expect(options.port).toBe(8080)
   })
 
-  test('schema on subcommand options', () => {
+  test('schema on subcommand options', async () => {
     const cli = goke()
     let result: any = {}
 
@@ -418,75 +434,75 @@ describe('schema-based options', () => {
         result = options
       })
 
-    cli.parse('node bin serve --port 3000 --host localhost'.split(' '), { run: true })
+    await cli.parse('node bin serve --port 3000 --host localhost'.split(' '), { run: true })
     expect(result.port).toBe(3000)
     expect(result.host).toBe('localhost')
   })
 })
 
 describe('no-schema behavior (mri no longer auto-converts)', () => {
-  test('numeric string stays as string without schema', () => {
+  test('numeric string stays as string without schema', async () => {
     const cli = goke()
     cli.option('--port <port>', 'Port')
-    const { options } = cli.parse('node bin --port 3000'.split(' '))
+    const { options } = await cli.parse('node bin --port 3000'.split(' '))
     expect(options.port).toBe('3000')
   })
 
-  test('leading zeros preserved without schema', () => {
+  test('leading zeros preserved without schema', async () => {
     const cli = goke()
     cli.option('--id <id>', 'ID')
-    const { options } = cli.parse('node bin --id 00123'.split(' '))
+    const { options } = await cli.parse('node bin --id 00123'.split(' '))
     expect(options.id).toBe('00123')
   })
 
-  test('phone number preserved without schema', () => {
+  test('phone number preserved without schema', async () => {
     const cli = goke()
     cli.option('--phone <phone>', 'Phone')
-    const { options } = cli.parse('node bin --phone +1234567890'.split(' '))
+    const { options } = await cli.parse('node bin --phone +1234567890'.split(' '))
     expect(options.phone).toBe('+1234567890')
   })
 
-  test('boolean flags still work without schema', () => {
+  test('boolean flags still work without schema', async () => {
     const cli = goke()
     cli.option('--verbose', 'Verbose')
-    const { options } = cli.parse('node bin --verbose'.split(' '))
+    const { options } = await cli.parse('node bin --verbose'.split(' '))
     expect(options.verbose).toBe(true)
   })
 
-  test('optional value flag returns empty string when no value given', () => {
+  test('optional value flag returns empty string when no value given', async () => {
     // Bare `--format` is normalized from the mri `true` sentinel to `''` so
     // callers see a uniform `string | undefined` shape. `''` still lets them
     // distinguish "flag present but no value" from "flag omitted entirely".
     const cli = goke()
     cli.option('--format [fmt]', 'Format')
-    const { options } = cli.parse('node bin --format'.split(' '))
+    const { options } = await cli.parse('node bin --format'.split(' '))
     expect(options.format).toBe('')
   })
 
-  test('optional value flag returns string when value given', () => {
+  test('optional value flag returns string when value given', async () => {
     const cli = goke()
     cli.option('--format [fmt]', 'Format')
-    const { options } = cli.parse('node bin --format json'.split(' '))
+    const { options } = await cli.parse('node bin --format json'.split(' '))
     expect(options.format).toBe('json')
   })
 
-  test('hex string stays as string without schema', () => {
+  test('hex string stays as string without schema', async () => {
     const cli = goke()
     cli.option('--color <color>', 'Color')
-    const { options } = cli.parse('node bin --color 0xff00ff'.split(' '))
+    const { options } = await cli.parse('node bin --color 0xff00ff'.split(' '))
     expect(options.color).toBe('0xff00ff')
   })
 
-  test('scientific notation stays as string without schema', () => {
+  test('scientific notation stays as string without schema', async () => {
     const cli = goke()
     cli.option('--val <val>', 'Value')
-    const { options } = cli.parse('node bin --val 1e10'.split(' '))
+    const { options } = await cli.parse('node bin --val 1e10'.split(' '))
     expect(options.val).toBe('1e10')
   })
 })
 
 describe('typical CLI usage examples', () => {
-  test('web server CLI with typed options', () => {
+  test('web server CLI with typed options', async () => {
     const cli = goke('myserver')
     let config: any = {}
 
@@ -499,7 +515,7 @@ describe('typical CLI usage examples', () => {
       .option('--log', 'Enable logging')
       .action((options) => { config = options })
 
-    cli.parse('node bin start --port 8080 --host 0.0.0.0 --workers 4 --cors'.split(' '), { run: true })
+    await cli.parse('node bin start --port 8080 --host 0.0.0.0 --workers 4 --cors'.split(' '), { run: true })
 
     expect(config.port).toBe(8080)
     expect(typeof config.port).toBe('number')
@@ -509,7 +525,7 @@ describe('typical CLI usage examples', () => {
     expect(config.cors).toBe(true)
   })
 
-  test('web server CLI with defaults (no args)', () => {
+  test('web server CLI with defaults (no args)', async () => {
     const cli = goke('myserver')
     let config: any = {}
 
@@ -519,13 +535,13 @@ describe('typical CLI usage examples', () => {
       .option('--host [host]', z.string().default('localhost').describe('Host'))
       .action((options) => { config = options })
 
-    cli.parse('node bin start'.split(' '), { run: true })
+    await cli.parse('node bin start'.split(' '), { run: true })
 
     expect(config.port).toBe(3000)
     expect(config.host).toBe('localhost')
   })
 
-  test('database CLI with JSON config option', () => {
+  test('database CLI with JSON config option', async () => {
     const cli = goke('dbcli')
     let config: any = {}
 
@@ -535,13 +551,13 @@ describe('typical CLI usage examples', () => {
       .option('--dry-run', 'Preview without executing')
       .action((options) => { config = options })
 
-    cli.parse(['node', 'bin', 'migrate', '--connection', '{"host":"localhost","port":5432}', '--dry-run'], { run: true })
+    await cli.parse(['node', 'bin', 'migrate', '--connection', '{"host":"localhost","port":5432}', '--dry-run'], { run: true })
 
     expect(config.connection).toEqual({ host: 'localhost', port: 5432 })
     expect(config.dryRun).toBe(true)
   })
 
-  test('file processing CLI with positional args + typed options', () => {
+  test('file processing CLI with positional args + typed options', async () => {
     const cli = goke('fileproc')
     let result: any = {}
 
@@ -553,7 +569,7 @@ describe('typical CLI usage examples', () => {
         result = { input, output, ...options }
       })
 
-    cli.parse('node bin convert photo.bmp photo.jpg --quality 85 --format jpg'.split(' '), { run: true })
+    await cli.parse('node bin convert photo.bmp photo.jpg --quality 85 --format jpg'.split(' '), { run: true })
 
     expect(result.input).toBe('photo.bmp')
     expect(result.output).toBe('photo.jpg')
@@ -562,7 +578,7 @@ describe('typical CLI usage examples', () => {
     expect(result.format).toBe('jpg')
   })
 
-  test('API client CLI preserving string IDs', () => {
+  test('API client CLI preserving string IDs', async () => {
     const cli = goke('apicli')
     let result: any = {}
 
@@ -574,27 +590,27 @@ describe('typical CLI usage examples', () => {
       })
 
     // userId "00123" should NOT be coerced to number 123
-    cli.parse(['node', 'bin', 'get-user', '00123', '--fields', '["name","email"]'], { run: true })
+    await cli.parse(['node', 'bin', 'get-user', '00123', '--fields', '["name","email"]'], { run: true })
 
     expect(result.userId).toBe('00123')
     expect(result.fields).toEqual(['name', 'email'])
   })
 
-  test('nullable option with union type', () => {
+  test('nullable option with union type', async () => {
     const cli = goke()
     cli.option('--timeout <timeout>', z.nullable(z.number()).describe('Timeout'))
 
-    const { options: opts1 } = cli.parse('node bin --timeout 5000'.split(' '))
+    const { options: opts1 } = await cli.parse('node bin --timeout 5000'.split(' '))
     expect(opts1.timeout).toBe(5000)
 
     // Empty string coerces to null for null type
-    const { options: opts2 } = cli.parse(['node', 'bin', '--timeout', ''])
+    const { options: opts2 } = await cli.parse(['node', 'bin', '--timeout', ''])
     expect(opts2.timeout).toBe(null)
   })
 })
 
 describe('regression: oracle-found issues', () => {
-  test('required option with schema still throws when value missing', () => {
+  test('required option with schema still throws when value missing', async () => {
     const cli = gokeTestable()
     let actionCalled = false
 
@@ -604,104 +620,103 @@ describe('regression: oracle-found issues', () => {
       .action(() => { actionCalled = true })
 
     // --port without a value should throw "value is missing"
-    expect(() => {
-      cli.parse('node bin serve --port'.split(' '), { run: true })
-    }).toThrow('value is missing')
+    await expect(cli.parse('node bin serve --port'.split(' '), { run: true }))
+      .rejects.toThrow('value is missing')
     expect(actionCalled).toBe(false)
   })
 
-  test('repeated flags with non-array schema throws', () => {
+  test('repeated flags with non-array schema throws', async () => {
     const cli = gokeTestable()
 
     cli.option('--tag <tag>', z.string().describe('Tags'))
 
-    expect(() => cli.parse('node bin --tag foo --tag bar'.split(' ')))
-      .toThrow('does not accept multiple values')
+    await expect(cli.parse('node bin --tag foo --tag bar'.split(' ')))
+      .rejects.toThrow('does not accept multiple values')
   })
 
-  test('repeated flags with number schema throws', () => {
+  test('repeated flags with number schema throws', async () => {
     const cli = gokeTestable()
 
     cli.option('--id <id>', z.number().describe('ID'))
 
-    expect(() => cli.parse('node bin --id 1 --id 2'.split(' ')))
-      .toThrow('does not accept multiple values')
+    await expect(cli.parse('node bin --id 1 --id 2'.split(' ')))
+      .rejects.toThrow('does not accept multiple values')
   })
 
-  test('repeated flags with array schema collects values', () => {
+  test('repeated flags with array schema collects values', async () => {
     const cli = goke()
 
     cli.option('--tag <tag>', z.array(z.string()).describe('Tags'))
 
-    const { options } = cli.parse('node bin --tag foo --tag bar'.split(' '))
+    const { options } = await cli.parse('node bin --tag foo --tag bar'.split(' '))
     expect(options.tag).toEqual(['foo', 'bar'])
   })
 
-  test('repeated flags with array+items schema coerces each element', () => {
+  test('repeated flags with array+items schema coerces each element', async () => {
     const cli = goke()
 
     cli.option('--id <id>', z.array(z.number()).describe('IDs'))
 
-    const { options } = cli.parse('node bin --id 1 --id 2 --id 3'.split(' '))
+    const { options } = await cli.parse('node bin --id 1 --id 2 --id 3'.split(' '))
     expect(options.id).toEqual([1, 2, 3])
   })
 
-  test('single value with array schema wraps in array', () => {
+  test('single value with array schema wraps in array', async () => {
     const cli = goke()
 
     cli.option('--tag <tag>', z.array(z.string()).describe('Tags'))
 
-    const { options } = cli.parse('node bin --tag foo'.split(' '))
+    const { options } = await cli.parse('node bin --tag foo'.split(' '))
     expect(options.tag).toEqual(['foo'])
   })
 
-  test('single value with array+number items schema wraps and coerces', () => {
+  test('single value with array+number items schema wraps and coerces', async () => {
     const cli = goke()
 
     cli.option('--id <id>', z.array(z.number()).describe('IDs'))
 
-    const { options } = cli.parse('node bin --id 42'.split(' '))
+    const { options } = await cli.parse('node bin --id 42'.split(' '))
     expect(options.id).toEqual([42])
   })
 
-  test('JSON array string with array schema parses correctly', () => {
+  test('JSON array string with array schema parses correctly', async () => {
     const cli = goke()
 
     cli.option('--ids <ids>', z.array(z.number()).describe('IDs'))
 
-    const { options } = cli.parse(['node', 'bin', '--ids', '[1,2,3]'])
+    const { options } = await cli.parse(['node', 'bin', '--ids', '[1,2,3]'])
     expect(options.ids).toEqual([1, 2, 3])
   })
 
-  test('repeated flags without schema still produce array (no schema = no restriction)', () => {
+  test('repeated flags without schema still produce array (no schema = no restriction)', async () => {
     const cli = goke()
 
     cli.option('--tag <tag>', 'Tags')
 
-    const { options } = cli.parse('node bin --tag foo --tag bar'.split(' '))
+    const { options } = await cli.parse('node bin --tag foo --tag bar'.split(' '))
     expect(options.tag).toEqual(['foo', 'bar'])
   })
 
-  test('repeated optional value option without schema produces array', () => {
+  test('repeated optional value option without schema produces array', async () => {
     const cli = goke()
 
     cli.option('--tag [tag]', 'Tags')
 
-    const { options } = cli.parse('node bin --tag foo --tag bar'.split(' '))
+    const { options } = await cli.parse('node bin --tag foo --tag bar'.split(' '))
     expect(options.tag).toEqual(['foo', 'bar'])
   })
 
-  test('repeated alias option without schema produces array', () => {
+  test('repeated alias option without schema produces array', async () => {
     const cli = goke()
 
     cli.option('-t, --tag <tag>', 'Tags')
 
-    const { options } = cli.parse('node bin -t foo -t bar -t baz'.split(' '))
+    const { options } = await cli.parse('node bin -t foo -t bar -t baz'.split(' '))
     expect(options.tag).toEqual(['foo', 'bar', 'baz'])
     expect(options.t).toEqual(['foo', 'bar', 'baz'])
   })
 
-  test('repeated option without schema on subcommand produces array', () => {
+  test('repeated option without schema on subcommand produces array', async () => {
     const cli = goke()
     let result: any = {}
 
@@ -710,34 +725,34 @@ describe('regression: oracle-found issues', () => {
       .option('--exclude <path>', 'Paths to exclude')
       .action((options) => { result = options })
 
-    cli.parse('node bin build --exclude node_modules --exclude dist --exclude .git'.split(' '), { run: true })
+    await cli.parse('node bin build --exclude node_modules --exclude dist --exclude .git'.split(' '), { run: true })
     expect(result.exclude).toEqual(['node_modules', 'dist', '.git'])
   })
 
-  test('single value without schema stays as string (not wrapped in array)', () => {
+  test('single value without schema stays as string (not wrapped in array)', async () => {
     const cli = goke()
 
     cli.option('--tag <tag>', 'Tags')
 
-    const { options } = cli.parse('node bin --tag foo'.split(' '))
+    const { options } = await cli.parse('node bin --tag foo'.split(' '))
     expect(options.tag).toBe('foo')
   })
 
-  test('const null coercion works', () => {
+  test('const null coercion works', async () => {
     expect(coerceBySchema('', { const: null }, 'val')).toBe(null)
   })
 
-  test('optional value option with schema returns undefined when no value given', () => {
+  test('optional value option with schema returns undefined when no value given', async () => {
     const cli = goke()
 
     cli.option('--count [count]', z.number().describe('Count'))
 
     // --count without value → schema expects number, none given → undefined
-    const { options } = cli.parse('node bin --count'.split(' '))
+    const { options } = await cli.parse('node bin --count'.split(' '))
     expect(options.count).toBe(undefined)
   })
 
-  test('optional value option without schema normalizes bare flag to empty string', () => {
+  test('optional value option without schema normalizes bare flag to empty string', async () => {
     const cli = goke()
 
     cli.option('--count [count]', 'Count')
@@ -748,31 +763,31 @@ describe('regression: oracle-found issues', () => {
     //   - (omitted)       → undefined   (flag absent)
     // This lets callers use a single `typeof options.count === 'string'`
     // check and distinguish the three cases via `=== ''` if they need to.
-    const { options } = cli.parse('node bin --count'.split(' '))
+    const { options } = await cli.parse('node bin --count'.split(' '))
     expect(options.count).toBe('')
   })
 
-  test('optional value option with schema coerces when value given', () => {
+  test('optional value option with schema coerces when value given', async () => {
     const cli = goke()
 
     cli.option('--count [count]', z.number().describe('Count'))
 
-    const { options } = cli.parse('node bin --count 42'.split(' '))
+    const { options } = await cli.parse('node bin --count 42'.split(' '))
     expect(options.count).toBe(42)
   })
 
-  test('optional value option with schema default returns default when omitted', () => {
+  test('optional value option with schema default returns default when omitted', async () => {
     // `z.number().default(30)` has input `number | undefined` → output `number`,
     // so goke marks this option as effectively required and must surface the
     // default value at runtime when the flag is omitted.
     const cli = goke()
     cli.option('--limit [n]', z.number().default(30).describe('Max items'))
 
-    const { options } = cli.parse('node bin'.split(' '))
+    const { options } = await cli.parse('node bin'.split(' '))
     expect(options.limit).toBe(30)
   })
 
-  test('optional value option with schema default returns default when passed bare', () => {
+  test('optional value option with schema default returns default when passed bare', async () => {
     // Bare `--limit` is mri's "flag present, no value" sentinel. Without a
     // default, goke replaces it with `undefined`. With a default, goke must
     // preserve the preset default value instead of clobbering it, so the
@@ -781,19 +796,19 @@ describe('regression: oracle-found issues', () => {
     const cli = goke()
     cli.option('--limit [n]', z.number().default(30).describe('Max items'))
 
-    const { options } = cli.parse('node bin --limit'.split(' '))
+    const { options } = await cli.parse('node bin --limit'.split(' '))
     expect(options.limit).toBe(30)
   })
 
-  test('optional value option with schema default coerces explicit value', () => {
+  test('optional value option with schema default coerces explicit value', async () => {
     const cli = goke()
     cli.option('--limit [n]', z.number().default(30).describe('Max items'))
 
-    const { options } = cli.parse('node bin --limit 5'.split(' '))
+    const { options } = await cli.parse('node bin --limit 5'.split(' '))
     expect(options.limit).toBe(5)
   })
 
-  test('multiple optional options with defaults all preserve their defaults', () => {
+  test('multiple optional options with defaults all preserve their defaults', async () => {
     // Regression test for the runtime-overwrite bug: when several schema-backed
     // optional flags have defaults, passing one bare should not clobber the
     // others, and the bare one should keep its own default.
@@ -803,65 +818,65 @@ describe('regression: oracle-found issues', () => {
       .option('--sort [mode]', z.enum(['asc', 'desc']).default('asc'))
       .option('--host [host]', z.string().default('localhost'))
 
-    const { options } = cli.parse('node bin --sort'.split(' '))
+    const { options } = await cli.parse('node bin --sort'.split(' '))
     expect(options.limit).toBe(30)
     expect(options.sort).toBe('asc')
     expect(options.host).toBe('localhost')
   })
 
-  test('alias + schema coercion works', () => {
+  test('alias + schema coercion works', async () => {
     const cli = goke()
 
     cli.option('-p, --port <port>', z.number().describe('Port'))
 
-    const { options } = cli.parse('node bin -p 3000'.split(' '))
+    const { options } = await cli.parse('node bin -p 3000'.split(' '))
     expect(options.port).toBe(3000)
     expect(options.p).toBe(3000)
   })
 
-  test('union type ["array", "null"] with repeated flags', () => {
+  test('union type ["array", "null"] with repeated flags', async () => {
     const cli = goke()
 
     cli.option('--tags <tags>', z.nullable(z.array(z.string())).describe('Tags'))
 
-    const { options } = cli.parse('node bin --tags foo --tags bar'.split(' '))
+    const { options } = await cli.parse('node bin --tags foo --tags bar'.split(' '))
     expect(options.tags).toEqual(['foo', 'bar'])
   })
 })
 
 describe('edge cases: schema + defaults interaction', () => {
-  test('default value from schema is used when option not passed', () => {
+  test('default value from schema is used when option not passed', async () => {
     const cli = goke()
 
     cli.option('--port [port]', z.number().default(8080).describe('Port'))
 
-    const { options } = cli.parse('node bin'.split(' '))
+    const { options } = await cli.parse('node bin'.split(' '))
     expect(options.port).toBe(8080)
   })
 
-  test('default value is used when option not passed, schema value when passed', () => {
+  test('default value is used when option not passed, schema value when passed', async () => {
     const cli = goke()
 
     cli.option('--port [port]', z.number().default(8080).describe('Port'))
 
-    const { options: opts1 } = cli.parse('node bin'.split(' '))
+    const { options: opts1 } = await cli.parse('node bin'.split(' '))
     expect(opts1.port).toBe(8080)
 
-    const { options: opts2 } = cli.parse('node bin --port 3000'.split(' '))
+    const { options: opts2 } = await cli.parse('node bin --port 3000'.split(' '))
     expect(opts2.port).toBe(3000)
   })
 
-  test('optional value + default + schema: three-way interaction', () => {
+  test('optional value + default + schema: three-way interaction', async () => {
     const cli = goke()
 
     cli.option('--count [count]', z.number().default(10).describe('Count'))
 
     // Not passed at all → default
-    const { options: opts1 } = cli.parse('node bin'.split(' '))
+    const { options: opts1 } = await cli.parse('node bin'.split(' '))
     expect(opts1.count).toBe(10)
 
     // Passed with value → coerced
-    const { options: opts2 } = cli.parse('node bin --count 42'.split(' '))
+    const { options: opts2 } = await cli.parse('node bin --count 42'.split(' '))
     expect(opts2.count).toBe(42)
 
     // Passed without value → default preserved. Before goke 6.7.0 this test
@@ -869,109 +884,109 @@ describe('edge cases: schema + defaults interaction', () => {
     // preset default. With the HasSchemaDefault type inference, the runtime
     // must keep the default so that the type-level promise ("options.count
     // is always a number") holds for all three input states.
-    const { options: opts3 } = cli.parse('node bin --count'.split(' '))
+    const { options: opts3 } = await cli.parse('node bin --count'.split(' '))
     expect(opts3.count).toBe(10)
   })
 })
 
 describe('edge cases: boolean flags + schema', () => {
-  test('boolean flag (no brackets) with number schema — mri returns boolean', () => {
+  test('boolean flag (no brackets) with number schema — mri returns boolean', async () => {
     const cli = goke()
 
     // This is a questionable usage: boolean flag + number schema
     // mri returns true/false for boolean flags, schema tries to coerce boolean→number
     cli.option('--verbose', z.number().describe('Verbose'))
 
-    const { options } = cli.parse('node bin --verbose'.split(' '))
+    const { options } = await cli.parse('node bin --verbose'.split(' '))
     // Boolean true → coerced to 1 by number schema
     expect(options.verbose).toBe(1)
   })
 
-  test('boolean string value with boolean schema on value option', () => {
+  test('boolean string value with boolean schema on value option', async () => {
     const cli = goke()
 
     cli.option('--flag <flag>', z.boolean().describe('A flag'))
 
-    const { options: opts1 } = cli.parse('node bin --flag true'.split(' '))
+    const { options: opts1 } = await cli.parse('node bin --flag true'.split(' '))
     expect(opts1.flag).toBe(true)
 
-    const { options: opts2 } = cli.parse('node bin --flag false'.split(' '))
+    const { options: opts2 } = await cli.parse('node bin --flag false'.split(' '))
     expect(opts2.flag).toBe(false)
   })
 
-  test('invalid boolean string with boolean schema throws', () => {
+  test('invalid boolean string with boolean schema throws', async () => {
     const cli = gokeTestable()
 
     cli.option('--flag <flag>', z.boolean().describe('A flag'))
 
-    expect(() => cli.parse('node bin --flag yes'.split(' ')))
-      .toThrow('expected true or false')
+    await expect(cli.parse('node bin --flag yes'.split(' ')))
+      .rejects.toThrow('expected true or false')
   })
 })
 
 describe('edge cases: dot-nested options + schema', () => {
-  test('dot-nested option with number schema coerces value', () => {
+  test('dot-nested option with number schema coerces value', async () => {
     const cli = goke()
 
     cli.option('--config.port <port>', z.number().describe('Port'))
 
-    const { options } = cli.parse('node bin --config.port 3000'.split(' '))
+    const { options } = await cli.parse('node bin --config.port 3000'.split(' '))
     expect(options.config).toEqual({ port: 3000 })
   })
 
-  test('dot-nested default uses nested object shape', () => {
+  test('dot-nested default uses nested object shape', async () => {
     const cli = goke()
 
     cli.option('--config.port [port]', z.number().default(8080).describe('Port'))
 
-    const { options } = cli.parse('node bin'.split(' '))
+    const { options } = await cli.parse('node bin'.split(' '))
     expect(options.config).toEqual({ port: 8080 })
   })
 })
 
 describe('edge cases: kebab-case + schema', () => {
-  test('kebab-case option coerced via schema and accessible as camelCase', () => {
+  test('kebab-case option coerced via schema and accessible as camelCase', async () => {
     const cli = goke()
 
     cli.option('--max-retries <count>', z.number().describe('Max retries'))
 
-    const { options } = cli.parse('node bin --max-retries 5'.split(' '))
+    const { options } = await cli.parse('node bin --max-retries 5'.split(' '))
     expect(options.maxRetries).toBe(5)
     expect(typeof options.maxRetries).toBe('number')
   })
 })
 
 describe('edge cases: empty string values', () => {
-  test('empty string with string schema stays empty string', () => {
+  test('empty string with string schema stays empty string', async () => {
     const cli = goke()
 
     cli.option('--name <name>', z.string().describe('Name'))
 
-    const { options } = cli.parse(['node', 'bin', '--name', ''])
+    const { options } = await cli.parse(['node', 'bin', '--name', ''])
     expect(options.name).toBe('')
   })
 
-  test('empty string with number schema throws', () => {
+  test('empty string with number schema throws', async () => {
     const cli = gokeTestable()
 
     cli.option('--port <port>', z.number().describe('Port'))
 
-    expect(() => cli.parse(['node', 'bin', '--port', '']))
-      .toThrow('expected number, got empty string')
+    await expect(cli.parse(['node', 'bin', '--port', '']))
+      .rejects.toThrow('expected number, got empty string')
   })
 
-  test('empty string with nullable number schema returns null', () => {
+  test('empty string with nullable number schema returns null', async () => {
     const cli = goke()
 
     cli.option('--timeout <timeout>', z.nullable(z.number()).describe('Timeout'))
 
-    const { options } = cli.parse(['node', 'bin', '--timeout', ''])
+    const { options } = await cli.parse(['node', 'bin', '--timeout', ''])
     expect(options.timeout).toBe(null)
   })
 })
 
 describe('edge cases: global options with schema in subcommands', () => {
-  test('global option schema applies to subcommand parsing', () => {
+  test('global option schema applies to subcommand parsing', async () => {
     const cli = goke()
     let result: any = {}
 
@@ -981,53 +996,53 @@ describe('edge cases: global options with schema in subcommands', () => {
       .command('serve', 'Start server')
       .action((options) => { result = options })
 
-    cli.parse('node bin serve --port 3000'.split(' '), { run: true })
+    await cli.parse('node bin serve --port 3000'.split(' '), { run: true })
     expect(result.port).toBe(3000)
     expect(typeof result.port).toBe('number')
   })
 })
 
 describe('edge cases: short alias + schema', () => {
-  test('short alias repeated with array schema', () => {
+  test('short alias repeated with array schema', async () => {
     const cli = goke()
 
     cli.option('-t, --tag <tag>', z.array(z.string()).describe('Tags'))
 
-    const { options } = cli.parse('node bin -t foo -t bar'.split(' '))
+    const { options } = await cli.parse('node bin -t foo -t bar'.split(' '))
     expect(options.tag).toEqual(['foo', 'bar'])
     expect(options.t).toEqual(['foo', 'bar'])
   })
 
-  test('short alias single value with array schema wraps', () => {
+  test('short alias single value with array schema wraps', async () => {
     const cli = goke()
 
     cli.option('-t, --tag <tag>', z.array(z.string()).describe('Tags'))
 
-    const { options } = cli.parse('node bin -t foo'.split(' '))
+    const { options } = await cli.parse('node bin -t foo'.split(' '))
     expect(options.tag).toEqual(['foo'])
   })
 
-  test('short alias with number schema coerces', () => {
+  test('short alias with number schema coerces', async () => {
     const cli = goke()
 
     cli.option('-p, --port <port>', z.number().describe('Port'))
 
-    const { options } = cli.parse('node bin -p 8080'.split(' '))
+    const { options } = await cli.parse('node bin -p 8080'.split(' '))
     expect(options.port).toBe(8080)
     expect(options.p).toBe(8080)
   })
 
-  test('short alias repeated with non-array schema throws', () => {
+  test('short alias repeated with non-array schema throws', async () => {
     const cli = gokeTestable()
 
     cli.option('-p, --port <port>', z.number().describe('Port'))
 
-    expect(() => cli.parse('node bin -p 3000 -p 4000'.split(' ')))
-      .toThrow('does not accept multiple values')
+    await expect(cli.parse('node bin -p 3000 -p 4000'.split(' ')))
+      .rejects.toThrow('does not accept multiple values')
   })
 })
 
-test('throw on unknown options', () => {
+test('throw on unknown options', async () => {
   const cli = gokeTestable()
 
   cli
@@ -1036,13 +1051,12 @@ test('throw on unknown options', () => {
     .option('--aB', 'ab')
     .action(() => {})
 
-  expect(() => {
-    cli.parse(`node bin build app.js --fooBar --a-b --xx`.split(' '))
-  }).toThrowError('Unknown option `--xx`')
+  await expect(cli.parse(`node bin build app.js --fooBar --a-b --xx`.split(' ')))
+    .rejects.toThrowError('Unknown option `--xx`')
 })
 
 describe('space-separated subcommands', () => {
-  test('basic subcommand matching', () => {
+  test('basic subcommand matching', async () => {
     const cli = goke()
     let matched = ''
 
@@ -1050,12 +1064,12 @@ describe('space-separated subcommands', () => {
       matched = 'mcp login'
     })
 
-    cli.parse(['node', 'bin', 'mcp', 'login'], { run: true })
+    await cli.parse(['node', 'bin', 'mcp', 'login'], { run: true })
     expect(matched).toBe('mcp login')
     expect(cli.matchedCommandName).toBe('mcp login')
   })
 
-  test('subcommand with positional args', () => {
+  test('subcommand with positional args', async () => {
     const cli = goke()
     let receivedId = ''
 
@@ -1063,12 +1077,12 @@ describe('space-separated subcommands', () => {
       receivedId = id
     })
 
-    cli.parse(['node', 'bin', 'mcp', 'getNodeXml', '123'], { run: true })
+    await cli.parse(['node', 'bin', 'mcp', 'getNodeXml', '123'], { run: true })
     expect(receivedId).toBe('123')
     expect(cli.matchedCommandName).toBe('mcp getNodeXml')
   })
 
-  test('subcommand with options', () => {
+  test('subcommand with options', async () => {
     const cli = goke()
     let result: any = {}
 
@@ -1079,13 +1093,13 @@ describe('space-separated subcommands', () => {
         result = { id, format: options.format }
       })
 
-    cli.parse(['node', 'bin', 'mcp', 'export', 'abc', '--format', 'json'], {
+    await cli.parse(['node', 'bin', 'mcp', 'export', 'abc', '--format', 'json'], {
       run: true,
     })
     expect(result).toEqual({ id: 'abc', format: 'json' })
   })
 
-  test('greedy matching - longer commands match first', () => {
+  test('greedy matching - longer commands match first', async () => {
     const cli = goke()
     let matched = ''
 
@@ -1097,11 +1111,11 @@ describe('space-separated subcommands', () => {
       matched = 'mcp login'
     })
 
-    cli.parse(['node', 'bin', 'mcp', 'login'], { run: true })
+    await cli.parse(['node', 'bin', 'mcp', 'login'], { run: true })
     expect(matched).toBe('mcp login')
   })
 
-  test('three-level subcommand', () => {
+  test('three-level subcommand', async () => {
     const cli = goke()
     let matched = ''
 
@@ -1109,12 +1123,12 @@ describe('space-separated subcommands', () => {
       matched = 'git remote add'
     })
 
-    cli.parse(['node', 'bin', 'git', 'remote', 'add'], { run: true })
+    await cli.parse(['node', 'bin', 'git', 'remote', 'add'], { run: true })
     expect(matched).toBe('git remote add')
     expect(cli.matchedCommandName).toBe('git remote add')
   })
 
-  test('single-word commands still work (backward compatibility)', () => {
+  test('single-word commands still work (backward compatibility)', async () => {
     const cli = goke()
     let matched = ''
 
@@ -1122,12 +1136,12 @@ describe('space-separated subcommands', () => {
       matched = 'build'
     })
 
-    cli.parse(['node', 'bin', 'build'], { run: true })
+    await cli.parse(['node', 'bin', 'build'], { run: true })
     expect(matched).toBe('build')
     expect(cli.matchedCommandName).toBe('build')
   })
 
-  test('subcommand does not match when args are insufficient', () => {
+  test('subcommand does not match when args are insufficient', async () => {
     const cli = goke()
     let matched = ''
 
@@ -1139,11 +1153,11 @@ describe('space-separated subcommands', () => {
       matched = 'mcp base'
     })
 
-    cli.parse(['node', 'bin', 'mcp'], { run: true })
+    await cli.parse(['node', 'bin', 'mcp'], { run: true })
     expect(matched).toBe('mcp base')
   })
 
-  test('default command should not match if args are prefix of another command', () => {
+  test('default command should not match if args are prefix of another command', async () => {
     const cli = goke()
     let matched = ''
 
@@ -1155,12 +1169,12 @@ describe('space-separated subcommands', () => {
       matched = 'default'
     })
 
-    cli.parse(['node', 'bin', 'mcp'], { run: true })
+    await cli.parse(['node', 'bin', 'mcp'], { run: true })
     expect(matched).toBe('')
     expect(cli.matchedCommand).toBeUndefined()
   })
 
-  test('default command should match when args do not prefix any command', () => {
+  test('default command should match when args do not prefix any command', async () => {
     const cli = goke()
     let matched = ''
     let receivedArg = ''
@@ -1174,12 +1188,12 @@ describe('space-separated subcommands', () => {
       receivedArg = file
     })
 
-    cli.parse(['node', 'bin', 'foo'], { run: true })
+    await cli.parse(['node', 'bin', 'foo'], { run: true })
     expect(matched).toBe('default')
     expect(receivedArg).toBe('foo')
   })
 
-  test('help output with subcommands', () => {
+  test('help output with subcommands', async () => {
     let output = ''
     const cli = goke('mycli', {
       stdout: { write(data) { output += data } },
@@ -1194,7 +1208,7 @@ describe('space-separated subcommands', () => {
 
     cli.help()
     // parse with --help triggers outputHelp() internally, which writes to our captured stdout
-    cli.parse(['node', 'bin', '--help'], { run: false })
+    await cli.parse(['node', 'bin', '--help'], { run: false })
 
     expect(stripAnsi(output)).toMatchInlineSnapshot(`
       "mycli
@@ -1231,7 +1245,7 @@ describe('space-separated subcommands', () => {
     `)
   })
 
-  test('unknown subcommand shows filtered help for prefix', () => {
+  test('unknown subcommand shows filtered help for prefix', async () => {
     let output = ''
     const cli = goke('mycli', {
       stdout: { write(data) { output += data } },
@@ -1245,7 +1259,7 @@ describe('space-separated subcommands', () => {
     cli.help()
 
     // User types "mcp nonexistent" - should show help for mcp commands
-    cli.parse(['node', 'bin', 'mcp', 'nonexistent'], { run: true })
+    await cli.parse(['node', 'bin', 'mcp', 'nonexistent'], { run: true })
 
     expect(cli.matchedCommand).toBeUndefined()
     const normalizedOutput = stripAnsi(output)
@@ -1257,7 +1271,7 @@ describe('space-separated subcommands', () => {
     expect(normalizedOutput).not.toContain('build')
   })
 
-  test('unknown command without prefix does not show filtered help', () => {
+  test('unknown command without prefix does not show filtered help', async () => {
     let output = ''
     const cli = goke('mycli', {
       stdout: { write(data) { output += data } },
@@ -1269,13 +1283,13 @@ describe('space-separated subcommands', () => {
     cli.help()
 
     // User types "foo" - no commands start with "foo"
-    cli.parse(['node', 'bin', 'foo'], { run: true })
+    await cli.parse(['node', 'bin', 'foo'], { run: true })
 
     // Should not show filtered help since "foo" is not a prefix of any command
     expect(stripAnsi(output)).not.toContain('Available "foo" commands')
   })
 
-  test('unknown command without prefix outputs root help', () => {
+  test('unknown command without prefix outputs root help', async () => {
     let output = ''
     const cli = goke('mycli', {
       stdout: { write(data) { output += data } },
@@ -1287,7 +1301,7 @@ describe('space-separated subcommands', () => {
     cli.help()
 
     // User types an unknown command that does not match any prefix group
-    cli.parse(['node', 'bin', 'something'], { run: true })
+    await cli.parse(['node', 'bin', 'something'], { run: true })
 
     expect(cli.matchedCommand).toBeUndefined()
     expect(stripAnsi(output)).toContain('Usage:')
@@ -1296,7 +1310,7 @@ describe('space-separated subcommands', () => {
     expect(stripAnsi(output)).toContain('build')
   })
 
-  test('no args without default command outputs root help', () => {
+  test('no args without default command outputs root help', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout })
 
@@ -1304,7 +1318,7 @@ describe('space-separated subcommands', () => {
     cli.command('build', 'Build project')
     cli.help()
 
-    cli.parse(['node', 'bin'], { run: true })
+    await cli.parse(['node', 'bin'], { run: true })
 
     expect(stdout.text).toContain('Usage:')
     expect(stdout.text).toContain('$ mycli <command> [options]')
@@ -1312,7 +1326,81 @@ describe('space-separated subcommands', () => {
     expect(stdout.text).toContain('build')
   })
 
-  test('prefix --help shows filtered help for matching command group', () => {
+  test('default command with no args rejects unknown positional args', async () => {
+    const stdout = createTestOutputStream()
+    let defaultRan = false
+    let unknownFired = false
+    const cli = gokeTestable('playwriter', { stdout })
+
+    cli.command('', 'Start the MCP server').action(async () => { defaultRan = true })
+    cli.command('session new', 'Create session').action(() => {})
+    cli.help()
+    cli.on('command:*', () => { unknownFired = true })
+
+    await cli.parse(['node', 'bin', 'run'], { run: true })
+
+    expect(defaultRan).toBe(false)
+    expect(unknownFired).toBe(true)
+    expect(cli.matchedCommand).toBeUndefined()
+  })
+
+  test('default command with no args still runs when no args passed', async () => {
+    let defaultRan = false
+    const cli = gokeTestable('playwriter')
+
+    cli.command('', 'Start the MCP server').action(async () => { defaultRan = true })
+    cli.command('session new', 'Create session').action(() => {})
+
+    await cli.parse(['node', 'bin'], { run: true })
+
+    expect(defaultRan).toBe(true)
+  })
+
+  test('default command with no args still works with -- separator', async () => {
+    let defaultRan = false
+    let receivedOptions: any = null
+    const cli = gokeTestable('playwriter')
+
+    cli.command('', 'Start the MCP server').action(async (options) => {
+      defaultRan = true
+      receivedOptions = options
+    })
+
+    await cli.parse(['node', 'bin', '--', 'extra', 'args'], { run: true })
+
+    expect(defaultRan).toBe(true)
+    expect(receivedOptions['--']).toEqual(['extra', 'args'])
+  })
+
+  test('default command WITH positional args still accepts args', async () => {
+    let receivedScript: string | undefined
+    const cli = gokeTestable('runner')
+
+    cli.command('[script]', 'Run a script').action(async (script) => {
+      receivedScript = script
+    })
+
+    await cli.parse(['node', 'bin', 'deploy'], { run: true })
+
+    expect(receivedScript).toBe('deploy')
+  })
+
+  test('default command rejects unknown nonexistent command', async () => {
+    let defaultRan = false
+    let unknownFired = false
+    const cli = gokeTestable('mycli')
+
+    cli.command('', 'Default').action(async () => { defaultRan = true })
+    cli.command('build', 'Build').action(() => {})
+    cli.on('command:*', () => { unknownFired = true })
+
+    await cli.parse(['node', 'bin', 'nonexistent'], { run: true })
+
+    expect(defaultRan).toBe(false)
+    expect(unknownFired).toBe(true)
+  })
+
+  test('prefix --help shows filtered help for matching command group', async () => {
     let output = ''
     const cli = goke('mycli', {
       stdout: { write(data) { output += data } },
@@ -1324,7 +1412,7 @@ describe('space-separated subcommands', () => {
     cli.command('build', 'Build project')
 
     cli.help()
-    cli.parse(['node', 'bin', 'mcp', '--help'], { run: true })
+    await cli.parse(['node', 'bin', 'mcp', '--help'], { run: true })
 
     const normalizedOutput = stripAnsi(output)
     expect(normalizedOutput).toMatchInlineSnapshot(`
@@ -1343,7 +1431,7 @@ describe('space-separated subcommands', () => {
 })
 
 describe('many commands with root command (empty string)', () => {
-  test('root command runs when no subcommand given', () => {
+  test('root command runs when no subcommand given', async () => {
     const cli = goke('deploy')
     let matched = ''
 
@@ -1359,11 +1447,11 @@ describe('many commands with root command (empty string)', () => {
       matched = 'login'
     })
 
-    cli.parse(['node', 'bin'], { run: true })
+    await cli.parse(['node', 'bin'], { run: true })
     expect(matched).toBe('root')
   })
 
-  test('root command receives options', () => {
+  test('root command receives options', async () => {
     const cli = goke('deploy')
     let result: any = {}
 
@@ -1378,12 +1466,12 @@ describe('many commands with root command (empty string)', () => {
     cli.command('init', 'Initialize project').action(() => {})
     cli.command('login', 'Authenticate').action(() => {})
 
-    cli.parse(['node', 'bin', '--env', 'staging', '--dry-run'], { run: true })
+    await cli.parse(['node', 'bin', '--env', 'staging', '--dry-run'], { run: true })
     expect(result.env).toBe('staging')
     expect(result.dryRun).toBe(true)
   })
 
-  test('root command uses defaults when no options given', () => {
+  test('root command uses defaults when no options given', async () => {
     const cli = goke('deploy')
     let result: any = {}
 
@@ -1396,11 +1484,11 @@ describe('many commands with root command (empty string)', () => {
 
     cli.command('init', 'Initialize project').action(() => {})
 
-    cli.parse(['node', 'bin'], { run: true })
+    await cli.parse(['node', 'bin'], { run: true })
     expect(result.env).toBe('production')
   })
 
-  test('subcommands take priority over root command', () => {
+  test('subcommands take priority over root command', async () => {
     const cli = goke('deploy')
     let matched = ''
 
@@ -1420,11 +1508,11 @@ describe('many commands with root command (empty string)', () => {
       matched = 'status'
     })
 
-    cli.parse(['node', 'bin', 'status'], { run: true })
+    await cli.parse(['node', 'bin', 'status'], { run: true })
     expect(matched).toBe('status')
   })
 
-  test('subcommand with args works alongside root command', () => {
+  test('subcommand with args works alongside root command', async () => {
     const cli = goke('deploy')
     let rootCalled = false
     let logsResult: any = {}
@@ -1441,14 +1529,14 @@ describe('many commands with root command (empty string)', () => {
         logsResult = { deploymentId, ...options }
       })
 
-    cli.parse(['node', 'bin', 'logs', 'abc123', '--follow', '--lines', '50'], { run: true })
+    await cli.parse(['node', 'bin', 'logs', 'abc123', '--follow', '--lines', '50'], { run: true })
     expect(rootCalled).toBe(false)
     expect(logsResult.deploymentId).toBe('abc123')
     expect(logsResult.follow).toBe(true)
     expect(logsResult.lines).toBe(50)
   })
 
-  test('help shows root and all subcommands', () => {
+  test('help shows root and all subcommands', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('deploy', { stdout })
 
@@ -1463,7 +1551,7 @@ describe('many commands with root command (empty string)', () => {
     cli.command('logs <deploymentId>', 'Stream logs for a deployment')
 
     cli.help()
-    cli.parse(['node', 'bin', '--help'], { run: false })
+    await cli.parse(['node', 'bin', '--help'], { run: false })
 
     expect(stdout.text).toContain('init')
     expect(stdout.text).toContain('login')
@@ -1474,7 +1562,7 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toContain('Stream logs for a deployment')
   })
 
-  test('root help with many commands renders examples section after options', () => {
+  test('root help with many commands renders examples section after options', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('deploy', { stdout })
 
@@ -1492,7 +1580,7 @@ describe('many commands with root command (empty string)', () => {
     cli.command('logs <deploymentId>', 'Stream logs for a deployment')
 
     cli.help()
-    cli.parse(['node', 'bin', '--help'], { run: false })
+    await cli.parse(['node', 'bin', '--help'], { run: false })
 
     expect(stdout.text).toMatchInlineSnapshot(`
       "deploy
@@ -1534,7 +1622,7 @@ describe('many commands with root command (empty string)', () => {
     `)
   })
 
-  test('subcommand help renders command examples at the end', () => {
+  test('subcommand help renders command examples at the end', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('deploy', { stdout, columns: 80 })
 
@@ -1552,7 +1640,7 @@ describe('many commands with root command (empty string)', () => {
       .example('deploy logs dep_123 --follow')
 
     cli.help()
-    cli.parse(['node', 'bin', 'logs', '--help'], { run: false })
+    await cli.parse(['node', 'bin', 'logs', '--help'], { run: false })
 
     expect(stdout.text).toMatchInlineSnapshot(`
       "deploy
@@ -1581,7 +1669,7 @@ describe('many commands with root command (empty string)', () => {
     `)
   })
 
-  test('root help labels default command with cli name and does not duplicate global options', () => {
+  test('root help labels default command with cli name and does not duplicate global options', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('deploy', { stdout })
 
@@ -1594,7 +1682,7 @@ describe('many commands with root command (empty string)', () => {
     cli.command('status', 'Show deployment status')
 
     cli.help()
-    cli.parse(['node', 'bin', '--help'], { run: false })
+    await cli.parse(['node', 'bin', '--help'], { run: false })
 
     expect(stdout.text).toMatchInlineSnapshot(`
       "deploy
@@ -1619,7 +1707,7 @@ describe('many commands with root command (empty string)', () => {
     `)
   })
 
-  test('root help wraps long command descriptions snapshot', () => {
+  test('root help wraps long command descriptions snapshot', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout, columns: 56 })
 
@@ -1636,7 +1724,7 @@ describe('many commands with root command (empty string)', () => {
     ).option('--id <id>', 'Notion URL or UUID to fetch')
 
     cli.help()
-    cli.parse(['node', 'bin', '--help'], { run: false })
+    await cli.parse(['node', 'bin', '--help'], { run: false })
 
     expect(stdout.text).toMatchInlineSnapshot(`
       "mycli
@@ -1673,7 +1761,7 @@ describe('many commands with root command (empty string)', () => {
     `)
   })
 
-  test('root help aligns command descriptions with mixed command lengths', () => {
+  test('root help aligns command descriptions with mixed command lengths', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('gtui', { stdout, columns: 120 })
 
@@ -1683,7 +1771,7 @@ describe('many commands with root command (empty string)', () => {
     cli.command('attachment get <messageId> <attachmentId>', 'Download an attachment')
 
     cli.help()
-    cli.parse(['node', 'bin', '--help'], { run: false })
+    await cli.parse(['node', 'bin', '--help'], { run: false })
 
     expect(stdout.text).toMatchInlineSnapshot(`
       "gtui
@@ -1716,7 +1804,7 @@ describe('many commands with root command (empty string)', () => {
     `)
   })
 
-  test('root help wraps all multi-line description lines', () => {
+  test('root help wraps all multi-line description lines', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout, columns: 64 })
 
@@ -1725,13 +1813,13 @@ describe('many commands with root command (empty string)', () => {
       'Create a new page.\n  {"title":"Example"}\n  {"done":true}',
     )
     cli.help()
-    cli.parse(['node', 'bin', '--help'], { run: false })
+    await cli.parse(['node', 'bin', '--help'], { run: false })
 
     expect(stdout.text).toContain('{"title":"Example"}')
     expect(stdout.text).toContain('{"done":true}')
   })
 
-  test('root help snapshot when columns is undefined (no wrapping fallback)', () => {
+  test('root help snapshot when columns is undefined (no wrapping fallback)', async () => {
     const stdout = createTestOutputStream()
     const originalColumns = process.stdout.columns
 
@@ -1751,7 +1839,7 @@ describe('many commands with root command (empty string)', () => {
         .option('--limit [limit]', z.number().default(10).describe('Maximum number of results to return'))
 
       cli.help()
-      cli.parse(['node', 'bin', '--help'], { run: false })
+      await cli.parse(['node', 'bin', '--help'], { run: false })
 
       expect(stdout.text).toMatchInlineSnapshot(`
         "mycli
@@ -1780,7 +1868,7 @@ describe('many commands with root command (empty string)', () => {
     }
   })
 
-  test('many subcommands all resolve correctly', () => {
+  test('many subcommands all resolve correctly', async () => {
     const cli = goke('deploy')
     let matched = ''
 
@@ -1794,47 +1882,47 @@ describe('many commands with root command (empty string)', () => {
     cli.command('config set <key> <value>', 'Set config').action(() => { matched = 'config set' })
 
     // Test each command resolves to the right one
-    cli.parse(['node', 'bin'], { run: true })
+    await cli.parse(['node', 'bin'], { run: true })
     expect(matched).toBe('root')
 
     matched = ''
-    cli.parse(['node', 'bin', 'init'], { run: true })
+    await cli.parse(['node', 'bin', 'init'], { run: true })
     expect(matched).toBe('init')
 
     matched = ''
-    cli.parse(['node', 'bin', 'login'], { run: true })
+    await cli.parse(['node', 'bin', 'login'], { run: true })
     expect(matched).toBe('login')
 
     matched = ''
-    cli.parse(['node', 'bin', 'logout'], { run: true })
+    await cli.parse(['node', 'bin', 'logout'], { run: true })
     expect(matched).toBe('logout')
 
     matched = ''
-    cli.parse(['node', 'bin', 'status'], { run: true })
+    await cli.parse(['node', 'bin', 'status'], { run: true })
     expect(matched).toBe('status')
 
     matched = ''
-    cli.parse(['node', 'bin', 'logs', 'dep-123'], { run: true })
+    await cli.parse(['node', 'bin', 'logs', 'dep-123'], { run: true })
     expect(matched).toBe('logs')
 
     matched = ''
-    cli.parse(['node', 'bin', 'rollback', 'dep-456'], { run: true })
+    await cli.parse(['node', 'bin', 'rollback', 'dep-456'], { run: true })
     expect(matched).toBe('rollback')
 
     matched = ''
-    cli.parse(['node', 'bin', 'config', 'set', 'region', 'us-east-1'], { run: true })
+    await cli.parse(['node', 'bin', 'config', 'set', 'region', 'us-east-1'], { run: true })
     expect(matched).toBe('config set')
   })
 })
 
 describe('stdout/stderr/argv injection', () => {
-  test('stdout captures help output', () => {
+  test('stdout captures help output', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout })
 
     cli.command('serve', 'Start server')
     cli.help()
-    cli.parse(['node', 'bin', '--help'], { run: false })
+    await cli.parse(['node', 'bin', '--help'], { run: false })
     cli.outputHelp()
 
     expect(stdout.text).toContain('mycli')
@@ -1842,18 +1930,18 @@ describe('stdout/stderr/argv injection', () => {
     expect(stdout.text).toContain('Start server')
   })
 
-  test('stdout captures version output', () => {
+  test('stdout captures version output', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout })
 
     cli.version('1.2.3')
-    cli.parse(['node', 'bin', '--version'], { run: false })
+    await cli.parse(['node', 'bin', '--version'], { run: false })
     cli.outputVersion()
 
     expect(stdout.text).toContain('mycli/1.2.3')
   })
 
-  test('stdout captures prefix help for unknown subcommands', () => {
+  test('stdout captures prefix help for unknown subcommands', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout })
 
@@ -1861,14 +1949,14 @@ describe('stdout/stderr/argv injection', () => {
     cli.command('mcp logout', 'Logout from MCP')
     cli.help()
 
-    cli.parse(['node', 'bin', 'mcp', 'nonexistent'], { run: true })
+    await cli.parse(['node', 'bin', 'mcp', 'nonexistent'], { run: true })
 
     expect(stdout.text).toContain('Unknown command: mcp nonexistent')
     expect(stdout.text).toContain('mcp login')
     expect(stdout.text).toContain('mcp logout')
   })
 
-  test('stderr is separate from stdout', () => {
+  test('stderr is separate from stdout', async () => {
     const stdout = createTestOutputStream()
     const stderr = createTestOutputStream()
     const cli = goke('mycli', { stdout, stderr })
@@ -1880,7 +1968,7 @@ describe('stdout/stderr/argv injection', () => {
     expect(stderr.text).toBe('hello stderr\n')
   })
 
-  test('argv option is used as default in parse()', () => {
+  test('argv option is used as default in parse()', async () => {
     const cli = goke('mycli', {
       argv: ['node', 'bin', 'serve', '--port', '3000'],
     })
@@ -1892,12 +1980,12 @@ describe('stdout/stderr/argv injection', () => {
       .action((options) => { result = options })
 
     // parse() without args uses the injected argv
-    cli.parse()
+    await cli.parse()
 
     expect(result.port).toBe(3000)
   })
 
-  test('parse(customArgv) overrides injected argv', () => {
+  test('parse(customArgv) overrides injected argv', async () => {
     const cli = goke('mycli', {
       argv: ['node', 'bin', 'serve', '--port', '3000'],
     })
@@ -1909,12 +1997,12 @@ describe('stdout/stderr/argv injection', () => {
       .action((options) => { result = options })
 
     // Explicit argv overrides the default
-    cli.parse(['node', 'bin', 'serve', '--port', '8080'])
+    await cli.parse(['node', 'bin', 'serve', '--port', '8080'])
 
     expect(result.port).toBe(8080)
   })
 
-  test('default behavior without options uses process.stdout', () => {
+  test('default behavior without options uses process.stdout', async () => {
     const cli = goke('mycli')
 
     // stdout/stderr should be process.stdout/process.stderr by default
@@ -1922,7 +2010,7 @@ describe('stdout/stderr/argv injection', () => {
     expect(cli.stderr).toBe(process.stderr)
   })
 
-  test('createConsole routes log to stdout and error to stderr', () => {
+  test('createConsole routes log to stdout and error to stderr', async () => {
     const stdout = createTestOutputStream()
     const stderr = createTestOutputStream()
     const con = createConsole(stdout, stderr)
@@ -1934,7 +2022,7 @@ describe('stdout/stderr/argv injection', () => {
     expect(stderr.text).toBe('err1 err2\n')
   })
 
-  test('createConsole log with no args writes empty line', () => {
+  test('createConsole log with no args writes empty line', async () => {
     const stdout = createTestOutputStream()
     const stderr = createTestOutputStream()
     const con = createConsole(stdout, stderr)
@@ -1946,7 +2034,7 @@ describe('stdout/stderr/argv injection', () => {
 })
 
 describe('schema description and default extraction', () => {
-  test('description is extracted from schema and shown in help', () => {
+  test('description is extracted from schema and shown in help', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout })
 
@@ -1955,12 +2043,12 @@ describe('schema description and default extraction', () => {
       .option('--port <port>', z.number().describe('Port to listen on'))
 
     cli.help()
-    cli.parse(['node', 'bin', 'serve', '--help'], { run: false })
+    await cli.parse(['node', 'bin', 'serve', '--help'], { run: false })
 
     expect(stdout.text).toContain('Port to listen on')
   })
 
-  test('default is extracted from schema and shown in help', () => {
+  test('default is extracted from schema and shown in help', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout })
 
@@ -1969,12 +2057,12 @@ describe('schema description and default extraction', () => {
       .option('--port [port]', z.number().default(3000).describe('Port'))
 
     cli.help()
-    cli.parse(['node', 'bin', 'serve', '--help'], { run: false })
+    await cli.parse(['node', 'bin', 'serve', '--help'], { run: false })
 
     expect(stdout.text).toContain('(default: 3000)')
   })
 
-  test('deprecated options are hidden from help output', () => {
+  test('deprecated options are hidden from help output', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout })
 
@@ -1984,7 +2072,7 @@ describe('schema description and default extraction', () => {
       .option('--new <value>', z.string().describe('Normal option'))
 
     cli.help()
-    cli.parse(['node', 'bin', 'serve', '--help'], { run: false })
+    await cli.parse(['node', 'bin', 'serve', '--help'], { run: false })
 
     // Normal option should be visible
     expect(stdout.text).toContain('--new')
@@ -1994,7 +2082,7 @@ describe('schema description and default extraction', () => {
     expect(stdout.text).not.toContain('Old option')
   })
 
-  test('deprecated option still works for parsing (just hidden from help)', () => {
+  test('deprecated option still works for parsing (just hidden from help)', async () => {
     const cli = gokeTestable('mycli')
 
     let result: any = {}
@@ -2003,13 +2091,13 @@ describe('schema description and default extraction', () => {
       .option('--old <value>', z.string().meta({ deprecated: true, description: 'Old option' }))
       .action((options) => { result = options })
 
-    cli.parse(['node', 'bin', 'serve', '--old', 'legacy-value'])
+    await cli.parse(['node', 'bin', 'serve', '--old', 'legacy-value'])
 
     // Deprecated option should still be parsed and usable
     expect(result.old).toBe('legacy-value')
   })
 
-  test('deprecated options hidden from global help', () => {
+  test('deprecated options hidden from global help', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout })
 
@@ -2017,7 +2105,7 @@ describe('schema description and default extraction', () => {
     cli.option('--current [value]', z.string().describe('Current option'))
 
     cli.help()
-    cli.parse(['node', 'bin', '--help'], { run: false })
+    await cli.parse(['node', 'bin', '--help'], { run: false })
 
     expect(stdout.text).toContain('--current')
     expect(stdout.text).toContain('Current option')
@@ -2025,7 +2113,7 @@ describe('schema description and default extraction', () => {
     expect(stdout.text).not.toContain('Deprecated global')
   })
 
-  test('hidden commands are not shown in help output', () => {
+  test('hidden commands are not shown in help output', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout })
 
@@ -2033,7 +2121,7 @@ describe('schema description and default extraction', () => {
     cli.command('secret', 'A hidden command').hidden()
 
     cli.help()
-    cli.parse(['node', 'bin', '--help'], { run: false })
+    await cli.parse(['node', 'bin', '--help'], { run: false })
 
     expect(stdout.text).toContain('visible')
     expect(stdout.text).toContain('A visible command')
@@ -2041,7 +2129,7 @@ describe('schema description and default extraction', () => {
     expect(stdout.text).not.toContain('A hidden command')
   })
 
-  test('hidden command still parses and runs', () => {
+  test('hidden command still parses and runs', async () => {
     const cli = gokeTestable('mycli')
 
     let result: any = {}
@@ -2051,14 +2139,14 @@ describe('schema description and default extraction', () => {
       .option('--value <v>', z.string().describe('some value'))
       .action((options) => { result = options })
 
-    cli.parse(['node', 'bin', 'secret', '--value', 'hello'])
+    await cli.parse(['node', 'bin', 'secret', '--value', 'hello'])
 
     expect(result.value).toBe('hello')
   })
 })
 
 describe('helpText()', () => {
-  test('returns help string without printing', () => {
+  test('returns help string without printing', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout })
 
@@ -2066,7 +2154,7 @@ describe('helpText()', () => {
     cli.option('--port <port>', 'Port number')
     cli.help()
     // parse a known command so help is not auto-triggered
-    cli.parse(['node', 'bin', 'serve'], { run: false })
+    await cli.parse(['node', 'bin', 'serve'], { run: false })
 
     // reset stdout after parse
     stdout.lines.length = 0
@@ -2081,7 +2169,7 @@ describe('helpText()', () => {
     expect(stdout.text).toBe('')
   })
 
-  test('returns same content as outputHelp', () => {
+  test('returns same content as outputHelp', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout })
 
@@ -2089,7 +2177,7 @@ describe('helpText()', () => {
     cli.option('--watch [watch]', 'Watch mode')
     cli.help()
     // parse a known command so help is not auto-triggered
-    cli.parse(['node', 'bin', 'build'], { run: false })
+    await cli.parse(['node', 'bin', 'build'], { run: false })
 
     // reset stdout after parse
     stdout.lines.length = 0
@@ -2102,14 +2190,14 @@ describe('helpText()', () => {
     expect(helpTextResult).toBe(outputHelpResult)
   })
 
-  test('returns subcommand help when command is matched', () => {
+  test('returns subcommand help when command is matched', async () => {
     const cli = goke('mycli')
 
     cli.command('deploy <env>', 'Deploy to environment')
       .option('--force', 'Force deploy')
 
     cli.help()
-    cli.parse(['node', 'bin', 'deploy', '--help'], { run: false })
+    await cli.parse(['node', 'bin', 'deploy', '--help'], { run: false })
 
     const text = stripAnsi(cli.helpText())
 
@@ -2118,7 +2206,7 @@ describe('helpText()', () => {
     expect(text).toContain('Force deploy')
   })
 
-  test('works without calling parse', () => {
+  test('works without calling parse', async () => {
     const cli = goke('mycli')
 
     cli.command('test', 'Run tests')
@@ -2136,7 +2224,7 @@ describe('helpText()', () => {
 })
 
 describe('middleware', () => {
-  test('middleware runs before command action', () => {
+  test('middleware runs before command action', async () => {
     const cli = goke('mycli')
     const order: string[] = []
 
@@ -2152,11 +2240,11 @@ describe('middleware', () => {
         order.push('action')
       })
 
-    cli.parse(['node', 'bin', 'build'], { run: true })
+    await cli.parse(['node', 'bin', 'build'], { run: true })
     expect(order).toEqual(['middleware', 'action'])
   })
 
-  test('multiple middleware run in registration order', () => {
+  test('multiple middleware run in registration order', async () => {
     const cli = goke('mycli')
     const order: string[] = []
 
@@ -2169,11 +2257,11 @@ describe('middleware', () => {
       .command('deploy', 'Deploy')
       .action(() => { order.push('action') })
 
-    cli.parse(['node', 'bin', 'deploy'], { run: true })
+    await cli.parse(['node', 'bin', 'deploy'], { run: true })
     expect(order).toEqual(['mw1', 'mw2', 'mw3', 'action'])
   })
 
-  test('middleware receives parsed global options', () => {
+  test('middleware receives parsed global options', async () => {
     const cli = goke('mycli')
     let received: any = null
 
@@ -2187,11 +2275,11 @@ describe('middleware', () => {
       .command('build', 'Build')
       .action(() => {})
 
-    cli.parse(['node', 'bin', 'build', '--verbose'], { run: true })
+    await cli.parse(['node', 'bin', 'build', '--verbose'], { run: true })
     expect(received.verbose).toBe(true)
   })
 
-  test('middleware receives schema-coerced global options', () => {
+  test('middleware receives schema-coerced global options', async () => {
     const cli = goke('mycli')
     let received: any = null
 
@@ -2205,7 +2293,7 @@ describe('middleware', () => {
       .command('serve', 'Serve')
       .action(() => {})
 
-    cli.parse(['node', 'bin', 'serve', '--port', '3000'], { run: true })
+    await cli.parse(['node', 'bin', 'serve', '--port', '3000'], { run: true })
     expect(received.port).toBe(3000)
     expect(typeof received.port).toBe('number')
   })
@@ -2223,7 +2311,7 @@ describe('middleware', () => {
       .command('run', 'Run')
       .action(() => { order.push('action') })
 
-    cli.parse(['node', 'bin', 'run'], { run: true })
+    await cli.parse(['node', 'bin', 'run'], { run: true })
 
     // Wait for async chain to complete
     await new Promise((r) => setTimeout(r, 50))
@@ -2243,14 +2331,14 @@ describe('middleware', () => {
       .command('deploy', 'Deploy')
       .action(() => {})
 
-    cli.parse(['node', 'bin', 'deploy'], { run: true })
+    await cli.parse(['node', 'bin', 'deploy'], { run: true })
 
     await new Promise((r) => setTimeout(r, 10))
     expect(exitCode).toBe(1)
     expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: middleware failed"`)
   })
 
-  test('middleware does not run with { run: false }', () => {
+  test('middleware does not run with { run: false }', async () => {
     const cli = goke('mycli')
     let middlewareCalled = false
 
@@ -2260,11 +2348,11 @@ describe('middleware', () => {
       .command('build', 'Build')
       .action(() => {})
 
-    cli.parse(['node', 'bin', 'build'], { run: false })
+    await cli.parse(['node', 'bin', 'build'], { run: false })
     expect(middlewareCalled).toBe(false)
   })
 
-  test('middleware does not run for help', () => {
+  test('middleware does not run for help', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout })
     let middlewareCalled = false
@@ -2276,11 +2364,11 @@ describe('middleware', () => {
       .command('build', 'Build')
       .action(() => {})
 
-    cli.parse(['node', 'bin', '--help'], { run: true })
+    await cli.parse(['node', 'bin', '--help'], { run: true })
     expect(middlewareCalled).toBe(false)
   })
 
-  test('middleware does not run when no command matched', () => {
+  test('middleware does not run when no command matched', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout })
     let middlewareCalled = false
@@ -2292,11 +2380,11 @@ describe('middleware', () => {
       .command('build', 'Build')
       .action(() => {})
 
-    cli.parse(['node', 'bin', 'nonexistent'], { run: true })
+    await cli.parse(['node', 'bin', 'nonexistent'], { run: true })
     expect(middlewareCalled).toBe(false)
   })
 
-  test('middleware runs for default command', () => {
+  test('middleware runs for default command', async () => {
     const cli = goke('mycli')
     const order: string[] = []
 
@@ -2306,11 +2394,11 @@ describe('middleware', () => {
       .command('', 'Default')
       .action(() => { order.push('action') })
 
-    cli.parse(['node', 'bin'], { run: true })
+    await cli.parse(['node', 'bin'], { run: true })
     expect(order).toEqual(['mw', 'action'])
   })
 
-  test('sync middleware error is caught and formatted', () => {
+  test('sync middleware error is caught and formatted', async () => {
     const stderr = createTestOutputStream()
     let exitCode: number | undefined
     const cli = goke('mycli', { stderr, exit: (code) => { exitCode = code } })
@@ -2323,13 +2411,13 @@ describe('middleware', () => {
       .command('deploy', 'Deploy')
       .action(() => {})
 
-    cli.parse(['node', 'bin', 'deploy'], { run: true })
+    await cli.parse(['node', 'bin', 'deploy'], { run: true })
 
     expect(exitCode).toBe(1)
     expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: middleware exploded"`)
   })
 
-  test('sync middleware error short-circuits command action', () => {
+  test('sync middleware error short-circuits command action', async () => {
     const stderr = createTestOutputStream()
     const cli = goke('mycli', { stderr, exit: () => {} })
     let actionCalled = false
@@ -2342,7 +2430,7 @@ describe('middleware', () => {
       .command('build', 'Build')
       .action(() => { actionCalled = true })
 
-    cli.parse(['node', 'bin', 'build'], { run: true })
+    await cli.parse(['node', 'bin', 'build'], { run: true })
 
     expect(actionCalled).toBe(false)
   })
@@ -2363,7 +2451,7 @@ describe('middleware', () => {
       .command('run', 'Run')
       .action(() => { order.push('action') })
 
-    cli.parse(['node', 'bin', 'run'], { run: true })
+    await cli.parse(['node', 'bin', 'run'], { run: true })
 
     await new Promise((r) => setTimeout(r, 50))
     expect(order).toEqual(['sync1', 'async', 'sync2', 'action'])
@@ -2371,7 +2459,7 @@ describe('middleware', () => {
 })
 
 describe('use() with sub-CLI composition', () => {
-  test('basic composition: sub-CLI command runs via parent', () => {
+  test('basic composition: sub-CLI command runs via parent', async () => {
     const parent = goke('mycli')
     const sub = goke()
     let matched = ''
@@ -2381,11 +2469,11 @@ describe('use() with sub-CLI composition', () => {
       .action(() => { matched = 'deploy' })
 
     parent.use(sub)
-    parent.parse(['node', 'bin', 'deploy'], { run: true })
+    await parent.parse(['node', 'bin', 'deploy'], { run: true })
     expect(matched).toBe('deploy')
   })
 
-  test('multiple sub-CLIs composed together', () => {
+  test('multiple sub-CLIs composed together', async () => {
     const parent = goke('mycli')
     const subA = goke()
     const subB = goke()
@@ -2396,15 +2484,15 @@ describe('use() with sub-CLI composition', () => {
 
     parent.use(subA).use(subB)
 
-    parent.parse(['node', 'bin', 'login'], { run: true })
+    await parent.parse(['node', 'bin', 'login'], { run: true })
     expect(matched).toBe('login')
 
     matched = ''
-    parent.parse(['node', 'bin', 'deploy'], { run: true })
+    await parent.parse(['node', 'bin', 'deploy'], { run: true })
     expect(matched).toBe('deploy')
   })
 
-  test('sub-CLI command with options and schema coercion', () => {
+  test('sub-CLI command with options and schema coercion', async () => {
     const parent = goke('mycli')
     const sub = goke()
     let result: any = {}
@@ -2416,14 +2504,14 @@ describe('use() with sub-CLI composition', () => {
       .action((options) => { result = options })
 
     parent.use(sub)
-    parent.parse('node bin serve --port 3000 --host localhost'.split(' '), { run: true })
+    await parent.parse('node bin serve --port 3000 --host localhost'.split(' '), { run: true })
 
     expect(result.port).toBe(3000)
     expect(typeof result.port).toBe('number')
     expect(result.host).toBe('localhost')
   })
 
-  test('sub-CLI command with positional args', () => {
+  test('sub-CLI command with positional args', async () => {
     const parent = goke('mycli')
     const sub = goke()
     let receivedId = ''
@@ -2433,12 +2521,12 @@ describe('use() with sub-CLI composition', () => {
       .action((id) => { receivedId = id })
 
     parent.use(sub)
-    parent.parse(['node', 'bin', 'get', 'abc123'], { run: true })
+    await parent.parse(['node', 'bin', 'get', 'abc123'], { run: true })
 
     expect(receivedId).toBe('abc123')
   })
 
-  test('sub-CLI with multi-word commands', () => {
+  test('sub-CLI with multi-word commands', async () => {
     const parent = goke('mycli')
     const sub = goke()
     let matched = ''
@@ -2448,15 +2536,15 @@ describe('use() with sub-CLI composition', () => {
 
     parent.use(sub)
 
-    parent.parse(['node', 'bin', 'mcp', 'login'], { run: true })
+    await parent.parse(['node', 'bin', 'mcp', 'login'], { run: true })
     expect(matched).toBe('mcp login')
 
     matched = ''
-    parent.parse(['node', 'bin', 'mcp', 'logout'], { run: true })
+    await parent.parse(['node', 'bin', 'mcp', 'logout'], { run: true })
     expect(matched).toBe('mcp logout')
   })
 
-  test('help output includes composed commands', () => {
+  test('help output includes composed commands', async () => {
     const stdout = createTestOutputStream()
     const parent = goke('mycli', { stdout })
     const sub = goke()
@@ -2467,14 +2555,14 @@ describe('use() with sub-CLI composition', () => {
     parent.command('init', 'Initialize project')
     parent.use(sub)
     parent.help()
-    parent.parse(['node', 'bin', '--help'], { run: false })
+    await parent.parse(['node', 'bin', '--help'], { run: false })
 
     expect(stdout.text).toContain('init')
     expect(stdout.text).toContain('selfhost')
     expect(stdout.text).toContain('Set up on your own workspace')
   })
 
-  test('sub-CLI middlewares are NOT copied to parent', () => {
+  test('sub-CLI middlewares are NOT copied to parent', async () => {
     const parent = goke('mycli')
     const sub = goke()
     let subMiddlewareCalled = false
@@ -2486,13 +2574,13 @@ describe('use() with sub-CLI composition', () => {
     parent.use(() => { order.push('parent-mw') })
     parent.use(sub)
 
-    parent.parse(['node', 'bin', 'deploy'], { run: true })
+    await parent.parse(['node', 'bin', 'deploy'], { run: true })
 
     expect(subMiddlewareCalled).toBe(false)
     expect(order).toEqual(['parent-mw', 'deploy'])
   })
 
-  test('parent global options are available to composed commands', () => {
+  test('parent global options are available to composed commands', async () => {
     const parent = goke('mycli')
     const sub = goke()
     let result: any = {}
@@ -2505,13 +2593,13 @@ describe('use() with sub-CLI composition', () => {
       .action((options) => { result = options })
 
     parent.use(sub)
-    parent.parse('node bin build --verbose --target production'.split(' '), { run: true })
+    await parent.parse('node bin build --verbose --target production'.split(' '), { run: true })
 
     expect(result.verbose).toBe(true)
     expect(result.target).toBe('production')
   })
 
-  test('composed commands coexist with inline commands', () => {
+  test('composed commands coexist with inline commands', async () => {
     const parent = goke('mycli')
     const sub = goke()
     let matched = ''
@@ -2523,21 +2611,21 @@ describe('use() with sub-CLI composition', () => {
 
     parent.use(sub)
 
-    parent.parse(['node', 'bin', 'init'], { run: true })
+    await parent.parse(['node', 'bin', 'init'], { run: true })
     expect(matched).toBe('init')
 
     matched = ''
-    parent.parse(['node', 'bin', 'deploy'], { run: true })
+    await parent.parse(['node', 'bin', 'deploy'], { run: true })
     expect(matched).toBe('deploy')
 
     matched = ''
-    parent.parse(['node', 'bin', 'rollback'], { run: true })
+    await parent.parse(['node', 'bin', 'rollback'], { run: true })
     expect(matched).toBe('rollback')
   })
 })
 
 describe('getAction()', () => {
-  test('returns the action callable with correct behavior', () => {
+  test('returns the action callable with correct behavior', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout, exit: () => {} })
 
@@ -2554,7 +2642,7 @@ describe('getAction()', () => {
     expect(stdout.text).toBe('Deploying to staging\n')
   })
 
-  test('works with positional args', () => {
+  test('works with positional args', async () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout, exit: () => {} })
 
@@ -2571,7 +2659,7 @@ describe('getAction()', () => {
     expect(stdout.text).toBe('abc123:json\n')
   })
 
-  test('throws when no action is registered', () => {
+  test('throws when no action is registered', async () => {
     const cli = goke('mycli')
     const cmd = cli.command('noop', 'No action')
     expect(() => cmd.getAction()).toThrow(/No action registered/)

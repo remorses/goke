@@ -1230,7 +1230,7 @@ class Goke<Opts = {}> extends EventEmitter {
     this.stderr = options?.stderr ?? process.stderr
     this.console = createConsole(this.stdout, this.stderr)
     this.columns = options?.columns ?? process.stdout.columns ?? Number.POSITIVE_INFINITY
-    this.exit = options?.exit ?? ((code: number) => process.exit(code))
+    this.exit = options?.exit ?? ((code) => process.exit(code))
     this.#defaultArgv = options?.argv ?? processArgs
     this.globalCommand = new GlobalCommand(this)
     this.globalCommand.usage('<command> [options]')
@@ -1433,7 +1433,7 @@ class Goke<Opts = {}> extends EventEmitter {
    *
    * // main.ts
    * import { selfhostCli } from './selfhost.js'
-   * goke('mycli')
+   * await goke('mycli')
    *   .use(selfhostCli)
    *   .help()
    *   .parse(process.argv)
@@ -1595,7 +1595,7 @@ class Goke<Opts = {}> extends EventEmitter {
    *
    * @example
    * ```ts
-   * goke('mycli')
+   * await goke('mycli')
    *   .help()
    *   .completions()
    *   .command('deploy', 'Deploy the app')
@@ -1740,7 +1740,7 @@ class Goke<Opts = {}> extends EventEmitter {
     })
 
     for (const command of sortedCommands) {
-      const result = command.isMatched(previous as string[])
+      const result = command.isMatched(previous)
       if (result.matched) {
         matchedCommand = command
         consumedArgs = result.consumedArgs
@@ -1890,15 +1890,15 @@ class Goke<Opts = {}> extends EventEmitter {
   }
 
   /**
-   * Parse argv
+   * Parse argv and await the matched command when run is enabled.
    */
-  parse(
+  async parse(
     argv = this.#defaultArgv,
     {
       /** Whether to run the action for matched command */
       run = true,
     } = {}
-  ): ParsedArgv {
+  ): Promise<ParsedArgv> {
     this.rawArgs = argv
     if (!this.name) {
       this.name = argv[1] ? getFileName(argv[1]) : 'cli'
@@ -1964,6 +1964,11 @@ class Goke<Opts = {}> extends EventEmitter {
                 // Don't match default command - let it fall through to "unknown command"
                 continue
               }
+              // Default command defines no positional args but user passed args;
+              // skip matching so unknown args fall through to "unknown command"
+              if (command.args.length === 0) {
+                continue
+              }
             }
             shouldParse = false
             this.setParsedInfo(parsed, command)
@@ -2014,7 +2019,7 @@ class Goke<Opts = {}> extends EventEmitter {
     const parsedArgv = { args: this.args, options: this.options }
 
     if (run) {
-      this.runMatchedCommand()
+      await this.runMatchedCommand()
     }
 
     if (!this.matchedCommand && this.args[0] && !(this.options.help && this.showHelpOnExit)) {
