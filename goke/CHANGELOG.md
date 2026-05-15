@@ -1,5 +1,23 @@
 # goke
 
+## 6.11.0
+
+**Default command no longer silently swallows unknown positional args.** When a CLI has a default command (`""`) that defines no positional args, passing args like `mycli run` now correctly falls through to the "unknown command" error instead of silently running the default action.
+
+```ts
+const cli = goke('playwriter')
+cli.command('', 'Start the MCP server').action(async () => { ... })
+cli.command('session new', 'Create session').action(() => { ... })
+cli.help()
+await cli.parse()
+
+// `playwriter run` now shows "unknown command" instead of starting the server
+// `playwriter` with no args still works
+// `playwriter -- extra args` still works (passed via options["--"])
+```
+
+Default commands that define positional args like `command('[script]')` are unaffected and still accept arguments normally.
+
 ## 6.10.0
 
 1. **Shell completion support (zsh + bash)** — generate and install shell completions for any goke CLI. Users get tab-completion for commands, subcommands, and options out of the box:
