@@ -2753,4 +2753,55 @@ describe('command routing with conflicting enum options', () => {
     await cli.parse(['node', 'bin', 'parent', 'something'])
     expect(matched).toBe('parent:something')
   })
+
+  test('multi-word commands with same first word and conflicting enums route correctly', async () => {
+    const cli = gokeTestable('egaki')
+    let matched = ''
+
+    cli.command('image create <prompt>', 'Create image')
+      .option('--model [model]', z.enum(['imagen']).describe('Create model'))
+      .action((prompt, options) => { matched = `create:${prompt}:${options.model}` })
+
+    cli.command('image edit <prompt>', 'Edit image')
+      .option('--model [model]', z.enum(['edit-model']).describe('Edit model'))
+      .action((prompt, options) => { matched = `edit:${prompt}:${options.model}` })
+
+    await cli.parse(['node', 'bin', 'image', 'edit', 'test', '--model', 'edit-model'])
+    expect(matched).toBe('edit:test:edit-model')
+  })
+
+  test('aliased command with conflicting enum routes correctly', async () => {
+    const cli = gokeTestable('egaki')
+    let matched = ''
+
+    cli.command('image <prompt>', 'Generate images')
+      .option('--model [model]', z.enum(['imagen']).describe('Image model'))
+      .action((prompt, options) => { matched = `image:${prompt}:${options.model}` })
+
+    cli.command('video <prompt>', 'Generate videos')
+      .alias('v')
+      .option('--model [model]', z.enum(['veo']).describe('Video model'))
+      .action((prompt, options) => { matched = `video:${prompt}:${options.model}` })
+
+    await cli.parse(['node', 'bin', 'v', 'test', '--model', 'veo'])
+    expect(matched).toBe('video:test:veo')
+  })
+
+  test('global options before command do not disable routing precheck', async () => {
+    const cli = gokeTestable('egaki')
+    let matched = ''
+
+    cli.option('--verbose', 'Verbose output')
+
+    cli.command('image <prompt>', 'Generate images')
+      .option('--model [model]', z.enum(['imagen']).describe('Image model'))
+      .action((prompt, options) => { matched = `image:${prompt}:${options.model}` })
+
+    cli.command('video <prompt>', 'Generate videos')
+      .option('--model [model]', z.enum(['veo']).describe('Video model'))
+      .action((prompt, options) => { matched = `video:${prompt}:${options.model}` })
+
+    await cli.parse(['node', 'bin', '--verbose', 'video', 'test', '--model', 'veo'])
+    expect(matched).toBe('video:test:veo')
+  })
 })

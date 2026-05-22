@@ -1927,48 +1927,62 @@ class Goke<Opts = {}> extends EventEmitter {
       return bLength - aLength
     })
 
-    // Extract leading non-flag tokens from raw argv for lightweight pre-matching.
-    // These are the tokens before any --flag that could be command name parts.
-    // e.g. ["video", "test", "--model", "grok-video"] → ["video", "test"]
-    const rawPositionalArgs = argv.slice(2)
+    // Extract raw positional tokens from argv for lightweight pre-matching.
+    // Skips known global boolean flags so that e.g. "--verbose video test"
+    // still yields ["video", "test"] as positional tokens.
+    // Non-boolean global options (e.g. "--config <path>") consume the next
+    // token as their value, so that token is also skipped.
+    const globalBooleanFlags = new Set<string>()
+    const globalValueFlags = new Set<string>()
+    for (const opt of this.globalCommand.options) {
+      for (const name of opt.names) {
+        const long = `--${name}`
+        const short = name.length === 1 ? `-${name}` : undefined
+        if (opt.isBoolean) {
+          globalBooleanFlags.add(long)
+          if (short) globalBooleanFlags.add(short)
+        } else {
+          globalValueFlags.add(long)
+          if (short) globalValueFlags.add(short)
+        }
+      }
+    }
+
+    const rawArgs = argv.slice(2)
     const leadingTokens: string[] = []
-    for (const token of rawPositionalArgs) {
-      if (token.startsWith('-')) break
+    for (let i = 0; i < rawArgs.length; i++) {
+      const token = rawArgs[i]
+      if (globalBooleanFlags.has(token)) continue
+      if (globalValueFlags.has(token)) { i++; continue } // skip flag + its value
+      if (token.startsWith('-')) break // non-global flag; stop
       leadingTokens.push(token)
     }
 
-    // Collect all non-default command names for pre-match disambiguation.
-    // When a leading token exactly matches another command's name, we can
-    // safely skip commands whose name doesn't match — avoiding expensive
-    // mri() calls that may throw schema coercion errors for the wrong
-    // command's options (e.g. different z.enum() on a shared --model flag).
-    const commandNames = new Set(
+    // Collect all command start tokens (first word of name + aliases) for
+    // pre-match disambiguation. When a leading token exactly matches another
+    // command's start, we can safely skip commands that don't match —
+    // avoiding expensive mri() calls that may throw schema coercion errors
+    // for the wrong command's options (e.g. different z.enum() on --model).
+    const commandStartTokens = new Set(
       this.commands
         .filter((c) => c.name !== '')
         .flatMap((c) => {
-          const parts = c.name.split(' ').filter(Boolean)
-          // Include the first word so single-word commands are checked
-          return parts.length > 0 ? [parts[0]] : []
+          const first = c.name.split(' ').filter(Boolean)[0]
+          const aliasFirsts = c.aliasNames.map((a) => a.split(' ').filter(Boolean)[0])
+          return [first, ...aliasFirsts].filter(Boolean)
         })
     )
 
     // Search sub-commands — mri() can throw coercion errors, catch them
     try {
       for (const command of sortedCommands) {
-        // Lightweight pre-check: if the first leading token is a known
-        // command name but doesn't match this command's name, skip it.
+        // Lightweight pre-check: compare raw leading tokens against this
+        // command's name parts. If the tokens prove this command cannot
+        // match (another registered command matches better), skip it.
         // This prevents mri() from running schema coercion (e.g. z.enum
         // validation) against the wrong command's options.
-        const nameParts = command.name.split(' ').filter(Boolean)
-        if (nameParts.length > 0 && leadingTokens.length > 0) {
-          const firstToken = leadingTokens[0]
-          if (
-            commandNames.has(firstToken) &&
-            nameParts[0] !== firstToken &&
-            !command.aliasNames.some((alias) => alias.split(' ')[0] === firstToken)
-          ) {
-            continue
-          }
+        if (!this.commandCouldMatch(command, leadingTokens, commandStartTokens)) {
+          continue
         }
 
         const parsed = this.mri(argv.slice(2), command)
@@ -2097,6 +2111,72 @@ class Goke<Opts = {}> extends EventEmitter {
     }
 
     return parsedArgv
+  }
+
+  /**
+   * Lightweight pre-check: can this command possibly match the raw leading
+   * tokens extracted from argv (before mri parsing)?
+   *
+   * Returns false only when we can prove the command won't match, which
+   * lets the parse() loop skip the expensive mri() call (and its schema
+   * coercion that may throw for the wrong command's enum options).
+   *
+   * The check compares all literal name parts of the command against the
+   * leading tokens. For example, given command "image edit" and tokens
+   * ["image", "create", ...], the second part "edit" ≠ "create" so we
+   * return false.
+   *
+   * When the check is inconclusive (e.g. no leading tokens, or the
+   * command has fewer name parts than tokens), we return true to let
+   * mri() handle it normally.
+   */
+  private commandCouldMatch(
+    command: Command,
+    leadingTokens: string[],
+    commandStartTokens: Set<string>,
+  ): boolean {
+    const nameParts = command.name.split(' ').filter(Boolean)
+    if (nameParts.length === 0 || leadingTokens.length === 0) return true
+
+    // Check if the first token could match this command (name or alias)
+    const firstToken = leadingTokens[0]
+    const firstPartMatches =
+      nameParts[0] === firstToken ||
+      command.aliasNames.some((alias) => alias.split(' ').filter(Boolean)[0] === firstToken)
+
+    if (!firstPartMatches) {
+      // Only skip if the first token is a known command start; otherwise
+      // it might be a positional arg for a different command shape and we
+      // can't safely exclude this candidate.
+      return !commandStartTokens.has(firstToken)
+    }
+
+    // First part matches. For multi-word commands, also check subsequent
+    // name parts against subsequent leading tokens. This handles the case
+    // where "image create" and "image edit" both start with "image" but
+    // differ on the second word.
+    for (let i = 1; i < nameParts.length && i < leadingTokens.length; i++) {
+      if (nameParts[i] !== leadingTokens[i]) {
+        // Only skip if the token at this position matches another command's
+        // multi-word continuation. We check if any registered command has
+        // name parts that match the leading tokens up to this point.
+        const tokenMatchesOtherCommand = this.commands.some((other) => {
+          if (other === command || other.name === '') return false
+          const otherParts = other.name.split(' ').filter(Boolean)
+          // Check that all tokens up to and including position i match
+          for (let j = 0; j <= i && j < otherParts.length; j++) {
+            if (otherParts[j] !== leadingTokens[j]) return false
+          }
+          return otherParts.length > i // other command has a name part at this position
+        })
+        if (tokenMatchesOtherCommand) return false
+        // Token doesn't match any other command either; it might be a
+        // positional arg, so we can't safely exclude this candidate.
+        break
+      }
+    }
+
+    return true
   }
 
   private mri(
