@@ -1927,9 +1927,50 @@ class Goke<Opts = {}> extends EventEmitter {
       return bLength - aLength
     })
 
+    // Extract leading non-flag tokens from raw argv for lightweight pre-matching.
+    // These are the tokens before any --flag that could be command name parts.
+    // e.g. ["video", "test", "--model", "grok-video"] → ["video", "test"]
+    const rawPositionalArgs = argv.slice(2)
+    const leadingTokens: string[] = []
+    for (const token of rawPositionalArgs) {
+      if (token.startsWith('-')) break
+      leadingTokens.push(token)
+    }
+
+    // Collect all non-default command names for pre-match disambiguation.
+    // When a leading token exactly matches another command's name, we can
+    // safely skip commands whose name doesn't match — avoiding expensive
+    // mri() calls that may throw schema coercion errors for the wrong
+    // command's options (e.g. different z.enum() on a shared --model flag).
+    const commandNames = new Set(
+      this.commands
+        .filter((c) => c.name !== '')
+        .flatMap((c) => {
+          const parts = c.name.split(' ').filter(Boolean)
+          // Include the first word so single-word commands are checked
+          return parts.length > 0 ? [parts[0]] : []
+        })
+    )
+
     // Search sub-commands — mri() can throw coercion errors, catch them
     try {
       for (const command of sortedCommands) {
+        // Lightweight pre-check: if the first leading token is a known
+        // command name but doesn't match this command's name, skip it.
+        // This prevents mri() from running schema coercion (e.g. z.enum
+        // validation) against the wrong command's options.
+        const nameParts = command.name.split(' ').filter(Boolean)
+        if (nameParts.length > 0 && leadingTokens.length > 0) {
+          const firstToken = leadingTokens[0]
+          if (
+            commandNames.has(firstToken) &&
+            nameParts[0] !== firstToken &&
+            !command.aliasNames.some((alias) => alias.split(' ')[0] === firstToken)
+          ) {
+            continue
+          }
+        }
+
         const parsed = this.mri(argv.slice(2), command)
 
         const result = command.isMatched(parsed.args as string[])

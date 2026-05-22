@@ -2692,3 +2692,65 @@ describe('getAction()', () => {
     expect(() => cmd.getAction()).toThrow(/No action registered/)
   })
 })
+
+describe('command routing with conflicting enum options', () => {
+  test('commands with same option name but different enums route correctly', async () => {
+    const cli = gokeTestable('egaki')
+    let matched = ''
+
+    cli.command('image <prompt>', 'Generate images')
+      .option('-m, --model [model]', z.enum(['imagen-4', 'dall-e-3']).describe('Image model'))
+      .action((prompt, options) => { matched = `image:${prompt}:${options.model}` })
+
+    cli.command('video <prompt>', 'Generate videos')
+      .option('-m, --model [model]', z.enum(['veo-3', 'grok-video']).describe('Video model'))
+      .action((prompt, options) => { matched = `video:${prompt}:${options.model}` })
+
+    await cli.parse(['node', 'bin', 'video', 'test', '--model', 'grok-video'])
+    expect(matched).toBe('video:test:grok-video')
+  })
+
+  test('first-defined command still works with its own enum values', async () => {
+    const cli = gokeTestable('egaki')
+    let matched = ''
+
+    cli.command('image <prompt>', 'Generate images')
+      .option('-m, --model [model]', z.enum(['imagen-4', 'dall-e-3']).describe('Image model'))
+      .action((prompt, options) => { matched = `image:${prompt}:${options.model}` })
+
+    cli.command('video <prompt>', 'Generate videos')
+      .option('-m, --model [model]', z.enum(['veo-3', 'grok-video']).describe('Video model'))
+      .action((prompt, options) => { matched = `video:${prompt}:${options.model}` })
+
+    await cli.parse(['node', 'bin', 'image', 'sunset', '--model', 'dall-e-3'])
+    expect(matched).toBe('image:sunset:dall-e-3')
+  })
+
+  test('parent child command matches before parent <arg>', async () => {
+    const cli = gokeTestable('mycli')
+    let matched = ''
+
+    cli.command('parent <arg>', 'Parent with positional')
+      .action((arg) => { matched = `parent:${arg}` })
+
+    cli.command('parent child', 'Parent child subcommand')
+      .action(() => { matched = 'parent child' })
+
+    await cli.parse(['node', 'bin', 'parent', 'child'])
+    expect(matched).toBe('parent child')
+  })
+
+  test('parent <arg> still works for non-subcommand args', async () => {
+    const cli = gokeTestable('mycli')
+    let matched = ''
+
+    cli.command('parent <arg>', 'Parent with positional')
+      .action((arg) => { matched = `parent:${arg}` })
+
+    cli.command('parent child', 'Parent child subcommand')
+      .action(() => { matched = 'parent child' })
+
+    await cli.parse(['node', 'bin', 'parent', 'something'])
+    expect(matched).toBe('parent:something')
+  })
+})
