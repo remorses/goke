@@ -1927,84 +1927,28 @@ class Goke<Opts = {}> extends EventEmitter {
       return bLength - aLength
     })
 
-    // Extract raw positional tokens from argv for lightweight pre-matching.
-    // Skips known global boolean flags so that e.g. "--verbose video test"
-    // still yields ["video", "test"] as positional tokens.
-    // Non-boolean global options (e.g. "--config <path>") consume the next
-    // token as their value, so that token is also skipped.
-    const globalBooleanFlags = new Set<string>()
-    const globalValueFlags = new Set<string>()
-    for (const opt of this.globalCommand.options) {
-      for (const name of opt.names) {
-        const long = `--${name}`
-        const short = name.length === 1 ? `-${name}` : undefined
-        if (opt.isBoolean) {
-          globalBooleanFlags.add(long)
-          if (short) globalBooleanFlags.add(short)
-        } else {
-          globalValueFlags.add(long)
-          if (short) globalValueFlags.add(short)
-        }
-      }
-    }
-
-    const rawArgs = argv.slice(2)
-    const leadingTokens: string[] = []
-    for (let i = 0; i < rawArgs.length; i++) {
-      const token = rawArgs[i]
-      // Handle --flag=value and -f=value forms: extract the flag name
-      // before the "=" so we can match it against known global flags.
-      const flagName = token.includes('=') ? token.split('=', 1)[0] : token
-      if (globalBooleanFlags.has(flagName)) continue
-      if (globalValueFlags.has(flagName)) {
-        // --config=value is self-contained; --config value consumes next token
-        if (!token.includes('=')) i++
-        continue
-      }
-      if (token.startsWith('-')) break // non-global flag; stop
-      leadingTokens.push(token)
-    }
-
-    // Collect all command start tokens (first word of name + aliases) for
-    // pre-match disambiguation. When a leading token exactly matches another
-    // command's start, we can safely skip commands that don't match —
-    // avoiding expensive mri() calls that may throw schema coercion errors
-    // for the wrong command's options (e.g. different z.enum() on --model).
-    const commandStartTokens = new Set(
-      this.commands
-        .filter((c) => c.name !== '')
-        .flatMap((c) => {
-          const first = c.name.split(' ').filter(Boolean)[0]
-          const aliasFirsts = c.aliasNames.map((a) => a.split(' ').filter(Boolean)[0])
-          return [first, ...aliasFirsts].filter(Boolean)
-        })
-    )
-
-    // Search sub-commands — mri() can throw coercion errors, catch them
+    // Search sub-commands using two-pass matching:
+    // 1. First pass: parse without schema coercion to find the matching command.
+    //    This avoids z.enum() or other schema validation throwing for the wrong
+    //    command's options before isMatched() can reject it.
+    // 2. Second pass: re-parse with full coercion for the matched command only.
     try {
       for (const command of sortedCommands) {
-        // Lightweight pre-check: compare raw leading tokens against this
-        // command's name parts. If the tokens prove this command cannot
-        // match (another registered command matches better), skip it.
-        // This prevents mri() from running schema coercion (e.g. z.enum
-        // validation) against the wrong command's options.
-        if (!this.commandCouldMatch(command, leadingTokens, commandStartTokens)) {
-          continue
-        }
-
-        const parsed = this.mri(argv.slice(2), command)
+        const parsed = this.mri(argv.slice(2), command, true)
 
         const result = command.isMatched(parsed.args as string[])
         if (result.matched) {
           shouldParse = false
-          const matchedCommandName = parsed.args.slice(0, result.consumedArgs).join(' ')
+          // Re-parse with coercion now that we know this is the right command
+          const coerced = this.mri(argv.slice(2), command)
+          const matchedCommandName = coerced.args.slice(0, result.consumedArgs).join(' ')
           const parsedInfo = {
-            ...parsed,
-            args: parsed.args.slice(result.consumedArgs),
+            ...coerced,
+            args: coerced.args.slice(result.consumedArgs),
           }
           this.setParsedInfo(parsedInfo, command, matchedCommandName)
           this.emit(`command:${matchedCommandName}`, command)
-          break // Stop after first match (greedy matching)
+          break
         }
       }
 
@@ -2120,75 +2064,11 @@ class Goke<Opts = {}> extends EventEmitter {
     return parsedArgv
   }
 
-  /**
-   * Lightweight pre-check: can this command possibly match the raw leading
-   * tokens extracted from argv (before mri parsing)?
-   *
-   * Returns false only when we can prove the command won't match, which
-   * lets the parse() loop skip the expensive mri() call (and its schema
-   * coercion that may throw for the wrong command's enum options).
-   *
-   * The check compares all literal name parts of the command against the
-   * leading tokens. For example, given command "image edit" and tokens
-   * ["image", "create", ...], the second part "edit" ≠ "create" so we
-   * return false.
-   *
-   * When the check is inconclusive (e.g. no leading tokens, or the
-   * command has fewer name parts than tokens), we return true to let
-   * mri() handle it normally.
-   */
-  private commandCouldMatch(
-    command: Command,
-    leadingTokens: string[],
-    commandStartTokens: Set<string>,
-  ): boolean {
-    const nameParts = command.name.split(' ').filter(Boolean)
-    if (nameParts.length === 0 || leadingTokens.length === 0) return true
-
-    // Check if the first token could match this command (name or alias)
-    const firstToken = leadingTokens[0]
-    const firstPartMatches =
-      nameParts[0] === firstToken ||
-      command.aliasNames.some((alias) => alias.split(' ').filter(Boolean)[0] === firstToken)
-
-    if (!firstPartMatches) {
-      // Only skip if the first token is a known command start; otherwise
-      // it might be a positional arg for a different command shape and we
-      // can't safely exclude this candidate.
-      return !commandStartTokens.has(firstToken)
-    }
-
-    // First part matches. For multi-word commands, also check subsequent
-    // name parts against subsequent leading tokens. This handles the case
-    // where "image create" and "image edit" both start with "image" but
-    // differ on the second word.
-    for (let i = 1; i < nameParts.length && i < leadingTokens.length; i++) {
-      if (nameParts[i] !== leadingTokens[i]) {
-        // Only skip if the token at this position matches another command's
-        // multi-word continuation. We check if any registered command has
-        // name parts that match the leading tokens up to this point.
-        const tokenMatchesOtherCommand = this.commands.some((other) => {
-          if (other === command || other.name === '') return false
-          const otherParts = other.name.split(' ').filter(Boolean)
-          // Check that all tokens up to and including position i match
-          for (let j = 0; j <= i && j < otherParts.length; j++) {
-            if (otherParts[j] !== leadingTokens[j]) return false
-          }
-          return otherParts.length > i // other command has a name part at this position
-        })
-        if (tokenMatchesOtherCommand) return false
-        // Token doesn't match any other command either; it might be a
-        // positional arg, so we can't safely exclude this candidate.
-        break
-      }
-    }
-
-    return true
-  }
-
   private mri(
     argv: string[],
-    /** Matched command */ command?: Command
+    /** Matched command */ command?: Command,
+    /** Skip schema coercion (used during command matching to avoid throwing for wrong commands) */
+    skipCoercion?: boolean,
   ): ParsedArgv {
     // All added options
     const cliOptions = [
@@ -2295,37 +2175,39 @@ class Goke<Opts = {}> extends EventEmitter {
         const keys = key.split('.')
         let value = parsed[key]
 
-        // Apply schema coercion if this option has a schema.
-        // When value is boolean `true` and the option takes a value, it's mri's sentinel
-        // for "flag present, no value given":
-        //   - Required options (<...>): preserve `true` so checkOptionValue() throws
-        //   - Optional options ([...]) with schema AND a default: skip this
-        //     key entirely so the preset default (written into `options` at
-        //     the top of this function) survives. This keeps the type-level
-        //     `HasSchemaDefault` promise honest at runtime.
-        //   - Optional options ([...]) with schema and NO default: replace
-        //     `true` with `undefined` so the caller sees "flag present, no value"
-        //     as `undefined`.
-        const schemaInfo = schemaMap.get(key)
-        if (schemaInfo && value !== undefined) {
-          if (value === true && requiredValueOptions.has(key)) {
-            // Keep sentinel for checkOptionValue() to detect
-          } else if (value === true && optionalValueOptions.has(key)) {
-            if (optionsWithDefault.has(key)) {
-              // Preserve the preset default — don't overwrite with undefined.
-              continue
+        if (!skipCoercion) {
+          // Apply schema coercion if this option has a schema.
+          // When value is boolean `true` and the option takes a value, it's mri's sentinel
+          // for "flag present, no value given":
+          //   - Required options (<...>): preserve `true` so checkOptionValue() throws
+          //   - Optional options ([...]) with schema AND a default: skip this
+          //     key entirely so the preset default (written into `options` at
+          //     the top of this function) survives. This keeps the type-level
+          //     `HasSchemaDefault` promise honest at runtime.
+          //   - Optional options ([...]) with schema and NO default: replace
+          //     `true` with `undefined` so the caller sees "flag present, no value"
+          //     as `undefined`.
+          const schemaInfo = schemaMap.get(key)
+          if (schemaInfo && value !== undefined) {
+            if (value === true && requiredValueOptions.has(key)) {
+              // Keep sentinel for checkOptionValue() to detect
+            } else if (value === true && optionalValueOptions.has(key)) {
+              if (optionsWithDefault.has(key)) {
+                // Preserve the preset default — don't overwrite with undefined.
+                continue
+              }
+              value = undefined
+            } else {
+              value = coerceBySchema(value, schemaInfo.jsonSchema, schemaInfo.optionName)
             }
-            value = undefined
-          } else {
-            value = coerceBySchema(value, schemaInfo.jsonSchema, schemaInfo.optionName)
+          } else if (value === true && optionalValueOptions.has(key)) {
+            // Untyped optional-value flag with no schema: normalize bare `true`
+            // to `''` so callers get a clean `string | undefined` shape. `''`
+            // means "flag passed with no argument", distinct from `undefined`
+            // (flag omitted). This matches the new type inference that treats
+            // `[value]` as `string` instead of `string | boolean`.
+            value = ''
           }
-        } else if (value === true && optionalValueOptions.has(key)) {
-          // Untyped optional-value flag with no schema: normalize bare `true`
-          // to `''` so callers get a clean `string | undefined` shape. `''`
-          // means "flag passed with no argument", distinct from `undefined`
-          // (flag omitted). This matches the new type inference that treats
-          // `[value]` as `string` instead of `string | boolean`.
-          value = ''
         }
 
         setDotProp(options, keys, value)
