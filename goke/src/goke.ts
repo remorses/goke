@@ -1952,8 +1952,15 @@ class Goke<Opts = {}> extends EventEmitter {
     const leadingTokens: string[] = []
     for (let i = 0; i < rawArgs.length; i++) {
       const token = rawArgs[i]
-      if (globalBooleanFlags.has(token)) continue
-      if (globalValueFlags.has(token)) { i++; continue } // skip flag + its value
+      // Handle --flag=value and -f=value forms: extract the flag name
+      // before the "=" so we can match it against known global flags.
+      const flagName = token.includes('=') ? token.split('=', 1)[0] : token
+      if (globalBooleanFlags.has(flagName)) continue
+      if (globalValueFlags.has(flagName)) {
+        // --config=value is self-contained; --config value consumes next token
+        if (!token.includes('=')) i++
+        continue
+      }
       if (token.startsWith('-')) break // non-global flag; stop
       leadingTokens.push(token)
     }

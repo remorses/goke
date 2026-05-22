@@ -2787,7 +2787,7 @@ describe('command routing with conflicting enum options', () => {
     expect(matched).toBe('video:test:veo')
   })
 
-  test('global options before command do not disable routing precheck', async () => {
+  test('global boolean flag before command does not disable routing precheck', async () => {
     const cli = gokeTestable('egaki')
     let matched = ''
 
@@ -2802,6 +2802,60 @@ describe('command routing with conflicting enum options', () => {
       .action((prompt, options) => { matched = `video:${prompt}:${options.model}` })
 
     await cli.parse(['node', 'bin', '--verbose', 'video', 'test', '--model', 'veo'])
+    expect(matched).toBe('video:test:veo')
+  })
+
+  test('global value option before command keeps routing precheck enabled', async () => {
+    const cli = gokeTestable('egaki')
+    let matched = ''
+
+    cli.option('--config <path>', z.string().describe('Config path'))
+
+    cli.command('image <prompt>', 'Generate images')
+      .option('--model [model]', z.enum(['imagen']).describe('Image model'))
+      .action((prompt, options) => { matched = `image:${prompt}:${options.model}` })
+
+    cli.command('video <prompt>', 'Generate videos')
+      .option('--model [model]', z.enum(['veo']).describe('Video model'))
+      .action((prompt, options) => { matched = `video:${prompt}:${options.model}` })
+
+    await cli.parse(['node', 'bin', '--config', 'config.json', 'video', 'test', '--model', 'veo'])
+    expect(matched).toBe('video:test:veo')
+  })
+
+  test('global value option with equals syntax keeps routing precheck enabled', async () => {
+    const cli = gokeTestable('egaki')
+    let matched = ''
+
+    cli.option('--config <path>', z.string().describe('Config path'))
+
+    cli.command('image <prompt>', 'Generate images')
+      .option('--model [model]', z.enum(['imagen']).describe('Image model'))
+      .action((prompt, options) => { matched = `image:${prompt}:${options.model}` })
+
+    cli.command('video <prompt>', 'Generate videos')
+      .option('--model [model]', z.enum(['veo']).describe('Video model'))
+      .action((prompt, options) => { matched = `video:${prompt}:${options.model}` })
+
+    await cli.parse(['node', 'bin', '--config=config.json', 'video', 'test', '--model', 'veo'])
+    expect(matched).toBe('video:test:veo')
+  })
+
+  test('global boolean flag with explicit equals value keeps routing precheck enabled', async () => {
+    const cli = gokeTestable('egaki')
+    let matched = ''
+
+    cli.option('--verbose', 'Verbose output')
+
+    cli.command('image <prompt>', 'Generate images')
+      .option('--model [model]', z.enum(['imagen']).describe('Image model'))
+      .action((prompt, options) => { matched = `image:${prompt}:${options.model}` })
+
+    cli.command('video <prompt>', 'Generate videos')
+      .option('--model [model]', z.enum(['veo']).describe('Video model'))
+      .action((prompt, options) => { matched = `video:${prompt}:${options.model}` })
+
+    await cli.parse(['node', 'bin', '--verbose=false', 'video', 'test', '--model', 'veo'])
     expect(matched).toBe('video:test:veo')
   })
 })
