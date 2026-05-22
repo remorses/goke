@@ -358,6 +358,26 @@ describe('generateDocs', () => {
     expect(pages).toEqual([])
   })
 
+  test('supports basePath option for links', async () => {
+    const cli = gokeTestable('mycli')
+    cli.command('deploy', 'Deploy the app')
+    cli.command('status', 'Show status')
+
+    const pages = generateDocs({ cli, basePath: '/docs/cli' })
+    const index = pages.find((p) => p.slug === 'index')!
+    expect(index.content).toContain('[\`deploy\`](/docs/cli/deploy.md)')
+    expect(index.content).toContain('[\`status\`](/docs/cli/status.md)')
+  })
+
+  test('basePath with trailing slash is normalized', async () => {
+    const cli = gokeTestable('mycli')
+    cli.command('deploy', 'Deploy the app')
+
+    const pages = generateDocs({ cli, basePath: '/docs/cli/' })
+    const index = pages.find((p) => p.slug === 'index')!
+    expect(index.content).toContain('[\`deploy\`](/docs/cli/deploy.md)')
+  })
+
   test('skips deprecated options', async () => {
     const cli = gokeTestable('mycli')
     cli

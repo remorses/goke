@@ -2326,6 +2326,8 @@ interface DocPage {
 interface GenerateDocsOptions {
   /** The Goke CLI instance to generate docs from. */
   cli: Goke<any>
+  /** Base path prefix for links between pages (e.g. "/docs/cli"). Defaults to ".". */
+  basePath?: string
 }
 
 /**
@@ -2344,13 +2346,15 @@ interface GenerateDocsOptions {
  *   .command('deploy <env>', 'Deploy to an environment')
  *   .option('--force', 'Skip confirmation')
  *
- * const pages = generateDocs({ cli })
+ * const pages = generateDocs({ cli, basePath: '/docs/cli' })
  * for (const page of pages) {
  *   fs.writeFileSync(`docs/${page.slug}.md`, page.content)
  * }
  * ```
  */
-function generateDocs({ cli }: GenerateDocsOptions): DocPage[] {
+function generateDocs({ cli, basePath = '.' }: GenerateDocsOptions): DocPage[] {
+  // Normalize: strip trailing slash
+  basePath = basePath.replace(/\/+$/, '') || '.'
   const pages: DocPage[] = []
 
   // Collect global options (from globalCommand), excluding deprecated
@@ -2377,7 +2381,7 @@ function generateDocs({ cli }: GenerateDocsOptions): DocPage[] {
       if (cmd.isDefaultCommand) continue
       const desc = cmd.description.split('\n')[0].trim()
       const slug = cmd.name.replace(/\s+/g, '-')
-      lines.push(`| [\`${cmd.name}\`](./${slug}.md) | ${desc} |`)
+      lines.push(`| [\`${cmd.name}\`](${basePath}/${slug}.md) | ${desc} |`)
     }
     lines.push('')
 
