@@ -1,5 +1,9 @@
 # goke
 
+## 6.12.2
+
+Remove `"development"` condition from `#runtime` conditional import map. Node 22 `--experimental-strip-types` (used by vitest and other tools that activate the `development` condition) cannot strip types from `.ts` files inside `node_modules`. The `"development"` entry pointed to `./src/runtime-node.ts`, causing failures for consumers. The `"node"` condition already covers the same runtime with compiled `.js`.
+
 ## 6.11.0
 
 **Default command no longer silently swallows unknown positional args.** When a CLI has a default command (`""`) that defines no positional args, passing args like `mycli run` now correctly falls through to the "unknown command" error instead of silently running the default action.
