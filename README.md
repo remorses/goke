@@ -1369,6 +1369,20 @@ Version: 1.0.0
 
 Hidden commands and deprecated options are excluded automatically. Add this script to your CI or `package.json` scripts to keep docs in sync with the CLI code.
 
+### `basePath`
+
+By default the index page uses relative links (`./deploy.md`). Pass `basePath` to prefix all inter-page links with an absolute URL path, useful when docs are served under a nested route on your website.
+
+```ts
+// Pages will be served under /docs/cli/* on the website
+const pages = generateDocs({ cli, basePath: '/docs/cli' })
+
+// Index page links become: [deploy](/docs/cli/deploy.md)
+// Without basePath, links are relative: [deploy](./deploy.md)
+```
+
+Default: `"."` (relative links).
+
 ## Contributor Notes
 
 ### Rules
