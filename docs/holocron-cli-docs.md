@@ -1,6 +1,6 @@
 # Generating CLI Docs for Holocron
 
-Generate a full CLI reference site from your goke CLI using `generateDocs()` and [Holocron](https://holocron.so) (or Mintlify). Each command becomes an `.mdx` page with YAML frontmatter, and the script handles titles, descriptions, icons, and auto-generated warnings.
+Generate a full CLI reference site from your goke CLI using `generateDocs()` and [Holocron](https://holocron.so) (or Mintlify). Each command becomes an `.mdx` page with YAML frontmatter, and the script handles titles, icons, and auto-generated warnings. Holocron auto-generates descriptions from page content, so the script does not need to extract them.
 
 ## 1. Add the generate script
 
@@ -26,22 +26,6 @@ const icons: Record<string, string> = {
   logs: 'lucide:scroll-text',
 }
 
-function extractDescription(content: string): string {
-  const lines = content.split('\n')
-  let foundHeading = false
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (!foundHeading && trimmed.startsWith('#')) {
-      foundHeading = true
-      continue
-    }
-    if (foundHeading && trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('|') && !trimmed.startsWith('```')) {
-      return trimmed.length > 150 ? trimmed.slice(0, 147) + '...' : trimmed
-    }
-  }
-  return ''
-}
-
 const pages = generateDocs({ cli, basePath: '/docs/cli' })
 
 if (fs.existsSync(outDir)) {
@@ -55,7 +39,6 @@ for (const page of pages) {
   const title = page.command
     ? page.command.split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
     : 'CLI Overview'
-  const description = extractDescription(page.content)
   const icon = icons[page.slug.split('-')[0]] || 'lucide:terminal'
 
   const frontmatter = [
@@ -64,7 +47,6 @@ for (const page of pages) {
     '$schema: https://holocron.so/frontmatter.json',
     `title: "${title}"`,
     ...(title.length > 30 ? [`sidebarTitle: "${page.command || 'CLI'}"`] : []),
-    ...(description ? [`description: "${description.replace(/"/g, '\\"')}"`] : []),
     `icon: ${icon}`,
     '---',
     '',
@@ -133,7 +115,6 @@ Each `.mdx` file includes a frontmatter comment warning not to edit it manually.
 
 ## Tips
 
-- **`extractDescription`** pulls the first prose paragraph after the heading to populate `description` in frontmatter. This shows up in search results and link previews.
 - **`sidebarTitle`** is only added when the title exceeds 30 characters, keeping short titles clean in the sidebar.
 - **Icons** are mapped by the first segment of the slug (e.g. `deploy-up` matches `deploy`). Fall back to `lucide:terminal` for unmatched commands.
 - **Angle brackets** in descriptions like `<id>` and `<fingerprint>` are automatically escaped by `generateDocs()` (goke 6.12.3+) so MDX parsing does not break.
