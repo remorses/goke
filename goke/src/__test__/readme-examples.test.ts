@@ -378,6 +378,44 @@ describe('generateDocs', () => {
     expect(index.content).toContain('[\`deploy\`](/docs/cli/deploy.md)')
   })
 
+  test('escapes angle-bracket placeholders in descriptions for MDX safety', async () => {
+    const cli = gokeTestable('strada')
+    cli
+      .command('issues view <fingerprint>', 'View issue details by <fingerprint>')
+      .option('--project <slug>', 'Filter by <project> slug')
+
+    cli
+      .command('deploy <env>', 'Deploy to <env> environment using `<config>` file')
+
+    const pages = generateDocs({ cli })
+
+    // Index page: command descriptions should have <word> escaped
+    const index = pages.find((p) => p.slug === 'index')!
+    expect(index.content).toContain('View issue details by `<fingerprint>`')
+    expect(index.content).toContain('Deploy to `<env>` environment using `<config>` file')
+
+    // Command page: description prose should have <word> escaped
+    const issuesPage = pages.find((p) => p.slug === 'issues-view')!
+    expect(issuesPage.content).toContain('View issue details by `<fingerprint>`')
+
+    // Options table: description should have <word> escaped
+    expect(issuesPage.content).toContain('Filter by `<project>` slug')
+
+    // Arguments table: already uses backtick-wrapped bracket syntax
+    expect(issuesPage.content).toContain('`<fingerprint>`')
+
+    // Verify no bare <word> outside backticks in any page
+    for (const page of pages) {
+      // Strip inline code and fenced code blocks, then check for bare <word>
+      const stripped = page.content
+        .replace(/```[\s\S]*?```/g, '') // remove fenced blocks
+        .replace(/`[^`]+`/g, '') // remove inline code
+      const bareAngle = /<[a-zA-Z_][\w.-]*>/g
+      const matches = stripped.match(bareAngle)
+      expect(matches, `bare <word> found in page "${page.slug}": ${matches}`).toBeNull()
+    }
+  })
+
   test('skips deprecated options', async () => {
     const cli = gokeTestable('mycli')
     cli

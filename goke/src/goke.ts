@@ -2379,7 +2379,7 @@ function generateDocs({ cli, basePath = '.' }: GenerateDocsOptions): DocPage[] {
     lines.push('|---------|-------------|')
     for (const cmd of visibleCommands) {
       if (cmd.isDefaultCommand) continue
-      const desc = cmd.description.split('\n')[0].trim()
+      const desc = escapeAngleBrackets(cmd.description.split('\n')[0].trim())
       const slug = cmd.name.replace(/\s+/g, '-')
       lines.push(`| [\`${cmd.name}\`](${basePath}/${slug}.md) | ${desc} |`)
     }
@@ -2404,7 +2404,7 @@ function generateDocs({ cli, basePath = '.' }: GenerateDocsOptions): DocPage[] {
     lines.push('')
 
     if (cmd.description) {
-      lines.push(cmd.description)
+      lines.push(escapeAngleBrackets(cmd.description))
       lines.push('')
     }
 
@@ -2476,6 +2476,19 @@ function generateDocs({ cli, basePath = '.' }: GenerateDocsOptions): DocPage[] {
   return pages
 }
 
+/**
+ * Wraps bare `<word>` angle-bracket placeholders in backticks so MDX parsers
+ * don't interpret them as JSX tags. Skips content already inside inline code
+ * (single backticks) or fenced code blocks.
+ */
+function escapeAngleBrackets(text: string): string {
+  // Split on inline code spans to avoid double-wrapping
+  return text.replace(/(`.+?`)|(<[a-zA-Z_][\w.-]*>)/g, (match, codeSpan) => {
+    if (codeSpan) return match // already inside backticks
+    return `\`${match}\``
+  })
+}
+
 function formatOptionsTable(options: Option[]): string {
   const lines: string[] = []
   lines.push('| Option | Default | Description |')
@@ -2483,7 +2496,7 @@ function formatOptionsTable(options: Option[]): string {
   for (const opt of options) {
     const defaultVal = opt.default !== undefined ? `\`${String(opt.default)}\`` : '-'
     // Escape pipe characters in description for markdown tables
-    const desc = opt.description.replace(/\|/g, '\\|').replace(/\n/g, ' ')
+    const desc = escapeAngleBrackets(opt.description.replace(/\|/g, '\\|').replace(/\n/g, ' '))
     lines.push(`| \`${opt.rawName}\` | ${defaultVal} | ${desc} |`)
   }
   return lines.join('\n')
