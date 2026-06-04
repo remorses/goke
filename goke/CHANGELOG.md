@@ -2,9 +2,22 @@
 
 ## 6.12.2
 
-Remove `"development"` condition from `#runtime` conditional import map. Node 22 `--experimental-strip-types` (used by vitest and other tools that activate the `development` condition) cannot strip types from `.ts` files inside `node_modules`. The `"development"` entry pointed to `./src/runtime-node.ts`, causing failures for consumers. The `"node"` condition already covers the same runtime with compiled `.js`.
+1. **New `basePath` option for `generateDocs()`** — prefix all inter-page links with a custom path, useful when docs live in a subfolder of a docs site:
 
-## 6.11.0
+   ```ts
+   const pages = generateDocs({ cli, basePath: '/docs/cli' })
+   // links become /docs/cli/deploy.md instead of ./deploy.md
+   ```
+
+2. **Fixed `#runtime` import breaking vitest and Node 22 `--experimental-strip-types`** — removed the `"development"` condition from the `#runtime` conditional import map. Node 22 cannot strip types from `.ts` files inside `node_modules`, and vitest activates the `development` condition, causing import failures. The `"node"` condition already covers the same runtime with compiled `.js`.
+
+3. **Fixed routing for multi-word commands, aliases, and `--flag=value` syntax** — the command pre-check now correctly handles commands like `mcp login`, command aliases, global flags in any position, and `--flag=value` joined syntax. Previously some of these patterns could cause incorrect command matching or mri coercion errors.
+
+## 6.12.1
+
+1. **Unknown commands now exit with code 1** — previously unknown commands silently showed root help and exited 0, making failures invisible to scripts and agents. Now prints "Unknown command: ..." followed by the available commands help, then exits with code 1.
+
+## 6.12.0
 
 **Default command no longer silently swallows unknown positional args.** When a CLI has a default command (`""`) that defines no positional args, passing args like `mycli run` now correctly falls through to the "unknown command" error instead of silently running the default action.
 
