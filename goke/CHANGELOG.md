@@ -1,5 +1,9 @@
 # goke
 
+## 6.12.3
+
+1. **Fixed bare `<word>` angle brackets in `generateDocs()` output breaking MDX parsers** — descriptions containing angle-bracket placeholders like `<env>` or `<project>` are now automatically wrapped in backticks. This prevents MDX/JSX parsers from interpreting them as HTML tags when rendering generated docs.
+
 ## 6.12.2
 
 1. **New `basePath` option for `generateDocs()`** — prefix all inter-page links with a custom path, useful when docs live in a subfolder of a docs site:
