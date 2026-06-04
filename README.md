@@ -1369,6 +1369,8 @@ Version: 1.0.0
 
 Hidden commands and deprecated options are excluded automatically. Add this script to your CI or `package.json` scripts to keep docs in sync with the CLI code.
 
+For a complete example with Holocron/Mintlify frontmatter, icons, and sidebar navigation, see [docs/holocron-cli-docs.md](./docs/holocron-cli-docs.md).
+
 ## Contributor Notes
 
 ### Rules
