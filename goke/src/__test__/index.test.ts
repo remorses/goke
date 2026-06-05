@@ -140,7 +140,7 @@ describe('error formatting', () => {
     expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: connection refused"`)
   })
 
-  test('error output includes stack trace', async () => {
+  test('GokeError (validation) omits stack trace', async () => {
     const stderr = createTestOutputStream()
     const cli = goke('mycli', { stderr, exit: () => {} })
 
@@ -152,10 +152,30 @@ describe('error formatting', () => {
       await cli.parse('node bin build --unknown'.split(' '))
     } catch {}
 
-    // Verify that stderr contains "error:" prefix and a stack trace with "at" lines
     const text = stderr.text
     expect(text).toContain('error:')
     expect(text).toContain('Unknown option `--unknown`')
+    // GokeError is a user-facing error; stack trace should be suppressed
+    expect(text).not.toMatch(/at /)
+  })
+
+  test('unexpected error still includes stack trace', async () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+
+    cli
+      .command('deploy', 'Deploy app')
+      .action(async () => {
+        throw new Error('unexpected crash')
+      })
+
+    await cli.parse('node bin deploy'.split(' '))
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    const text = stderr.text
+    expect(text).toContain('error:')
+    expect(text).toContain('unexpected crash')
+    // Non-GokeError should still show the stack trace
     expect(text).toMatch(/at /)
   })
 })

@@ -1144,7 +1144,10 @@ function createConsole(stdout: GokeOutputStream, stderr: GokeOutputStream): Goke
 function formatCliError(err: Error): string {
   const lines: string[] = []
   lines.push(`${pc.red(pc.bold('error:'))} ${err.message}`)
-  if (err.stack) {
+  // GokeError is a user-facing validation/usage error (unknown options, missing
+  // values, invalid types, schema coercion failures). The stack trace is
+  // internal noise for these — only show it for unexpected errors.
+  if (!(err instanceof GokeError) && err.stack) {
     // Extract just the stack frames (skip the first line which is the message)
     const stackLines = err.stack.split('\n').slice(1)
     if (stackLines.length > 0) {
