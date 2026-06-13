@@ -178,6 +178,48 @@ import { openInBrowser } from 'goke'
 await openInBrowser('https://example.com/dashboard')
 ```
 
+## Command Descriptions and Examples
+
+**Use markdown formatting in command descriptions.** Wrap CLI flags, command names, and code references in backticks so they render properly in generated docs and `--help` output. Never leave command or flag names as plain text.
+
+```ts
+// Bad: plain text references
+.command('issues list', 'List issues. Use --status all to show everything.')
+
+// Good: backtick formatting
+.command('issues list', 'List issues. Use `--status all` to show everything.')
+```
+
+**Use `.example()` for usage examples, not the description string.** The `generateDocs()` function auto-wraps `.example()` strings in `` ```sh `` code blocks. Examples embedded in the description string are rendered as plain text without syntax highlighting.
+
+```ts
+// Bad: examples buried in description
+cli.command(
+  'query <sql>',
+  dedent`
+    Run a SQL query.
+
+      mycli query "SELECT * FROM users" -p my-app
+      mycli query "SELECT * FROM users FORMAT CSV" > out.csv
+  `,
+)
+
+// Good: examples use .example()
+cli.command(
+  'query <sql>',
+  dedent`
+    Run a SQL query against a project's database.
+
+    Without a FORMAT clause, renders a terminal table. Add \`--json\`
+    for the raw JSON envelope.
+  `,
+)
+  .example('mycli query "SELECT * FROM users" -p my-app')
+  .example('mycli query "SELECT * FROM users FORMAT CSV" > out.csv')
+```
+
+Each `.example()` call adds one entry. The `generateDocs()` markdown generator wraps each in a fenced code block. The terminal `--help` output lists them under an "Examples" section. Comments starting with `#` are supported inside examples.
+
 ## Command Naming Conventions
 
 **ALWAYS read existing commands before adding a new one.** Scan the CLI for option names, verbs, and noun patterns already in use. New commands must stay consistent with what exists.
