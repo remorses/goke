@@ -180,45 +180,20 @@ await openInBrowser('https://example.com/dashboard')
 
 ## Command Descriptions and Examples
 
-**Use markdown formatting in command descriptions.** Wrap CLI flags, command names, and code references in backticks so they render properly in generated docs and `--help` output. Never leave command or flag names as plain text.
+**Use backtick formatting in descriptions** for flags and command references (e.g. `` `--status` ``, `` `mycli deploy` ``). Plain text flag names won't render as code in generated docs.
+
+**Use `.example()` for usage examples, not the description string.** `generateDocs()` auto-wraps `.example()` strings in fenced `` ```sh `` code blocks. Examples in the description render as plain text without syntax highlighting.
 
 ```ts
-// Bad: plain text references
-.command('issues list', 'List issues. Use --status all to show everything.')
-
-// Good: backtick formatting
-.command('issues list', 'List issues. Use `--status all` to show everything.')
-```
-
-**Use `.example()` for usage examples, not the description string.** The `generateDocs()` function auto-wraps `.example()` strings in `` ```sh `` code blocks. Examples embedded in the description string are rendered as plain text without syntax highlighting.
-
-```ts
-// Bad: examples buried in description
 cli.command(
   'query <sql>',
   dedent`
-    Run a SQL query.
-
-      mycli query "SELECT * FROM users" -p my-app
-      mycli query "SELECT * FROM users FORMAT CSV" > out.csv
-  `,
-)
-
-// Good: examples use .example()
-cli.command(
-  'query <sql>',
-  dedent`
-    Run a SQL query against a project's database.
-
-    Without a FORMAT clause, renders a terminal table. Add \`--json\`
-    for the raw JSON envelope.
+    Run a SQL query. Add \`--json\` for the raw JSON envelope.
   `,
 )
   .example('mycli query "SELECT * FROM users" -p my-app')
   .example('mycli query "SELECT * FROM users FORMAT CSV" > out.csv')
 ```
-
-Each `.example()` call adds one entry. The `generateDocs()` markdown generator wraps each in a fenced code block. The terminal `--help` output lists them under an "Examples" section. Comments starting with `#` are supported inside examples.
 
 ## Command Naming Conventions
 
