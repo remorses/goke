@@ -9,5 +9,13 @@
     "typescript": "^5.9.3"
   },
   "author": "Tommaso De Rossi, morse <beats.by.morse@gmail.com>",
-  "license": "MIT"
+  "license": "MIT",
+  "homepage": "https://github.com/remorses/goke",
+  "bugs": {
+    "url": "https://github.com/remorses/goke/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/remorses/goke.git"
+  }
 }
