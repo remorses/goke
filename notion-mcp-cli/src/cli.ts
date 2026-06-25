@@ -3,16 +3,17 @@
  * Notion MCP CLI with OAuth support.
  *
  * Usage:
- *   notion-mcp-cli login          # Save MCP URL and authenticate
+ *   notion-mcp-cli login          # Authenticate (runs in background for agents)
+ *   notion-mcp-cli me             # Check auth status (exits 1 if not logged in)
  *   notion-mcp-cli notion-search  # Search Notion
  *   notion-mcp-cli notion-fetch   # Fetch a page
  *   notion-mcp-cli status         # Show current config
  *   notion-mcp-cli logout         # Clear OAuth tokens
  */
 
-import { goke } from "goke";
+import { goke, isAgent } from "goke";
 import { z } from "zod";
-import { addMcpCommands } from "@goke/mcp";
+import { addMcpCommands, startOAuthFlow } from "@goke/mcp";
 import type { McpOAuthState, CachedMcpTools } from "@goke/mcp";
 import fs from "node:fs";
 import path from "node:path";
@@ -67,35 +68,103 @@ await addMcpCommands({
   },
 });
 
-// Login command - just saves URL, auth happens on first tool call
+// Login command — runs OAuth flow, background daemon for agents
 cli
-  .command("login", "Save MCP URL and prepare for authentication")
+  .command("login", "Authenticate with Notion via OAuth")
   .option("--url <url>", z.string().default("https://mcp.notion.com/mcp").describe("MCP server URL"))
-  .action((options: { url: string }) => {
+  .action(async (options, ctx) => {
     saveConfig({ mcpUrl: options.url });
-    console.log(`Saved MCP URL: ${options.url}`);
-    console.log(`Config file: ${CONFIG_FILE}`);
-    console.log("\nRun any command to authenticate (e.g., notion-mcp-cli notion-get-users)");
+
+    if (ctx.daemon.isServer) {
+      // ── DAEMON: run OAuth flow in background ──
+      // startOAuthFlow() blocks until the user approves in the browser (the
+      // internal callback server keeps the event loop alive). When it returns,
+      // tokens are saved to disk and the daemon exits naturally.
+      const result = await startOAuthFlow({
+        serverUrl: options.url,
+        clientName: "Notion CLI",
+        existingState: loadConfig().oauthState,
+        timeout: 10 * 60 * 1000,
+      });
+
+      if (result.success && result.state) {
+        saveConfig({ oauthState: result.state });
+      }
+      return;
+    }
+
+    // ── CLIENT: decide foreground vs background ──
+    if (isAgent) {
+      // Agent mode: start daemon and return immediately
+      await ctx.daemon.start({ timeoutMs: 10 * 60 * 1000 });
+      ctx.console.log("Login server running in background (10 min timeout).");
+      ctx.console.log("The user needs to complete authentication in their browser.");
+      ctx.console.log("");
+      ctx.console.log("To check if login succeeded:");
+      ctx.console.log("  notion-mcp-cli me");
+      return;
+    }
+
+    // Interactive mode: run OAuth flow directly (blocks until done)
+    ctx.console.log("Opening browser for authentication...\n");
+    const result = await startOAuthFlow({
+      serverUrl: options.url,
+      clientName: "Notion CLI",
+      existingState: loadConfig().oauthState,
+    });
+
+    if (result.success && result.state) {
+      saveConfig({ oauthState: result.state });
+      ctx.console.log("Login successful!");
+    } else {
+      ctx.console.error(`Login failed: ${result.error || "unknown error"}`);
+      ctx.process.exit(1);
+    }
+  });
+
+// Me command — agent-friendly auth check (exits 1 if not logged in)
+cli
+  .command("me", "Check authentication status (exits 1 if not logged in)")
+  .action(async (options, ctx) => {
+    const config = loadConfig();
+    if (config.oauthState?.tokens) {
+      ctx.console.log("Authenticated");
+      ctx.console.log(`MCP URL: ${config.mcpUrl}`);
+      return;
+    }
+
+    // Check if login daemon is still running (user might not have approved yet)
+    const loginDaemon = ctx.daemon.forCommand("login");
+    if (await loginDaemon.isRunning()) {
+      ctx.console.error("Login in progress. Approve in browser first.");
+      ctx.process.exit(1);
+    }
+
+    ctx.console.error("Not logged in. Run `notion-mcp-cli login` first.");
+    ctx.process.exit(1);
   });
 
 // Logout command
-cli.command("logout", "Clear OAuth tokens and cache").action(() => {
+cli.command("logout", "Clear OAuth tokens and cache").action(async (options, ctx) => {
+  // Stop any running login daemon
+  const loginDaemon = ctx.daemon.forCommand("login");
+  await loginDaemon.stop();
   saveConfig({ oauthState: undefined, cache: undefined });
-  console.log("Cleared OAuth state and cache");
+  ctx.console.log("Cleared OAuth state and cache");
 });
 
 // Status command
-cli.command("status", "Show current config").action(() => {
+cli.command("status", "Show current config").action((options, ctx) => {
   const config = loadConfig();
   const hasTokens = !!config.oauthState?.tokens;
   const toolCount = config.cache?.tools?.length || 0;
 
-  console.log("Notion CLI Status");
-  console.log("─".repeat(40));
-  console.log(`MCP URL:     ${config.mcpUrl}`);
-  console.log(`Logged in:   ${hasTokens ? "Yes" : "No"}`);
-  console.log(`Tools cached: ${toolCount}`);
-  console.log(`Config file: ${CONFIG_FILE}`);
+  ctx.console.log("Notion CLI Status");
+  ctx.console.log("─".repeat(40));
+  ctx.console.log(`MCP URL:     ${config.mcpUrl}`);
+  ctx.console.log(`Logged in:   ${hasTokens ? "Yes" : "No"}`);
+  ctx.console.log(`Tools cached: ${toolCount}`);
+  ctx.console.log(`Config file: ${CONFIG_FILE}`);
 });
 
 cli.help();

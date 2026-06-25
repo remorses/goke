@@ -19,6 +19,8 @@ import { COMPLETION_FLAG, generateCompletionScript, installCompletions, uninstal
 import type { ShellType } from './completions.js'
 import type { GokeFs } from './goke-fs.js'
 import { EventEmitter, fs as runtimeFs, openInBrowser, process } from '#runtime'
+import { createDaemonContext } from '#daemon'
+import type { DaemonContext } from '#daemon'
 
 // ─── Node.js platform constants ───
 
@@ -1033,6 +1035,8 @@ interface GokeExecutionContext {
   console: GokeConsole
   fs: GokeFs
   process: GokeProcess
+  /** Daemon context for running the current command as a background process. */
+  daemon: DaemonContext
 }
 
 /**
@@ -1315,6 +1319,7 @@ class Goke<Opts = {}> extends EventEmitter {
       ? createConsole(stdout, stderr)
       : this.console
     const exitFn = override?.exit ?? this.exit
+    const commandName = this.matchedCommandName || ''
     return {
       console: contextConsole,
       fs: override?.fs ?? this.fs,
@@ -1330,6 +1335,12 @@ class Goke<Opts = {}> extends EventEmitter {
           throw new GokeProcessExit(code)
         },
       },
+      daemon: createDaemonContext(
+        this.name,
+        commandName,
+        override?.argv ?? this.rawArgs,
+        override?.env ?? this.env,
+      ),
     }
   }
 

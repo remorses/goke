@@ -26,6 +26,11 @@
       "types": "./dist/runtime-node.d.ts",
       "node": "./dist/runtime-node.js",
       "default": "./dist/runtime-browser.js"
+    },
+    "#daemon": {
+      "types": "./dist/daemon.d.ts",
+      "node": "./dist/daemon.js",
+      "default": "./dist/daemon-browser.js"
     }
   },
   "exports": {

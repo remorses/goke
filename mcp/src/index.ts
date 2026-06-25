@@ -48,13 +48,14 @@ import { wrapJsonSchema } from "goke";
 import yaml from "js-yaml";
 import { FileOAuthProvider } from "./oauth-provider.js";
 import { startOAuthFlow, isAuthRequiredError } from "./auth.js";
+export { startOAuthFlow } from "./auth.js";
 import type { McpOAuthConfig, McpOAuthState } from "./types.js";
 export { addCliToolsToMcp, createMcpAction } from "./cli-to-mcp.js";
 export type { AddCliToolsToMcpOptions, CreateMcpActionOptions } from "./cli-to-mcp.js";
 
-// Public exports - only types that consumers need
+// Public exports
 export type { Transport };
-export type { McpOAuthConfig, McpOAuthState } from "./types.js";
+export type { McpOAuthConfig, McpOAuthState, StartOAuthFlowOptions, OAuthFlowResult } from "./types.js";
 
 export interface CachedMcpTools {
   tools: Array<{

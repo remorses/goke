@@ -120,6 +120,149 @@ cli
 
 The detection logic is ported from [unjs/std-env](https://github.com/unjs/std-env). Agent-specific env vars checked include `CLAUDECODE`, `CURSOR_AGENT`, `CODEX_SANDBOX`, `GEMINI_CLI`, `OPENCODE`, and others. IDE-based agents (Cursor, Devin, Kiro) are checked last so that agents running inside those IDEs are detected by their own env vars first.
 
+## Background Daemons
+
+Every command gets a `ctx.daemon` object that can fork the current command into a **detached background process**. This is useful for login flows where a server needs to wait for a browser callback while the CLI returns control to the user (or agent).
+
+The daemon is identified by CLI name + command name. A PID file at `~/.config/goke/daemons/` tracks the running process. No HTTP server, no ports. The daemon and client communicate via shared files (config, auth tokens, etc.) that the CLI already manages.
+
+```ts
+import { goke, isAgent, openInBrowser } from 'goke'
+import { z } from 'zod'
+import { createAuthClient } from 'better-auth/client'
+import { deviceAuthorizationClient } from 'better-auth/client/plugins'
+
+const cli = goke('playwriter')
+
+cli
+  .command('cloud login', 'Authenticate with playwriter.dev')
+  .option('--base-url <url>', z.string().default('https://playwriter.dev').describe('Website base URL'))
+  .action(async (options, ctx) => {
+    const client = createAuthClient({
+      baseURL: options.baseUrl,
+      plugins: [deviceAuthorizationClient()],
+    })
+
+    if (ctx.daemon.isServer) {
+      // ── BACKGROUND DAEMON ─────────────────────────────────
+      // The device_code was passed via env by the client.
+      // Poll until user approves in browser.
+      const deviceCode = ctx.process.env.DEVICE_CODE!
+      const pollInterval = Number(ctx.process.env.POLL_INTERVAL || 5) * 1000
+      const deadline = Date.now() + 10 * 60 * 1000
+
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, pollInterval))
+        const { data: token, error } = await client.device.token({
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+          device_code: deviceCode,
+          client_id: 'playwriter-cli',
+        })
+        if (token?.access_token) {
+          saveAuth({ token: token.access_token, baseUrl: options.baseUrl })
+          return // daemon exits, PID file is cleaned up
+        }
+        if (error?.error === 'authorization_pending' || error?.error === 'slow_down') continue
+        if (error) return // unrecoverable error, exit
+      }
+      return
+    }
+
+    // ── FOREGROUND CLIENT ─────────────────────────────────
+    const { data, error } = await client.device.code({ client_id: 'playwriter-cli' })
+    if (error || !data) {
+      ctx.console.error(`Failed to request device code: ${error?.error_description || error?.error || 'unknown'}`)
+      ctx.process.exit(1)
+    }
+
+    const url = data.verification_uri_complete
+      || new URL(`/device?user_code=${data.user_code}`, options.baseUrl).toString()
+    ctx.console.log(`\nOpen: ${url}`)
+    ctx.console.log(`Code: ${data.user_code}\n`)
+    await openInBrowser(url)
+
+    // Start daemon, pass device_code and poll interval via env
+    await ctx.daemon.start({
+      timeoutMs: 10 * 60 * 1000,
+      env: {
+        DEVICE_CODE: data.device_code,
+        POLL_INTERVAL: String(data.interval || 5),
+      },
+    })
+
+    if (isAgent) {
+      ctx.console.log('Login running in background.')
+      ctx.console.log('After approving, verify with: playwriter cloud me')
+      return
+    }
+
+    // Interactive: poll the auth file until tokens appear
+    const deadline = Date.now() + (data.expires_in || 300) * 1000
+    while (Date.now() < deadline) {
+      if (loadAuth()) {
+        ctx.console.log('Logged in!')
+        return
+      }
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+    ctx.console.error('Timed out.')
+    ctx.process.exit(1)
+  })
+```
+
+### Agent-friendly login check
+
+Add a `me` command that exits 0 if logged in, 1 if not. Agents run this after `login` to verify. Use `ctx.daemon.forCommand('login')` to check the login daemon from a different command:
+
+```ts
+cli
+  .command('cloud me', 'Check auth status (exits 1 if not logged in)')
+  .action(async (options, ctx) => {
+    if (loadAuth()) {
+      ctx.console.log('Authenticated')
+      return
+    }
+
+    // Check if login daemon is still running
+    const loginDaemon = ctx.daemon.forCommand('cloud login')
+    if (await loginDaemon.isRunning()) {
+      ctx.console.error('Login in progress. Approve in browser first.')
+      ctx.process.exit(1)
+    }
+
+    ctx.console.error('Not logged in. Run `playwriter cloud login` first.')
+    ctx.process.exit(1)
+  })
+
+cli
+  .command('cloud logout', 'Clear auth')
+  .action(async (options, ctx) => {
+    // Stop any running login daemon
+    const loginDaemon = ctx.daemon.forCommand('cloud login')
+    await loginDaemon.stop()
+    clearAuth()
+    ctx.console.log('Logged out')
+  })
+```
+
+### How it works
+
+`ctx.daemon.start()` re-runs the **exact same CLI command** as a detached child process with `GOKE_DAEMON=1` in the environment. When goke parses the command again, `ctx.daemon.isServer` is `true`, so the action branches into daemon mode. The PID file tracks the daemon so `isRunning()` and `stop()` work from any command.
+
+### API
+
+| Method | Description |
+|--------|-------------|
+| `ctx.daemon.isServer` | `true` when running as the background daemon |
+| `ctx.daemon.start({ timeoutMs?, env? })` | Spawn current command as detached daemon. Kills existing daemon first. |
+| `ctx.daemon.stop()` | Kill the daemon for this command |
+| `ctx.daemon.isRunning()` | Check if daemon is alive (PID + heartbeat) |
+| `ctx.daemon.forCommand(name)` | Get a daemon context for a different command |
+
+### Safety
+
+Each daemon writes a **unique instance ID** and a **heartbeat** (updated every 5s) into the PID file. `isRunning()` requires both an alive PID and a fresh heartbeat (< 15s), preventing false positives from OS PID reuse after a crash. `stop()` only kills processes with a valid heartbeat. Cleanup handlers remove the PID file on exit, signals, and uncaught exceptions, but only if the file's instance ID still matches.
+
 ## Terminal Colors
 
 goke ships a vendored `colors` export (picocolors API) so CLIs built with goke don't need to install `picocolors`, `chalk`, `kleur`, or any other color library. One fewer dependency in your tree.

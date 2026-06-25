@@ -23,3 +23,4 @@ export type { StandardTypedV1, StandardJSONSchemaV1, JsonSchema } from "./coerce
 export { GokeError, coerceBySchema, extractJsonSchema, wrapJsonSchema, isStandardSchema, extractSchemaMetadata } from "./coerce.js"
 export { detectAgent, agentInfo, agent, isAgent } from "./agents.js"
 export type { AgentName, AgentInfo } from "./agents.js"
+export type { DaemonContext, DaemonStartOptions } from "./daemon.js"
