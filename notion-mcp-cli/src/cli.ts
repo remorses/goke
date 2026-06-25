@@ -75,7 +75,7 @@ cli
   .action(async (options, ctx) => {
     saveConfig({ mcpUrl: options.url });
 
-    if (ctx.daemon.isServer) {
+    if (ctx.daemon.isDaemon) {
       // ── DAEMON: run OAuth flow in background ──
       // startOAuthFlow() blocks until the user approves in the browser (the
       // internal callback server keeps the event loop alive). When it returns,

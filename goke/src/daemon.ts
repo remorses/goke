@@ -8,10 +8,10 @@
  * already manages.
  *
  * How it works:
- *   1. Command action checks `ctx.daemon.isServer` to branch behavior
+ *   1. Command action checks `ctx.daemon.isDaemon` to branch behavior
  *   2. Client calls `ctx.daemon.start()` which re-spawns the same CLI
  *      command with GOKE_DAEMON=1 env var, detached + unref'd
- *   3. Daemon process runs the same action, but `isServer` is true
+ *   3. Daemon process runs the same action, but `isDaemon` is true
  *   4. Daemon auto-exits after timeoutMs
  *   5. PID file tracks the running daemon for stop/isRunning checks
  *
@@ -175,7 +175,7 @@ interface DaemonStartOptions {
  * Daemon context available on every command's execution context.
  *
  * Lets a command fork itself into a background process. The client side
- * calls `start()` to spawn the daemon. The daemon side checks `isServer`
+ * calls `start()` to spawn the daemon. The daemon side checks `isDaemon`
  * and does its work. Communication happens via shared files.
  *
  * Use `forCommand()` to get a daemon context for a different command.
@@ -184,7 +184,7 @@ interface DaemonStartOptions {
  */
 class DaemonContext {
   /** True when this process IS the background daemon. */
-  readonly isServer: boolean
+  readonly isDaemon: boolean
 
   #cliName: string
   #commandName: string
@@ -206,9 +206,9 @@ class DaemonContext {
     this.#argv = argv
     this.#env = env ?? process.env
     this.#pidFile = pidFilePath(cliName, commandName)
-    this.isServer = this.#env[DAEMON_ENV_KEY] === '1'
+    this.isDaemon = this.#env[DAEMON_ENV_KEY] === '1'
 
-    if (this.isServer) {
+    if (this.isDaemon) {
       this.#setupDaemonProcess()
     }
   }
@@ -217,7 +217,7 @@ class DaemonContext {
    * Get a daemon context for a different command on the same CLI.
    * Useful for cross-command daemon management (e.g. `me` checking `login` daemon).
    *
-   * The returned context is always in client mode (isServer=false) regardless
+   * The returned context is always in client mode (isDaemon=false) regardless
    * of the current process's daemon state, since it represents a different command.
    */
   forCommand(commandName: string): DaemonContext {

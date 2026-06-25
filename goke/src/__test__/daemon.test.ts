@@ -1,10 +1,10 @@
 /**
  * Tests for the daemon background process support.
  *
- * Tests the DaemonContext lifecycle: PID file management, isServer detection,
+ * Tests the DaemonContext lifecycle: PID file management, isDaemon detection,
  * start/stop/isRunning, forCommand, heartbeat, and instance ID safety.
  *
- * Server-mode tests (isServer=true) run in child processes to avoid
+ * Server-mode tests (isDaemon=true) run in child processes to avoid
  * scheduling process.exit() timers inside the vitest runner.
  */
 
@@ -126,22 +126,22 @@ process.on('exit', () => {
 }
 
 describe('DaemonContext', () => {
-  test('isServer is false by default (client mode)', async () => {
+  test('isDaemon is false by default (client mode)', async () => {
     const { default: goke } = await import('../index.js')
     const cli = goke('test-cli')
     let daemonIsServer: boolean | undefined
 
     cli.command('run', 'test').action((opts, ctx) => {
-      daemonIsServer = ctx.daemon.isServer
+      daemonIsServer = ctx.daemon.isDaemon
     })
 
     await cli.parse(['node', 'test', 'run'], { run: true })
     expect(daemonIsServer).toBe(false)
   })
 
-  test('isServer is true when GOKE_DAEMON=1 (tested in child process)', async () => {
+  test('isDaemon is true when GOKE_DAEMON=1 (tested in child process)', async () => {
     // Run a small script in a child process that creates a DaemonContext
-    // with the env var set and prints isServer. This avoids scheduling
+    // with the env var set and prints isDaemon. This avoids scheduling
     // process.exit() timers inside the vitest process.
     // Uses the compiled dist/ so plain Node can import it (no tsx needed).
     const scriptPath = path.join(os.tmpdir(), 'goke-daemon-is-server-test.mjs')
@@ -149,7 +149,7 @@ describe('DaemonContext', () => {
     fs.writeFileSync(scriptPath, `
 import { DaemonContext } from '${distDir}/daemon.js'
 const ctx = new DaemonContext('test-is-server', 'cmd', ['node', 'test'])
-console.log(ctx.isServer ? 'SERVER' : 'CLIENT')
+console.log(ctx.isDaemon ? 'SERVER' : 'CLIENT')
 // Exit immediately to not leave the daemon alive
 process.exit(0)
 `)
@@ -182,7 +182,7 @@ process.exit(0)
     const { DaemonContext } = await import('../daemon.js')
     const ctx = new DaemonContext('test-daemon-cli', 'bg', [process.execPath, helperScript, 'bg'])
 
-    expect(ctx.isServer).toBe(false)
+    expect(ctx.isDaemon).toBe(false)
     expect(await ctx.isRunning()).toBe(false)
 
     await ctx.start({ timeoutMs: 30_000 })
@@ -247,7 +247,7 @@ process.exit(0)
     expect(await meCtx.isRunning()).toBe(false)
 
     // forCommand context is always client mode
-    expect(meCtx.isServer).toBe(false)
+    expect(meCtx.isDaemon).toBe(false)
   })
 
   test('forCommand can check and stop another commands daemon', async () => {
@@ -330,6 +330,6 @@ process.exit(0)
     await cli.parse(['node', 'my-app', 'auth', 'login'], { run: true })
 
     expect(capturedDaemon).toBeDefined()
-    expect(capturedDaemon.isServer).toBe(false)
+    expect(capturedDaemon.isDaemon).toBe(false)
   })
 })

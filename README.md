@@ -143,7 +143,7 @@ cli
       plugins: [deviceAuthorizationClient()],
     })
 
-    if (ctx.daemon.isServer) {
+    if (ctx.daemon.isDaemon) {
       // ── BACKGROUND DAEMON ─────────────────────────────────
       // The device_code was passed via env by the client.
       // Poll until user approves in browser.
@@ -247,13 +247,13 @@ cli
 
 ### How it works
 
-`ctx.daemon.start()` re-runs the **exact same CLI command** as a detached child process with `GOKE_DAEMON=1` in the environment. When goke parses the command again, `ctx.daemon.isServer` is `true`, so the action branches into daemon mode. The PID file tracks the daemon so `isRunning()` and `stop()` work from any command.
+`ctx.daemon.start()` re-runs the **exact same CLI command** as a detached child process with `GOKE_DAEMON=1` in the environment. When goke parses the command again, `ctx.daemon.isDaemon` is `true`, so the action branches into daemon mode. The PID file tracks the daemon so `isRunning()` and `stop()` work from any command.
 
 ### API
 
 | Method | Description |
 |--------|-------------|
-| `ctx.daemon.isServer` | `true` when running as the background daemon |
+| `ctx.daemon.isDaemon` | `true` when running as the background daemon |
 | `ctx.daemon.start({ timeoutMs?, env? })` | Spawn current command as detached daemon. Kills existing daemon first. |
 | `ctx.daemon.stop()` | Kill the daemon for this command |
 | `ctx.daemon.isRunning()` | Check if daemon is alive (PID + heartbeat) |

@@ -7,7 +7,7 @@
  */
 
 class DaemonContext {
-  readonly isServer = false as const
+  readonly isDaemon = false as const
 
   constructor() {}
 
