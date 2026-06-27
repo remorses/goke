@@ -210,6 +210,39 @@ cli
   })
 ```
 
+### Passing data to the daemon
+
+Use the `env` option on `ctx.daemon.start()` to pass **small handoff values** from the foreground command to the daemon. goke merges these values into the child process environment, alongside `GOKE_DAEMON=1` and the timeout metadata.
+
+```ts
+await ctx.daemon.start({
+  timeoutMs: 10 * 60 * 1000,
+  env: {
+    DEVICE_CODE: data.device_code,
+    POLL_INTERVAL: String(data.interval || 5),
+  },
+})
+```
+
+Read those values from `ctx.process.env` inside the daemon branch. This keeps the daemon action deterministic because the daemon is just the same command running again with a different environment.
+
+```ts
+if (ctx.daemon.isDaemon) {
+  const deviceCode = ctx.process.env.DEVICE_CODE
+  const pollInterval = Number(ctx.process.env.POLL_INTERVAL || 5) * 1000
+
+  if (!deviceCode) {
+    ctx.console.error('Missing DEVICE_CODE for login daemon')
+    ctx.process.exit(1)
+  }
+
+  await pollUntilApproved({ deviceCode, pollInterval })
+  return
+}
+```
+
+Keep `env` values **short and non-sensitive when possible**. For larger state, write to your CLI config file before starting the daemon and pass only a lookup key in `env`. The daemon and foreground command should share durable results through files, for example saved auth tokens or cached status.
+
 ### Agent-friendly login check
 
 Add a `me` command that exits 0 if logged in, 1 if not. Agents run this after `login` to verify. Use `ctx.daemon.forCommand('login')` to check the login daemon from a different command:

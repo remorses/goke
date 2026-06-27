@@ -21,6 +21,7 @@ import os from "node:os";
 
 const CONFIG_DIR = path.join(os.homedir(), ".notion-mcp-cli");
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
+const NOTION_MCP_URL_ENV = "NOTION_MCP_URL";
 
 interface NotionCliConfig {
   mcpUrl: string;
@@ -50,30 +51,29 @@ function saveConfig(config: Partial<NotionCliConfig>): void {
 
 const cli = goke("notion-mcp-cli");
 
-// Add MCP commands with OAuth support (no prefix - commands are top-level)
-await addMcpCommands({
-  cli,
-  clientName: "notion-mcp-cli",
-  getMcpUrl: () => loadConfig().mcpUrl,
-  oauth: {
-    clientName: "Notion CLI",
-    load: () => loadConfig().oauthState,
-    save: (state) => {
-      saveConfig({ oauthState: state });
-    },
-  },
-  loadCache: () => loadConfig().cache,
-  saveCache: (cache) => {
-    saveConfig({ cache });
-  },
-});
+const BUILTIN_COMMANDS = new Set(["login", "me", "logout", "status", "completions"]);
+
+function shouldLoadMcpCommands(argv = process.argv): boolean {
+  const command = argv[2];
+  if (!command || command.startsWith("-")) {
+    return false;
+  }
+  return !BUILTIN_COMMANDS.has(command);
+}
 
 // Login command — runs OAuth flow, background daemon for agents
 cli
   .command("login", "Authenticate with Notion via OAuth")
   .option("--url <url>", z.string().default("https://mcp.notion.com/mcp").describe("MCP server URL"))
   .action(async (options, ctx) => {
-    saveConfig({ mcpUrl: options.url });
+    const mcpUrl = ctx.daemon.isDaemon ? ctx.process.env[NOTION_MCP_URL_ENV] : options.url;
+    if (!mcpUrl) {
+      ctx.console.error(`Missing ${NOTION_MCP_URL_ENV} for login daemon.`);
+      ctx.process.exit(1);
+      return;
+    }
+
+    saveConfig({ mcpUrl });
 
     if (ctx.daemon.isDaemon) {
       // ── DAEMON: run OAuth flow in background ──
@@ -81,7 +81,7 @@ cli
       // internal callback server keeps the event loop alive). When it returns,
       // tokens are saved to disk and the daemon exits naturally.
       const result = await startOAuthFlow({
-        serverUrl: options.url,
+        serverUrl: mcpUrl,
         clientName: "Notion CLI",
         existingState: loadConfig().oauthState,
         timeout: 10 * 60 * 1000,
@@ -96,7 +96,12 @@ cli
     // ── CLIENT: decide foreground vs background ──
     if (isAgent) {
       // Agent mode: start daemon and return immediately
-      await ctx.daemon.start({ timeoutMs: 10 * 60 * 1000 });
+      await ctx.daemon.start({
+        timeoutMs: 10 * 60 * 1000,
+        env: {
+          [NOTION_MCP_URL_ENV]: mcpUrl,
+        },
+      });
       ctx.console.log("Login server running in background (10 min timeout).");
       ctx.console.log("The user needs to complete authentication in their browser.");
       ctx.console.log("");
@@ -108,7 +113,7 @@ cli
     // Interactive mode: run OAuth flow directly (blocks until done)
     ctx.console.log("Opening browser for authentication...\n");
     const result = await startOAuthFlow({
-      serverUrl: options.url,
+      serverUrl: mcpUrl,
       clientName: "Notion CLI",
       existingState: loadConfig().oauthState,
     });
@@ -169,4 +174,26 @@ cli.command("status", "Show current config").action((options, ctx) => {
 
 cli.help();
 cli.version("0.0.5");
-cli.parse();
+
+if (shouldLoadMcpCommands()) {
+  // Add MCP commands only when the user invokes an MCP tool. Built-in commands
+  // like `login` must not perform cold network discovery before daemon startup.
+  await addMcpCommands({
+    cli,
+    clientName: "notion-mcp-cli",
+    getMcpUrl: () => loadConfig().mcpUrl,
+    oauth: {
+      clientName: "Notion CLI",
+      load: () => loadConfig().oauthState,
+      save: (state) => {
+        saveConfig({ oauthState: state });
+      },
+    },
+    loadCache: () => loadConfig().cache,
+    saveCache: (cache) => {
+      saveConfig({ cache });
+    },
+  });
+}
+
+await cli.parse();

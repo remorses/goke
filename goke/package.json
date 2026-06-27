@@ -55,7 +55,7 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "pnpm clean && tsc",
-    "test": "vitest --run",
+    "test": "pnpm build && vitest --run",
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {},

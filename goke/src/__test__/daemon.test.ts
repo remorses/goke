@@ -129,14 +129,14 @@ describe('DaemonContext', () => {
   test('isDaemon is false by default (client mode)', async () => {
     const { default: goke } = await import('../index.js')
     const cli = goke('test-cli')
-    let daemonIsServer: boolean | undefined
+    let isDaemon: boolean | undefined
 
     cli.command('run', 'test').action((opts, ctx) => {
-      daemonIsServer = ctx.daemon.isDaemon
+      isDaemon = ctx.daemon.isDaemon
     })
 
     await cli.parse(['node', 'test', 'run'], { run: true })
-    expect(daemonIsServer).toBe(false)
+    expect(isDaemon).toBe(false)
   })
 
   test('isDaemon is true when GOKE_DAEMON=1 (tested in child process)', async () => {
@@ -144,16 +144,16 @@ describe('DaemonContext', () => {
     // with the env var set and prints isDaemon. This avoids scheduling
     // process.exit() timers inside the vitest process.
     // Uses the compiled dist/ so plain Node can import it (no tsx needed).
-    const scriptPath = path.join(os.tmpdir(), 'goke-daemon-is-server-test.mjs')
+    const scriptPath = path.join(os.tmpdir(), 'goke-daemon-is-daemon-test.mjs')
     const distDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'dist')
     fs.writeFileSync(scriptPath, `
 import { DaemonContext } from '${distDir}/daemon.js'
-const ctx = new DaemonContext('test-is-server', 'cmd', ['node', 'test'])
+const ctx = new DaemonContext('test-is-daemon', 'cmd', ['node', 'test'])
 console.log(ctx.isDaemon ? 'SERVER' : 'CLIENT')
 // Exit immediately to not leave the daemon alive
 process.exit(0)
 `)
-    testPidFiles.push(pidFilePath('test-is-server', 'cmd'))
+    testPidFiles.push(pidFilePath('test-is-daemon', 'cmd'))
 
     const { stdout } = await execFileAsync(process.execPath, [scriptPath], {
       env: { ...process.env, GOKE_DAEMON: '1', GOKE_DAEMON_TIMEOUT: '1000' },
