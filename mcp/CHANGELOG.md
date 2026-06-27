@@ -1,5 +1,26 @@
 # @goke/mcp
 
+## 0.0.11
+
+1. **Exported `startOAuthFlow()` for explicit login commands** — CLIs that need a dedicated login command (instead of lazy auth on first tool call) can now import and run the OAuth flow directly:
+
+   ```ts
+   import { startOAuthFlow } from '@goke/mcp'
+
+   const result = await startOAuthFlow({
+     serverUrl: 'https://mcp.notion.com/mcp',
+     clientName: 'My CLI',
+     existingState: loadConfig().oauthState,
+     timeout: 10 * 60 * 1000,
+   })
+
+   if (result.success && result.state) {
+     saveConfig({ oauthState: result.state })
+   }
+   ```
+
+   Also exports `StartOAuthFlowOptions` and `OAuthFlowResult` types.
+
 ## 0.0.10
 
 1. **Fixed: command actions now receive the injected `GokeExecutionContext` as the third argument** — previously `runCliTool` invoked actions as `action(...positionals, options)`, silently dropping the `ctx` argument that `cli.parse()` always passes. Actions using `ctx.fs`, `ctx.process.cwd`, `ctx.process.env`, `ctx.process.stdin`, or `ctx.console.log` now receive real values instead of `undefined`:

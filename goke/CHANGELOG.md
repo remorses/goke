@@ -1,5 +1,45 @@
 # goke
 
+## 6.13.0
+
+1. **Background daemon support** — commands can fork themselves into detached background processes via `ctx.daemon`. The daemon is identified by CLI name + command name, with PID file lifecycle management at `~/.config/goke/daemons/`. No HTTP server or ports needed; communication happens through shared files:
+
+   ```ts
+   cli.command('login', 'Authenticate').action(async (options, ctx) => {
+     if (ctx.daemon.isDaemon) {
+       await waitForBrowserCallback()
+       return
+     }
+
+     await ctx.daemon.start({ timeoutMs: 10 * 60 * 1000 })
+     ctx.console.log('Login running in background')
+   })
+   ```
+
+   Pass short handoff values to the daemon with `ctx.daemon.start({ env })`, then read them from `ctx.process.env` in the daemon branch. Check other commands' daemons with `ctx.daemon.forCommand('login')`.
+
+   PID file safety: each daemon writes a unique instance ID, heartbeats every 5s, and cleanup handlers only remove the file if the ID matches. This prevents false positives from OS PID reuse after crashes.
+
+   Browser runtime compatible via `#daemon` conditional import (stub that throws on `start()`, no-ops everything else).
+
+2. **Suppressed stack traces for user-facing CLI errors** — validation and usage errors (`GokeError`) like unknown options, missing values, and schema coercion failures now print only the error message. Unexpected errors (non-`GokeError`) still include the full stack trace for debugging.
+
+   Before:
+   ```
+   error: Invalid value for --port: expected number, got "abc"
+
+       at coerceToNumber (file:///…/coerce.js:123:11)
+       at coerceBySchema (file:///…/coerce.js:456:12)
+       …
+   ```
+
+   After:
+   ```
+   error: Invalid value for --port: expected number, got "abc"
+   ```
+
+   Fixes https://github.com/remorses/goke/issues/2
+
 ## 6.12.3
 
 1. **Fixed bare `<word>` angle brackets in `generateDocs()` output breaking MDX parsers** — descriptions containing angle-bracket placeholders like `<env>` or `<project>` are now automatically wrapped in backticks. This prevents MDX/JSX parsers from interpreting them as HTML tags when rendering generated docs.
