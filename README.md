@@ -287,10 +287,29 @@ cli
 | Method | Description |
 |--------|-------------|
 | `ctx.daemon.isDaemon` | `true` when running as the background daemon |
-| `ctx.daemon.start({ timeoutMs?, env? })` | Spawn current command as detached daemon. Kills existing daemon first. |
+| `ctx.daemon.start({ timeoutMs?, env?, attach? })` | Spawn current command as detached daemon. Kills existing daemon first. |
 | `ctx.daemon.stop()` | Kill the daemon for this command |
 | `ctx.daemon.isRunning()` | Check if daemon is alive (PID + heartbeat) |
 | `ctx.daemon.forCommand(name)` | Get a daemon context for a different command |
+
+### Attached mode
+
+Pass `attach: true` to pipe the daemon's stdout/stderr to the parent and wait for it to exit. This is useful for interactive login flows where the user wants to see real-time logs, progress, and error messages from the daemon instead of a generic timeout.
+
+```ts
+if (isAgent) {
+  // Agent: fire and forget, check with `me` later
+  await ctx.daemon.start({ timeoutMs: 10 * 60 * 1000, env: { DEVICE_CODE: code } })
+  ctx.console.log('Login running in background. Verify with: mycli me')
+  return
+}
+
+// Interactive: see all daemon output, block until done
+await ctx.daemon.start({ attach: true, timeoutMs: 10 * 60 * 1000, env: { DEVICE_CODE: code } })
+ctx.console.log('Login successful!')
+```
+
+When attached, `start()` throws if the daemon exits with a non-zero code. The daemon branch can use `ctx.console.log/error` and `ctx.process.exit(1)` normally; attached parents will see the output and get the error.
 
 ### Safety
 

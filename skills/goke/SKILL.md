@@ -111,16 +111,9 @@ cli
       return
     }
 
-    // Interactive mode: block until login completes
-    ctx.console.log('Opening browser for authentication...')
-    const result = await startOAuthFlow({ /* ... */ })
-    if (result.success) {
-      saveAuth(result)
-      ctx.console.log('Login successful!')
-    } else {
-      ctx.console.error('Login failed')
-      ctx.process.exit(1)
-    }
+    // Interactive mode: attach to daemon, see all its logs and errors in real time
+    await ctx.daemon.start({ attach: true, timeoutMs: 10 * 60 * 1000 })
+    ctx.console.log('Login successful!')
   })
 ```
 

@@ -318,6 +318,100 @@ process.exit(0)
     expect(await ctx.isRunning()).toBe(false)
   })
 
+  test('start with attach: true pipes stdout/stderr and waits for exit', async () => {
+    const helperScript = path.join(os.tmpdir(), 'goke-daemon-test-attach.mjs')
+    // This helper writes to stdout/stderr and exits after a short delay.
+    // The PID file setup mirrors the standard daemon helper.
+    fs.writeFileSync(helperScript, `
+import fs from 'node:fs'
+import path from 'node:path'
+import os from 'node:os'
+import crypto from 'node:crypto'
+
+const DAEMON_DIR = path.join(os.homedir(), '.config', 'goke', 'daemons')
+const cliName = process.env.TEST_CLI_NAME || 'test-daemon-cli'
+const cmdName = process.env.TEST_CMD_NAME || 'attach-test'
+const safeName = cliName + '--' + cmdName
+const pidFile = path.join(DAEMON_DIR, safeName + '.pid.json')
+
+fs.mkdirSync(path.dirname(pidFile), { recursive: true })
+
+const instanceId = crypto.randomBytes(8).toString('hex')
+const pidData = { pid: process.pid, id: instanceId, startedAt: Date.now(), heartbeatAt: Date.now() }
+fs.writeFileSync(pidFile, JSON.stringify(pidData), { mode: 0o600 })
+
+// Write to stdout and stderr so the parent can see it
+console.log('DAEMON_STDOUT_MESSAGE')
+console.error('DAEMON_STDERR_MESSAGE')
+
+// Exit after a short delay
+setTimeout(() => {
+  try {
+    const current = JSON.parse(fs.readFileSync(pidFile, 'utf-8'))
+    if (current.id === instanceId) fs.unlinkSync(pidFile)
+  } catch {}
+  process.exit(0)
+}, 500)
+`)
+    testPidFiles.push(pidFilePath('test-daemon-cli', 'attach-test'))
+
+    const { DaemonContext } = await import('../daemon.js')
+    const ctx = new DaemonContext('test-daemon-cli', 'attach-test', [
+      process.execPath, helperScript, 'attach-test',
+    ])
+
+    // attach: true should wait for the daemon to finish
+    await ctx.start({ attach: true, timeoutMs: 10_000 })
+
+    // After start resolves, the daemon should have exited and cleaned up its PID file
+    expect(await ctx.isRunning()).toBe(false)
+
+    try { fs.unlinkSync(helperScript) } catch {}
+  }, 15_000)
+
+  test('start with attach: true throws on non-zero exit', async () => {
+    const helperScript = path.join(os.tmpdir(), 'goke-daemon-test-attach-fail.mjs')
+    fs.writeFileSync(helperScript, `
+import fs from 'node:fs'
+import path from 'node:path'
+import os from 'node:os'
+import crypto from 'node:crypto'
+
+const DAEMON_DIR = path.join(os.homedir(), '.config', 'goke', 'daemons')
+const cliName = process.env.TEST_CLI_NAME || 'test-daemon-cli'
+const cmdName = process.env.TEST_CMD_NAME || 'attach-fail'
+const safeName = cliName + '--' + cmdName
+const pidFile = path.join(DAEMON_DIR, safeName + '.pid.json')
+
+fs.mkdirSync(path.dirname(pidFile), { recursive: true })
+
+const instanceId = crypto.randomBytes(8).toString('hex')
+const pidData = { pid: process.pid, id: instanceId, startedAt: Date.now(), heartbeatAt: Date.now() }
+fs.writeFileSync(pidFile, JSON.stringify(pidData), { mode: 0o600 })
+
+console.error('Something went wrong')
+
+setTimeout(() => {
+  try {
+    const current = JSON.parse(fs.readFileSync(pidFile, 'utf-8'))
+    if (current.id === instanceId) fs.unlinkSync(pidFile)
+  } catch {}
+  process.exit(1)
+}, 500)
+`)
+    testPidFiles.push(pidFilePath('test-daemon-cli', 'attach-fail'))
+
+    const { DaemonContext } = await import('../daemon.js')
+    const ctx = new DaemonContext('test-daemon-cli', 'attach-fail', [
+      process.execPath, helperScript, 'attach-fail',
+    ])
+
+    await expect(ctx.start({ attach: true, timeoutMs: 10_000 }))
+      .rejects.toThrow('exited with code 1')
+
+    try { fs.unlinkSync(helperScript) } catch {}
+  }, 15_000)
+
   test('daemon context has correct command name from parsed cli', async () => {
     const { default: goke } = await import('../index.js')
     const cli = goke('my-app')

@@ -169,6 +169,15 @@ interface DaemonStartOptions {
   timeoutMs?: number
   /** Extra environment variables passed to the daemon process. */
   env?: Record<string, string>
+  /**
+   * When true, pipe daemon stdout/stderr to the parent process and wait
+   * for the daemon to exit before resolving. This lets interactive users
+   * see real-time logs and error messages from the daemon.
+   *
+   * When false (default), the daemon runs fully detached with no stdio
+   * and start() returns as soon as the PID file is confirmed.
+   */
+  attach?: boolean
 }
 
 /**
@@ -305,9 +314,15 @@ class DaemonContext {
   /**
    * Spawn the current command as a detached background daemon process.
    * Kills any existing daemon for this command first.
+   *
+   * When `attach: true`, pipes daemon stdout/stderr to the parent and
+   * waits for the daemon to exit. Throws if the daemon exits with a
+   * non-zero code. This is useful for interactive login flows where the
+   * user wants to see real-time logs and error messages.
    */
   async start(options?: DaemonStartOptions): Promise<void> {
     const timeoutMs = options?.timeoutMs ?? 10 * 60 * 1000
+    const attach = options?.attach ?? false
 
     // Kill existing daemon if running
     await this.stop()
@@ -326,7 +341,7 @@ class DaemonContext {
 
     const child = spawn(execPath, args, {
       detached: true,
-      stdio: 'ignore',
+      stdio: attach ? ['ignore', 'inherit', 'inherit'] : 'ignore',
       env,
     })
 
@@ -338,7 +353,19 @@ class DaemonContext {
       await new Promise((r) => setTimeout(r, 100))
       const pidData = readPidFile(this.#pidFile)
       if (pidData && isProcessAlive(pidData.pid)) {
-        return
+        if (!attach) return
+
+        // Attached mode: wait for the daemon process to exit
+        return new Promise<void>((resolve, reject) => {
+          child.on('close', (code) => {
+            if (code && code !== 0) {
+              reject(new Error(`Daemon "${this.#cliName} ${this.#commandName}" exited with code ${code}`))
+            } else {
+              resolve()
+            }
+          })
+          child.on('error', reject)
+        })
       }
     }
 

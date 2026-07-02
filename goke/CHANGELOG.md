@@ -1,5 +1,19 @@
 # goke
 
+## 6.14.0
+
+1. **New `attach` option for `daemon.start()`** — pipe daemon stdout/stderr to the parent process and wait for the daemon to exit. Interactive users see real-time logs and error messages from the daemon instead of losing them to the detached process:
+
+   ```ts
+   // Agent: fire and forget
+   await ctx.daemon.start({ env: { DEVICE_CODE: code } })
+
+   // Interactive: see all daemon output, block until done
+   await ctx.daemon.start({ attach: true, env: { DEVICE_CODE: code } })
+   ```
+
+   When attached, `start()` throws if the daemon exits with a non-zero code. This solves the problem of interactive login flows silently failing while the foreground shows a generic timeout.
+
 ## 6.13.0
 
 1. **Background daemon support** — commands can fork themselves into detached background processes via `ctx.daemon`. The daemon is identified by CLI name + command name, with PID file lifecycle management at `~/.config/goke/daemons/`. No HTTP server or ports needed; communication happens through shared files:
