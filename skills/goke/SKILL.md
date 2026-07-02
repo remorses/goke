@@ -85,34 +85,46 @@ Supported agents: `cursor`, `claude`, `devin`, `replit`, `gemini`, `codex`, `aug
 
 ## Long-Running Interactive Commands
 
-Commands that start a browser/device login flow or any other long-running TTY-only interaction must fail fast in non-TTY shells. Do not start the flow and hope the agent notices the URL. The process must stay alive while the user approves the browser prompt, so agents need to launch it in a persistent terminal session like tuistory or tmux.
+Commands that start a browser/device login flow need to work for both interactive users and AI agents. goke's built-in **daemon** pattern (`ctx.daemon`) handles this: the command forks itself into a background process that waits for browser approval, while the foreground returns immediately so agents aren't blocked.
 
-Always guard these commands with `!process.stdout.isTTY` before making network requests, opening the browser, or starting spinners. Do not fail just because an agent is running the command if the command has a real TTY.
+Use `isAgent` to branch between agent mode (start daemon, return immediately) and interactive mode (block until login completes). Do not fail in non-TTY shells; use the daemon instead.
 
 ```ts
-import dedent from 'string-dedent'
-import { goke } from 'goke'
+import { goke, isAgent, openInBrowser } from 'goke'
 
-cli.command('login', 'Authenticate with browser login').action((options, { console, process }) => {
-  if (!process.stdout.isTTY) {
-    console.error(dedent`
-      mycli login needs an interactive terminal and must stay alive while you approve the browser login.
+cli
+  .command('login', 'Authenticate with browser login')
+  .action(async (options, ctx) => {
+    if (ctx.daemon.isDaemon) {
+      // ── DAEMON: run the long-running flow in background ──
+      const result = await startOAuthFlow({ /* ... */ })
+      if (result.success) saveAuth(result)
+      return // daemon exits, PID file is cleaned up
+    }
 
-      Run it in a background terminal session like tuistory or tmux, then wait for the URL/code:
+    // ── CLIENT: decide foreground vs background ──
+    if (isAgent) {
+      // Agent mode: start daemon and return immediately
+      await ctx.daemon.start({ timeoutMs: 10 * 60 * 1000 })
+      ctx.console.log('Login running in background.')
+      ctx.console.log('After approving in browser, verify with: mycli me')
+      return
+    }
 
-        bunx tuistory launch "mycli login" -s mycli-login
-        bunx tuistory -s mycli-login wait "/code:|https?:\\/\\//i" --timeout 15000
-
-      The login command exits by itself after successful browser approval.
-    `)
-    process.exit(1)
-  }
-
-  // Start device/browser login only after the guard.
-})
+    // Interactive mode: block until login completes
+    ctx.console.log('Opening browser for authentication...')
+    const result = await startOAuthFlow({ /* ... */ })
+    if (result.success) {
+      saveAuth(result)
+      ctx.console.log('Login successful!')
+    } else {
+      ctx.console.error('Login failed')
+      ctx.process.exit(1)
+    }
+  })
 ```
 
-Use `tuistory wait` for the handoff point that needs user interaction. It returns nearby lines around the match, so agents can show the URL/code without a separate `tuistory read` call. Do not add `tuistory close` to login instructions when the CLI exits by itself after success.
+Add a `me` command (exits 0 if logged in, 1 if not) so agents can poll for completion. Use `ctx.daemon.forCommand('login')` to check the login daemon status from other commands. See the **Background Daemons** section in the goke README for the full pattern, including `env` passthrough and PID file safety.
 
 ## Shell Completions
 
