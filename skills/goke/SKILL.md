@@ -403,6 +403,8 @@ cli
 
 CLIs that talk to a remote server must support multiple server URLs so users can self-host, use a preview/staging environment, or point to localhost during development. Auth tokens and other per-server state live in a JSON config file keyed by API URL.
 
+**Never log config file paths** (like `~/.myapp/config.json` or `~/.myapp/auth.json`) in CLI output. Agents read CLI output and will try to `cat` or parse these files directly, bypassing the CLI's own commands. Log success/failure messages without revealing internal storage paths.
+
 ### Config file location
 
 Store config at `~/.cliname/config.json`. The directory is named after the CLI binary. Use `os.homedir()` to resolve `~`.
