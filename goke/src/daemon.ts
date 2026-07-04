@@ -356,6 +356,24 @@ class DaemonContext {
       child.unref()
     }
 
+    // Register close/error listeners immediately after spawn, before the
+    // PID file polling loop. If the child exits very quickly (writes PID
+    // file then exits), registering listeners after seeing the PID file
+    // could miss the 'close' event and hang the promise forever.
+    let childDone: Promise<void> | undefined
+    if (attach) {
+      childDone = new Promise<void>((resolve, reject) => {
+        child.on('close', (code) => {
+          if (code && code !== 0) {
+            reject(new Error(`Daemon "${this.#cliName} ${this.#commandName}" exited with code ${code}`))
+          } else {
+            resolve()
+          }
+        })
+        child.on('error', reject)
+      })
+    }
+
     // Brief wait to confirm the daemon started and wrote its PID file
     const startDeadline = Date.now() + 5000
     while (Date.now() < startDeadline) {
@@ -363,18 +381,7 @@ class DaemonContext {
       const pidData = readPidFile(this.#pidFile)
       if (pidData && isProcessAlive(pidData.pid)) {
         if (!attach) return
-
-        // Attached mode: wait for the daemon process to exit
-        return new Promise<void>((resolve, reject) => {
-          child.on('close', (code) => {
-            if (code && code !== 0) {
-              reject(new Error(`Daemon "${this.#cliName} ${this.#commandName}" exited with code ${code}`))
-            } else {
-              resolve()
-            }
-          })
-          child.on('error', reject)
-        })
+        return childDone
       }
     }
 
