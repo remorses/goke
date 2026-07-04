@@ -1,5 +1,9 @@
 # goke
 
+## 6.14.1
+
+1. **Fixed daemon `attach` mode exiting before child finishes** — when using `daemon.start({ attach: true })`, the parent process would exit immediately while the child kept running, causing logs to appear after the parent already returned. Now the parent stays alive and waits for the child to finish, and Ctrl+C properly kills both processes.
+
 ## 6.14.0
 
 1. **New `attach` option for `daemon.start()`** — pipe daemon stdout/stderr to the parent process and wait for the daemon to exit. Interactive users see real-time logs and error messages from the daemon instead of losing them to the detached process:
