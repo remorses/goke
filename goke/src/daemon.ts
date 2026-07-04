@@ -340,12 +340,21 @@ class DaemonContext {
     const args = this.#argv.slice(1)
 
     const child = spawn(execPath, args, {
-      detached: true,
+      // Detach only when running in background so the daemon outlives the
+      // parent. In attached mode, keep the child in the same process group
+      // so signals propagate naturally and the parent stays alive.
+      detached: !attach,
       stdio: attach ? ['ignore', 'inherit', 'inherit'] : 'ignore',
       env,
     })
 
-    child.unref()
+    // Only unref when detached (non-attached) so the parent can exit
+    // immediately. In attached mode, the parent must stay alive to wait for
+    // the child's 'close' event — unref() would let the event loop drain
+    // and the parent would exit before the child finishes.
+    if (!attach) {
+      child.unref()
+    }
 
     // Brief wait to confirm the daemon started and wrote its PID file
     const startDeadline = Date.now() + 5000
