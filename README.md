@@ -122,9 +122,9 @@ The detection logic is ported from [unjs/std-env](https://github.com/unjs/std-en
 
 ## Background Daemons
 
-Every command gets a `ctx.daemon` object that can fork the current command into a **detached background process**. This is useful for login flows where a server needs to wait for a browser callback while the CLI returns control to the user (or agent).
+Use daemons for any command that needs to **wait for something external** (browser callback, polling an API, watching files) while the CLI returns immediately. This is the recommended pattern for long-running commands because it works seamlessly with AI agents: the agent runs the command, gets control back instantly, and can poll a status command to check when the work is done. No tmux, no tuistory, no background process management needed on the agent side.
 
-The daemon is identified by CLI name + command name. A PID file at `~/.config/goke/daemons/` tracks the running process. No HTTP server, no ports. The daemon and client communicate via shared files (config, auth tokens, etc.) that the CLI already manages.
+Every command gets a `ctx.daemon` object that can fork the current command into a **detached background process**. The daemon is identified by CLI name + command name. A PID file at `~/.config/goke/daemons/` tracks the running process. No HTTP server, no ports. The daemon and client communicate via shared files (config, auth tokens, etc.) that the CLI already manages.
 
 ```ts
 import { goke, isAgent, openInBrowser } from 'goke'
@@ -277,6 +277,53 @@ cli
     ctx.console.log('Logged out')
   })
 ```
+
+### Writing agent-friendly descriptions
+
+When a command uses the daemon pattern, say so in its description. Agents read `--help` output to decide how to run commands. If the description doesn't mention that background handling is built in, agents will wrap the command in tmux, tuistory, or shell backgrounding, which is unnecessary and error-prone.
+
+Include three things in the description: that the command handles backgrounding itself, how to check status, and that no external process management is needed.
+
+```ts
+cli
+  .command(
+    'login',
+    dedent`
+      Authenticate via browser OAuth.
+
+      Starts a background daemon automatically and returns immediately.
+      The daemon waits up to 10 minutes for browser approval, then exits.
+      No tmux or background process management needed.
+
+      Check status with: mycli me
+    `,
+  )
+  .action(async (options, ctx) => {
+    // daemon implementation...
+  })
+```
+
+The `me` / status command should also mention what it checks:
+
+```ts
+cli
+  .command(
+    'me',
+    dedent`
+      Check auth status. Exits 0 if logged in, 1 if not.
+
+      Use this to poll after 'login' completes in the background:
+
+        mycli login
+        mycli me    # exits 0 when auth is ready
+    `,
+  )
+  .action(async (options, ctx) => {
+    // status check...
+  })
+```
+
+This way agents can run `mycli login` followed by `mycli me` in a loop, with no special process management.
 
 ### How it works
 
