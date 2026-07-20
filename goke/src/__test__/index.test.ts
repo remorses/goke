@@ -2651,6 +2651,87 @@ describe('use() with sub-CLI composition', () => {
   })
 })
 
+describe('shared options via factory function', () => {
+  test('factory function preserves type inference for shared + command-specific options', async () => {
+    const cli = goke('analytics')
+    let result: any = {}
+
+    // Factory function that creates a command with shared options pre-attached
+    function analyticsCommand(name: string, description: string) {
+      return cli
+        .command(name, description)
+        .option('-p, --project <slug>', z.array(z.string()).describe('Project slug (repeatable)'))
+        .option('--since [duration]', z.string().default('7d').describe('Time range'))
+        .option('-n, --limit [count]', z.number().default(20).describe('Max rows'))
+    }
+
+    // Command using factory + its own additional option
+    analyticsCommand('pages', 'Top pages by pageviews')
+      .option('--domain [domain]', z.string().describe('Filter by domain'))
+      .action((options) => {
+        // All options (shared + command-specific) are available and typed
+        result = options
+      })
+
+    await cli.parse(
+      'node bin pages -p my-app -p api --since 30d --limit 50 --domain example.com'.split(' '),
+      { run: true },
+    )
+
+    // Shared options
+    expect(result.project).toEqual(['my-app', 'api'])
+    expect(result.since).toBe('30d')
+    expect(result.limit).toBe(50)
+    expect(typeof result.limit).toBe('number')
+    // Command-specific option
+    expect(result.domain).toBe('example.com')
+  })
+
+  test('factory function uses defaults when options omitted', async () => {
+    const cli = goke('analytics')
+    let result: any = {}
+
+    function analyticsCommand(name: string, description: string) {
+      return cli
+        .command(name, description)
+        .option('--since [duration]', z.string().default('7d').describe('Time range'))
+        .option('-n, --limit [count]', z.number().default(20).describe('Max rows'))
+    }
+
+    analyticsCommand('kpis', 'Summary KPIs')
+      .action((options) => { result = options })
+
+    await cli.parse('node bin kpis'.split(' '), { run: true })
+
+    expect(result.since).toBe('7d')
+    expect(result.limit).toBe(20)
+  })
+
+  test('multiple commands from same factory share options independently', async () => {
+    const cli = goke('analytics')
+    let pagesResult: any = {}
+    let browsersResult: any = {}
+
+    function analyticsCommand(name: string, description: string) {
+      return cli
+        .command(name, description)
+        .option('--since [duration]', z.string().default('7d').describe('Time range'))
+    }
+
+    analyticsCommand('pages', 'Top pages')
+      .action((options) => { pagesResult = options })
+
+    analyticsCommand('browsers', 'Top browsers')
+      .action((options) => { browsersResult = options })
+
+    await cli.parse('node bin pages --since 30d'.split(' '), { run: true })
+    expect(pagesResult.since).toBe('30d')
+
+    await cli.parse('node bin browsers --since 1d'.split(' '), { run: true })
+    expect(browsersResult.since).toBe('1d')
+  })
+})
+
 describe('getAction()', () => {
   test('returns the action callable with correct behavior', async () => {
     const stdout = createTestOutputStream()
