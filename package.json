@@ -9,5 +9,8 @@
     "typescript": "^5.9.3"
   },
   "author": "Tommaso De Rossi, morse <beats.by.morse@gmail.com>",
-  "license": "MIT"
+  "license": "MIT",
+  "workspaces": [
+    "./*"
+  ]
 }
