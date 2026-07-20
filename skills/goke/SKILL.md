@@ -72,14 +72,29 @@ if (isAgent) {
 }
 ```
 
-When guarding interactive prompts, check `isAgent` alongside `!process.stdin.isTTY`:
+`isAgent` is for **skipping interactive prompts that have a CLI flag alternative** (e.g. `--env staging` instead of a clack select). Use it to require the flag and fail with a usage hint instead of hanging on stdin:
 
 ```ts
-if (isAgent || !process.stdin.isTTY) {
-  console.error('Missing --env. Usage: deploy --env staging|production')
+if (!env) {
+  if (isAgent || !process.stdin.isTTY) {
+    console.error('Missing --env. Usage: deploy --env staging|production')
+    process.exit(1)
+  }
+  // ... clack prompt fallback
+}
+```
+
+**Never use `isAgent` to block commands that have no flag alternative**, like device-flow login. Those commands don't read stdin at all; they open a browser, print a code, and poll. The only real requirement is a TTY for spinner output. Use `!process.stdin.isTTY` or `!process.stdout.isTTY` alone for those:
+
+```ts
+// login command — no flag alternative, agent can run it in tuistory
+if (!process.stdin.isTTY) {
+  console.error('Login requires a terminal. Run in tuistory or tmux.')
   process.exit(1)
 }
 ```
+
+Agents can run login commands in a PTY via tuistory and complete the browser flow with playwriter. Blocking them with `isAgent` makes login impossible from agent contexts.
 
 Supported agents: `cursor`, `claude`, `devin`, `replit`, `gemini`, `codex`, `auggie`, `opencode`, `kiro`, `goose`, `pi`. Set `AI_AGENT` env var to override.
 
@@ -278,6 +293,19 @@ if (!options.name) {
   options.name = name
 }
 ```
+
+## Error Messages with Recovery Hints
+
+**Every error message should include a hint showing how to fix or rerun the command.** When a CLI exits with an error, the user (or agent) should be able to copy-paste a corrected command immediately instead of reading `--help`.
+
+```ts
+console.error('Failed to detect local port.')
+console.error('If your server prints the port in an unusual format, specify it explicitly:')
+console.error(`  mycli serve -p <port> -- ${shellQuote(args)}`)
+process.exit(1)
+```
+
+Include the user's original arguments in the suggested command when possible, so the hint is directly copy-pasteable. For timeouts, show how long it waited so the user knows whether to wait longer or try a different approach.
 
 ## Interactive Prompts with @clack/prompts
 
@@ -529,3 +557,28 @@ cli
 - Developers can point to `http://localhost:3000` during development without losing their production token
 - Switching servers is just `--api-url` or setting an env var; no re-login needed if the server was used before
 ```
+
+## Writing a Skill for a goke CLI
+
+When creating a SKILL.md for a CLI built with goke, keep it **thin**. The skill is a bridge between the agent and the canonical docs, not a copy of them.
+
+### Structure
+
+1. **Always start with `--help`.** The CLI self-documents commands, options, and examples via goke's help generator. Make agents read it first, in full, every session. Add a "Read the help first" section with `mycli --help` and a rule to never truncate with `head`, `tail`, or `sed -n`.
+
+2. **Point at canonical docs.** If the CLI has a docs site with `llms-full.txt` (e.g. built with Holocron), tell agents to `curl -s https://mycli.dev/llms-full.txt` as the single source of truth. For OSS repos without a docs site, curl the raw README from GitHub: `curl -s https://raw.githubusercontent.com/owner/repo/main/README.md`. Add a "never truncate" rule next to the curl command. Optionally list 3-4 individual page URLs for the most common quick lookups.
+
+3. **Install and auth.** Just the commands, one per line, minimal prose. Start with `which mycli` so agents check before installing. Then `npm install -g mycli`, `mycli auth check`, `mycli auth login`, and `mycli auth set --key` for CI.
+
+4. **Gotchas.** Agent-specific knowledge that is not obvious from `--help` or the docs. Things like browser flows that need user interaction, remote vs local file path restrictions, implicit defaults that cause silent failures, and subscription requirements.
+
+5. **MCP alternative.** If the CLI has an MCP server, include the one-liner install command.
+
+### What NOT to put in the skill
+
+- **Command reference** — already in `--help` output
+- **Workflow examples** — belong in the docs site (quickstart, guides)
+- **Option descriptions** — already in Zod `.describe()` strings that goke renders in help
+- **Output format details** — covered by `--help` and docs
+
+If a section in the skill duplicates content from `--help` or the docs, delete it. The agent will fetch the canonical source.
