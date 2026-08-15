@@ -558,6 +558,26 @@ cli
 - Switching servers is just `--api-url` or setting an env var; no re-login needed if the server was used before
 ```
 
+## MCP CLIs (`@goke/mcp`)
+
+Use `addMcpCommands` from `@goke/mcp`. Do not hide `--help` behind a token. Put token steps on a `config` command. Never write `isSetupCmd` or a first-run prompt that blocks no-args.
+
+Use `getMcpUrl` plus `getHeaders` for HTTP Bearer tokens. Use `getMcpTransport` for stdio or any custom transport.
+
+```ts
+await addMcpCommands({
+  cli,
+  getMcpUrl: () => MCP_URL,
+  getHeaders: () => {
+    const token = process.env.TOKEN || loadConfig().token
+    if (!token) return
+    return { Authorization: `Bearer ${token}` }
+  },
+  loadCache: () => loadConfig().cache,
+  saveCache: (cache) => saveConfig({ cache }),
+})
+```
+
 ## Writing a Skill for a goke CLI
 
 When creating a SKILL.md for a CLI built with goke, keep it **thin**. The skill is a bridge between the agent and the canonical docs, not a copy of them.

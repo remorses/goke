@@ -90,12 +90,22 @@ export interface AddMcpCommandsOptions {
 
   /**
    * Returns a transport to connect to the MCP server, or null if not configured.
-   * If null is returned, no MCP tool commands will be registered.
-   * @param sessionId - Optional session ID from cache to reuse existing session
-   *
-   * @deprecated Use getMcpUrl + oauth instead for simpler setup
+   * Use this for stdio servers or any setup `getMcpUrl` cannot express.
+   * @param sessionId - Optional session ID from a still-valid cache
    */
   getMcpTransport?: (sessionId?: string) => Transport | null | Promise<Transport | null>;
+
+  /**
+   * Argv used to decide whether to skip live discovery.
+   * Defaults to `process.argv.slice(2)`.
+   */
+  argv?: string[];
+
+  /**
+   * Extra headers for MCP HTTP requests (for example `Authorization`).
+   * Used with `getMcpUrl`. Ignored when `getMcpTransport` is set.
+   */
+  getHeaders?: () => Record<string, string> | undefined;
 
   /**
    * OAuth configuration. When provided, enables automatic OAuth authentication.
@@ -224,12 +234,34 @@ function outputResult(result: {
 /**
  * Create a transport with optional OAuth authentication
  */
-function createTransportWithAuth(
-  url: URL,
-  sessionId: string | undefined,
-  oauthState: McpOAuthState | undefined,
-  oauth: McpOAuthConfig | undefined,
-): StreamableHTTPClientTransport {
+function isHelpOrMetaArgv(argv: string[]) {
+  if (argv.length === 0) return true;
+  if (argv[0] === "completions" || argv.includes("--get-goke-completions")) return true;
+  return argv.some((arg) => arg === "--help" || arg === "-h" || arg === "--version" || arg === "-v");
+}
+
+function matchesRegisteredCommand({ argv, cli }: { argv: string[]; cli: Goke }) {
+  const parts = argv.filter((arg) => !arg.startsWith("-"));
+  return cli.commands.some((cmd) => {
+    if (!cmd.name) return false;
+    const nameParts = cmd.name.split(" ");
+    return nameParts.every((part, i) => parts[i] === part);
+  });
+}
+
+function createTransportWithAuth({
+  url,
+  sessionId,
+  oauthState,
+  oauth,
+  headers,
+}: {
+  url: URL
+  sessionId?: string
+  oauthState?: McpOAuthState
+  oauth?: McpOAuthConfig
+  headers?: Record<string, string>
+}): StreamableHTTPClientTransport {
   let authProvider: FileOAuthProvider | undefined;
 
   if (oauth && oauthState?.tokens) {
@@ -246,9 +278,11 @@ function createTransportWithAuth(
     });
   }
 
+  const hasHeaders = headers && Object.keys(headers).length > 0;
   return new StreamableHTTPClientTransport(url, {
     sessionId,
     authProvider,
+    requestInit: hasHeaders ? { headers } : undefined,
   });
 }
 
@@ -270,9 +304,11 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
     clientName = "mcp-cli-client",
     getMcpUrl,
     getMcpTransport,
+    getHeaders,
     oauth,
     loadCache,
     saveCache,
+    argv = process.argv.slice(2),
   } = options;
 
   // Helper to get transport - supports both old and new API
@@ -287,10 +323,16 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
       const url = new URL(mcpUrl);
       const oauthState = oauth?.load();
 
-      return createTransportWithAuth(url, sessionId, oauthState, oauth);
+      return createTransportWithAuth({
+        url,
+        sessionId,
+        oauthState,
+        oauth,
+        headers: getHeaders?.(),
+      });
     }
 
-    // Legacy API: getMcpTransport
+    // Custom / stdio transport
     if (getMcpTransport) {
       return getMcpTransport(sessionId);
     }
@@ -330,55 +372,66 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
   // Try to use cached tools first (fast path - no network)
   const cachedTools = loadCache();
   const isCacheValid = cachedTools && (Date.now() - cachedTools.timestamp) < CACHE_TTL_MS;
+  const skipLiveDiscovery =
+    isHelpOrMetaArgv(argv) || matchesRegisteredCommand({ argv, cli });
 
-  let tools: CachedMcpTools["tools"];
+  let tools: CachedMcpTools["tools"] | undefined;
   let cachedSessionId: string | undefined;
 
-  if (isCacheValid) {
+  if (isCacheValid && cachedTools) {
     tools = cachedTools.tools;
     cachedSessionId = cachedTools.sessionId;
-  } else {
-    // Cache invalid/missing - connect to fetch tools
-    const transport = await getTransport();
-    if (!transport) {
-      return;
+  } else if (skipLiveDiscovery) {
+    if (cachedTools) {
+      tools = cachedTools.tools;
     }
+  } else {
+    const transport = await getTransport();
+    if (transport) {
+      const client = new Client({ name: clientName, version: "1.0.0" }, { capabilities: {} });
+      try {
+        await client.connect(transport);
+        const result = await client.listTools();
+        tools = result.tools;
 
-    const client = new Client({ name: clientName, version: "1.0.0" }, { capabilities: {} });
-    try {
-      await client.connect(transport);
-      const result = await client.listTools();
-      tools = result.tools;
+        const sessionId = (transport as { sessionId?: string }).sessionId;
 
-      const sessionId = (transport as { sessionId?: string }).sessionId;
-
-      saveCache({
-        tools: tools.map((t) => ({
-          name: t.name,
-          description: t.description,
-          inputSchema: t.inputSchema,
-        })),
-        timestamp: Date.now(),
-        sessionId,
-      });
-      cachedSessionId = sessionId;
-    } catch (err) {
-      // Check if auth is required during tool discovery
-      if (isAuthRequiredError(err) && oauth && getMcpUrl) {
-        const mcpUrl = getMcpUrl();
-        if (mcpUrl) {
-          const authSuccess = await handleAuthRequired((mcpUrl).toString());
-          if (authSuccess) {
-            // Retry after auth
-            return addMcpCommands(options);
+        saveCache({
+          tools: tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            inputSchema: t.inputSchema,
+          })),
+          timestamp: Date.now(),
+          sessionId,
+        });
+        cachedSessionId = sessionId;
+      } catch (err) {
+        const shouldAuth = isAuthRequiredError(err) && oauth && getMcpUrl && !skipLiveDiscovery;
+        if (shouldAuth) {
+          const mcpUrl = getMcpUrl();
+          if (mcpUrl) {
+            const authSuccess = await handleAuthRequired(mcpUrl);
+            if (authSuccess) {
+              return addMcpCommands(options);
+            }
           }
         }
+        if (!skipLiveDiscovery) {
+          console.error(`Failed to connect to MCP server: ${err instanceof Error ? err.message : err}`);
+        }
+      } finally {
+        await client.close();
       }
-      console.error(`Failed to connect to MCP server: ${err instanceof Error ? err.message : err}`);
-      return;
-    } finally {
-      await client.close();
     }
+
+    if (!tools && cachedTools) {
+      tools = cachedTools.tools;
+    }
+  }
+
+  if (!tools) {
+    return;
   }
 
   // Register CLI commands for each tool

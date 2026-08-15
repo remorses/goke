@@ -25,9 +25,9 @@ MCP server                        Your CLI
 
 1. **Discover** — calls `tools/list` on the MCP server to get every tool + its JSON Schema
 2. **Register** — creates a CLI command per tool with `--options` derived from the schema
-3. **Cache** — tools and session ID are cached for 1 hour (no network on subsequent runs)
+3. **Cache** — tools and session ID are cached for 1 hour (no network on subsequent runs). Expired cache is still used when a live fetch is impossible (no token, 401 on `--help`)
 4. **Execute** — on invocation, connects to the server and calls the tool with coerced arguments
-5. **OAuth** — if the server returns 401, automatically opens the browser for OAuth, then retries
+5. **OAuth** — if the server returns 401, automatically opens the browser for OAuth, then retries. `--help`, `--version`, `completions`, and no-args never start OAuth
 
 ## Quick start
 
@@ -53,6 +53,24 @@ await addMcpCommands({
 cli.help()
 cli.completions()
 cli.parse()
+```
+
+If the MCP server is HTTP, pass `getMcpUrl` even when the user has no token. `--help` and no-args must still run so the CLI can show `config` / login instructions. Use `getMcpTransport` when you need stdio or a custom transport.
+
+For an HTTP Bearer token, pass `getHeaders`:
+
+```ts
+await addMcpCommands({
+  cli,
+  getMcpUrl: () => 'https://api.example.com/mcp',
+  getHeaders: () => {
+    const token = process.env.EXAMPLE_TOKEN || loadConfig().token
+    if (!token) return
+    return { Authorization: `Bearer ${token}` }
+  },
+  loadCache: () => loadConfig().cache,
+  saveCache: (cache) => saveConfig({ cache }),
+})
 ```
 
 That's it. Every tool the MCP server exposes becomes a CLI command:
@@ -467,7 +485,10 @@ Registers MCP tool commands on a goke CLI instance.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `cli` | `Goke` | **required** | The goke CLI instance to add commands to |
-| `getMcpUrl` | `() => string \| undefined` | — | Returns the MCP server URL |
+| `getMcpUrl` | `() => string \| undefined` | — | Returns the MCP server URL. Return the URL even when the user is not logged in so `--help` still works |
+| `getMcpTransport` | `(sessionId?) => Transport \| null` | — | Custom transport. Use for stdio or anything `getMcpUrl` cannot express |
+| `getHeaders` | `() => Record<string, string> \| undefined` | — | Extra HTTP headers (for example `Authorization`). Used with `getMcpUrl` |
+| `argv` | `string[]` | `process.argv.slice(2)` | Args used to skip live discovery on help and already registered commands |
 | `commandPrefix` | `string` | `''` | Prefix for commands (e.g. `'mcp'` makes `mcp notion-search`) |
 | `clientName` | `string` | `'mcp-cli-client'` | Name sent to the MCP server during connection |
 | `oauth` | `McpOAuthConfig` | — | OAuth config for servers that require authentication |
@@ -536,6 +557,8 @@ Tokens are persisted via the `oauth.save()` callback you provide, so subsequent 
 Tools and the MCP session ID are cached for **1 hour** to avoid connecting on every invocation. The cache is managed through the `loadCache`/`saveCache` callbacks — you control where it's stored (file, database, env, etc.).
 
 When the cache expires or a tool call fails, the cache is cleared and tools are re-fetched on the next run.
+
+If a live `tools/list` cannot run (no transport, 401 during `--help`), `addMcpCommands` still registers tools from an expired cache so help stays useful.
 
 ## License
 

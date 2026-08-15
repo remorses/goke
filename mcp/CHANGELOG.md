@@ -1,5 +1,17 @@
 # @goke/mcp
 
+## 0.0.13
+
+1. **Skip live discovery** for `--help`, no-args, completions, and already registered commands such as `config`. Those must not open OAuth or hit the MCP server.
+2. **Expired cache no longer reuses `sessionId`.** Stale tool schemas still appear in help.
+3. **`argv` option** so callers can pass the same args they will parse, instead of only `process.argv`.
+
+## 0.0.12
+
+1. **`--help` / no-args never start OAuth** and no longer print a connect error when the MCP server needs auth. First-run help can show the CLI's own `config` command.
+2. **Expired cache is reused** when a live `tools/list` is impossible (no token, or 401 on help).
+3. **`getHeaders()`** sends extra HTTP headers with `getMcpUrl` (Bearer tokens). Use `getMcpTransport` for stdio or custom transports.
+
 ## 0.0.10
 
 1. **Fixed: command actions now receive the injected `GokeExecutionContext` as the third argument** — previously `runCliTool` invoked actions as `action(...positionals, options)`, silently dropping the `ctx` argument that `cli.parse()` always passes. Actions using `ctx.fs`, `ctx.process.cwd`, `ctx.process.env`, `ctx.process.stdin`, or `ctx.console.log` now receive real values instead of `undefined`:
