@@ -44,7 +44,8 @@ cli.parse()
 
 - **Hono-like chaining** — `.use()` for middleware, `.command()` for handlers. Build a CLI the same way you'd design a REST API.
 - **Zod type safety** — pass a Zod schema to `.option()` and get automatic coercion, TypeScript inference, and help text for free. Works with Valibot, ArkType, or any Standard Schema library.
-- **MCP server in 2 lines** — expose your entire CLI as an MCP server with `createMcpAction({ cli })`. Every command becomes a tool, ready for Claude Desktop, Cursor, VS Code, and [any MCP client](https://github.com/supermemoryai/install-mcp#supported-clients).
+- **CLI from any MCP server** — [`@goke/mcp`](https://github.com/remorses/goke/tree/main/mcp) connects to an MCP server, discovers tools, and generates typed CLI commands automatically.
+- **MCP server in 2 lines** — expose your entire CLI as an MCP server with `createMcpAction({ cli })` from [`@goke/mcp`](https://github.com/remorses/goke/tree/main/mcp). Every command becomes a tool, ready for Claude Desktop, Cursor, VS Code, and [any MCP client](https://github.com/supermemoryai/install-mcp#supported-clients).
 - **JustBash support** — `cli.createJustBashCommand()` exposes your CLI as a sandboxed JustBash command. Same action code, no changes needed.
 - **Space-separated subcommands** — `git remote add`, `mcp login`, `db migrate` — multi-word commands work out of the box.
 - **Injected `{ fs, console, process }`** — commands receive a portable runtime context. Swap it in tests, or let JustBash replace it with a sandbox. No global side effects.
@@ -65,6 +66,37 @@ npx -y skills add remorses/goke
 ```
 
 This installs the repository skill for AI coding agents. In this repo the shipped skill lives at `skills/goke/SKILL.md`.
+
+## Generate a CLI from an MCP server
+
+Use [`@goke/mcp`](https://github.com/remorses/goke/tree/main/mcp) to turn any MCP server into a CLI. It discovers tools and registers a typed command for each one.
+
+```ts
+import { goke } from 'goke'
+import { addMcpCommands } from '@goke/mcp'
+
+const cli = goke('mycli')
+
+await addMcpCommands({
+  cli,
+  getMcpUrl: () => 'https://mcp.example.com/mcp',
+  loadCache: () => loadConfig().cache,
+  saveCache: (cache) => saveConfig({ cache }),
+})
+
+cli.help()
+cli.completions()
+cli.parse()
+```
+
+Every tool becomes a command:
+
+```bash
+mycli search --query "meeting notes"
+mycli get-page --pageId "abc123"
+```
+
+See the [`@goke/mcp` README](https://github.com/remorses/goke/tree/main/mcp) for OAuth, caching, and exposing a CLI as an MCP server.
 
 ## Agent Detection
 

@@ -5,8 +5,9 @@ description: >
   with Standard Schema support (Zod, Valibot, ArkType). Use goke when building CLI
   tools — it handles commands, subcommands, options, type coercion, help generation,
   and more. Schema-based options give you automatic type inference, coercion from
-  strings, and help text generation. ALWAYS read this skill when a repo uses goke
-  for its CLI.
+  strings, and help text generation. Pair with `@goke/mcp` to generate CLI
+  commands automatically from an MCP server. ALWAYS read this skill when a repo
+  uses goke for its CLI.
 version: 0.0.1
 ---
 
@@ -35,6 +36,7 @@ npm install goke # or bun, pnpm, etc
 - Use relative paths with injected `fs`; if a helper needs current-cwd semantics, pass injected `process.cwd` into that helper
 - For JustBash compatibility tests, import the existing CLI from app code instead of defining a new CLI inside the test
 - **Never install `picocolors`, `chalk`, `kleur`, or any color library.** Use `import { colors } from 'goke'` instead. It's a vendored picocolors with zero extra dependencies.
+- Use [`@goke/mcp`](https://github.com/remorses/goke/tree/main/mcp) to generate CLI commands from an MCP server. `addMcpCommands({ cli, getMcpUrl, loadCache, saveCache })` discovers tools and registers a typed command for each one.
 
 The README is the source of truth for rules, examples, testing patterns, JustBash integration, and API details.
 
