@@ -895,6 +895,24 @@ cli
   })
 ```
 
+### Never mix different ID kinds in positionals
+
+All positional arguments of a command must identify the **same kind of thing**. Never design a command where the first positional means one entity and the rest mean another (for example `events <recordingId> [...eventIds]`): the call site `events 1 4 7` becomes unreadable because the first number silently has a different meaning than the others.
+
+When a command needs to scope its positionals to a parent entity, move the parent ID to a **flag** and keep the positionals homogeneous:
+
+```ts
+cli
+  .command('recorder events [...eventIds]', 'Print recorded events')
+  .option('-r, --recording <id>', 'Recording ID (defaults to the latest recording)')
+  .action((eventIds, options) => {
+    // recorder events 4 7        → events 4 and 7 of the latest recording
+    // recorder events -r 2 4 7   → events 4 and 7 of recording 2
+  })
+```
+
+Make the scoping flag optional with a sensible default (latest, current, the only one that exists) so the common case needs no flag at all.
+
 ### Double-dash `--` (end of options)
 
 The `--` token signals the end of options. Everything after `--` is available via `options['--']` as a separate array, not mixed into positional args. This lets you distinguish between your command's own arguments and passthrough args — the same pattern used by `doppler`, `npm`, `pnpm`, and `docker`.

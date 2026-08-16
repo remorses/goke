@@ -226,6 +226,16 @@ Choose one verb per action and reuse it everywhere:
 
 Check which verbs the CLI already uses and match them. If existing commands use `add`, every new "create something" command should also use `add`.
 
+### Never mix different ID kinds in positionals
+
+All positionals of a command must identify the same kind of thing. Never give the first positional a different meaning than the rest (e.g. `events <recordingId> [...eventIds]`): a call like `events 1 4 7` is unreadable because the first number silently refers to a different entity. Move the parent/scoping ID to an optional flag with a sensible default and keep positionals homogeneous:
+
+```ts
+cli
+  .command('recorder events [...eventIds]', 'Print recorded events')
+  .option('-r, --recording <id>', 'Recording ID (defaults to the latest recording)')
+```
+
 ## Prefer Optional Flags Over Required Flags
 
 **Never make a flag required when it can be optional with an interactive fallback.** Required flags force users to read `--help` before they can run anything. Optional flags let them run the bare command and discover options progressively through prompts.
