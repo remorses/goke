@@ -40,6 +40,42 @@ npm install goke # or bun, pnpm, etc
 
 The README is the source of truth for rules, examples, testing patterns, JustBash integration, and API details.
 
+## Reporting goke bugs
+
+If you find a bug in goke, **always open a GitHub issue with the `gh` CLI**. Do not only mention it in chat.
+
+```bash
+gh issue create --repo remorses/goke --title "Short bug title" --body "$(cat <<'EOF'
+**Model:** grok-4.6
+**Harness:** OpenCode / Kimaki
+
+**What happened**
+Describe the unexpected behavior.
+
+**Relevant goke code**
+Paste the CLI definition or goke API usage from this package that triggered the bug.
+
+**Reproduction**
+Minimal example that fails:
+
+```ts
+import { goke } from 'goke'
+
+const cli = goke('mycli')
+cli.command('deploy', 'Deploy').action(() => {})
+cli.parse()
+```
+EOF
+)"
+```
+
+Always include in the issue body:
+
+- the **model** used (for example `grok-4.6`, `claude-opus-4-6`)
+- the **harness** (for example OpenCode, Claude Code, Cursor, Codex)
+- the **relevant goke code** from this package that hit the bug
+- a **minimal reproduction** example
+
 If the README or this skill mentions a `goke` export that is missing from the installed package, upgrade `goke` to latest first before adding workarounds or custom local detection code:
 
 ```bash
