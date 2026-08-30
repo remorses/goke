@@ -1052,16 +1052,16 @@ Usage:
   $ kubectl <command> [options]
 
 Commands:
-  Get
-  get pods                 List pods
-    -o, --output <format>  Output format
+  Get:
+    get pods                 List pods
+      -o, --output <format>  Output format
 
-  get services             List services
-  get nodes                List nodes
+    get services             List services
+    get nodes                List nodes
 
-  Describe
-  describe pod <name>      Describe a pod
-  describe service <name>  Describe a service
+  Describe:
+    describe pod <name>      Describe a pod
+    describe service <name>  Describe a service
 
 Options:
   -h, --help  Display this message

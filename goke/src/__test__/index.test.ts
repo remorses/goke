@@ -1891,25 +1891,25 @@ describe('many commands with root command (empty string)', () => {
         $ kubectl <command> [options]
 
       Commands:
-        Get
-        get pods                   List pods
-          -o, --output <format>    Output format
-          -l, --labels <selector>  Label selector
-          -A, --all-namespaces     All namespaces
+        Get:
+          get pods                   List pods
+            -o, --output <format>    Output format
+            -l, --labels <selector>  Label selector
+            -A, --all-namespaces     All namespaces
 
-        get services               List services
-          -o, --output <format>    Output format
+          get services               List services
+            -o, --output <format>    Output format
 
-        get nodes                  List nodes
+          get nodes                  List nodes
 
-        Describe
-        describe pod <name>        Describe a pod
-        describe service <name>    Describe a service
+        Describe:
+          describe pod <name>        Describe a pod
+          describe service <name>    Describe a service
 
-        Apply
-        apply                      Apply a configuration
-          -f, --file <path>        Config file path
-          --dry-run                Only print what would happen
+        Apply:
+          apply                      Apply a configuration
+            -f, --file <path>        Config file path
+            --dry-run                Only print what would happen
 
       Options:
         -h, --help  Display this message
@@ -1939,14 +1939,14 @@ describe('many commands with root command (empty string)', () => {
         $ mycli <command> [options]
 
       Commands:
-        login                Authenticate with the server
-        logout               Clear saved credentials
+        login                  Authenticate with the server
+        logout                 Clear saved credentials
 
-        Mail
-        mail list            List email threads
-          --folder [folder]  Folder to list
+        Mail:
+          mail list            List email threads
+            --folder [folder]  Folder to list
 
-        mail send            Send an email
+          mail send            Send an email
 
       Options:
         -h, --help  Display this message
@@ -1973,14 +1973,14 @@ describe('many commands with root command (empty string)', () => {
         $ mycli <command> [options]
 
       Commands:
-        Auth
-        auth login   Authenticate
+        Auth:
+          auth login   Authenticate
 
-        Account
-        status       Show status
+        Account:
+          status       Show status
 
-        Auth
-        auth logout  Remove credentials
+        Auth:
+          auth logout  Remove credentials
 
       Options:
         -h, --help  Display this message
@@ -2006,8 +2006,8 @@ describe('many commands with root command (empty string)', () => {
         $ mycli <command> [options]
 
       Commands:
-        Auth
-        auth login             Authenticate
+        Auth:
+          auth login           Authenticate
 
         completions install    Install shell completions
           --shell [shell]      Target shell (zsh or bash). Auto-detected if omitted.
@@ -2018,8 +2018,8 @@ describe('many commands with root command (empty string)', () => {
         completions script     Print the completion script to stdout
           --shell [shell]      Target shell (zsh or bash). Auto-detected if omitted.
 
-        Auth
-        auth logout            Remove credentials
+        Auth:
+          auth logout          Remove credentials
 
       Options:
         -h, --help  Display this message
@@ -2047,10 +2047,10 @@ describe('many commands with root command (empty string)', () => {
         $ mycli <command> [options]
 
       Commands:
-        init      Initialize project
+        init        Initialize project
 
-        Hosting
-        selfhost  Set up on your own workspace
+        Hosting:
+          selfhost  Set up on your own workspace
 
       Options:
         -h, --help  Display this message
