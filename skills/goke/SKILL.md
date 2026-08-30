@@ -31,7 +31,7 @@ npm install goke # or bun, pnpm, etc
 
 ## Quick Notes
 
-- Core APIs: `cli.option`, `cli.use`, `cli.version`, `cli.help`, `cli.completions`, `cli.parse`
+- Core APIs: `cli.option`, `cli.use`, `cli.section`, `cli.version`, `cli.help`, `cli.completions`, `cli.parse`
 - Prefer injected `{ fs, console, process }` over globals
 - Use relative paths with injected `fs`; if a helper needs current-cwd semantics, pass injected `process.cwd` into that helper
 - For JustBash compatibility tests, import the existing CLI from app code instead of defining a new CLI inside the test
@@ -221,6 +221,17 @@ project remove
 ```
 
 Pick **singular or plural** for the noun and stick with it across the entire CLI. If `project list` exists, don't add `projects add`.
+
+**Always group namespaced commands with `.section()`.** Commands that share a parent word (`get pods`, `get services`, `auth login`) must sit under a named heading in root help. Call `cli.section('Get')` before registering that group. Use `.command(...).section('Name')` when one command belongs in a different group.
+
+```ts
+cli.section('Get')
+cli.command('get pods', 'List pods')
+cli.command('get services', 'List services')
+
+cli.section('Describe')
+cli.command('describe pod <name>', 'Describe a pod')
+```
 
 ### Consistent verbs
 

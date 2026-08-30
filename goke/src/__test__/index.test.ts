@@ -1233,31 +1233,17 @@ describe('space-separated subcommands', () => {
     expect(stripAnsi(output)).toMatchInlineSnapshot(`
       "mycli
 
-
       Usage:
         $ mycli <command> [options]
 
-
       Commands:
         mcp login <url>              Login to MCP server
-
-
         mcp logout                   Logout from MCP server
-
-
         mcp status                   Show connection status
-
-
         git remote add <name> <url>  Add a git remote
-
-
         git remote remove <name>     Remove a git remote
-
-
         build                        Build the project
-
           --watch                    Watch mode
-
 
       Options:
         -h, --help  Display this message
@@ -1632,35 +1618,21 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toMatchInlineSnapshot(`
       "deploy
 
-
       Usage:
         $ deploy [options]
 
-
       Commands:
         deploy               Deploy the current project
-
-
         init                 Initialize a new project
-
-
         login                Authenticate with the server
-
-
         logout               Clear saved credentials
-
-
         status               Show deployment status
-
-
         logs <deploymentId>  Stream logs for a deployment
-
 
       Options:
         --env <env>  Target environment
         --dry-run    Preview without deploying
         -h, --help   Display this message
-
 
       Examples:
       # Deploy to staging first
@@ -1692,20 +1664,16 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toMatchInlineSnapshot(`
       "deploy
 
-
       Usage:
         $ deploy logs <deploymentId>
-
 
       Options:
         --follow     Follow log output
         --lines <n>  Number of lines (default: 100)
         -h, --help   Display this message
 
-
       Description:
         Stream logs for a deployment
-
 
       Examples:
       # Stream last 200 lines for a deployment
@@ -1734,17 +1702,12 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toMatchInlineSnapshot(`
       "deploy
 
-
       Usage:
         $ deploy [options]
 
-
       Commands:
         deploy  Deploy the current project
-
-
         status  Show deployment status
-
 
       Options:
         --env <env>  Target environment
@@ -1776,10 +1739,8 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toMatchInlineSnapshot(`
       "mycli
 
-
       Usage:
         $ mycli <command> [options]
-
 
       Commands:
         notion-search      Perform a semantic search over
@@ -1787,20 +1748,16 @@ describe('many commands with root command (empty string)', () => {
                            connected integrations with
                            advanced filtering options, date
                            filters, and creator filters.
-
           --query <query>  Natural language query text to
                            search for
           --limit [limit]  Maximum number of results to return
                            (default: 10)
 
-
         notion-fetch       Retrieve a Notion page or database
                            by URL or ID and render the result
                            in enhanced markdown format for
                            terminal output.
-
           --id <id>        Notion URL or UUID to fetch
-
 
       Options:
         -h, --help  Display this message
@@ -1823,27 +1780,18 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toMatchInlineSnapshot(`
       "gtui
 
-
       Usage:
         $ gtui <command> [options]
 
-
       Commands:
         auth login                                 Authenticate with Google (opens browser)
-
-
         auth logout                                Remove stored credentials
-
           --force                                  Skip confirmation
 
-
         mail list                                  List email threads
-
           --folder [folder]                        Folder to list
 
-
         attachment get <messageId> <attachmentId>  Download an attachment
-
 
       Options:
         -h, --help  Display this message
@@ -1891,17 +1839,13 @@ describe('many commands with root command (empty string)', () => {
       expect(stdout.text).toMatchInlineSnapshot(`
         "mycli
 
-
         Usage:
           $ mycli <command> [options]
 
-
         Commands:
           notion-search      Perform a semantic search over Notion workspace content and connected integrations with advanced filtering options, date filters, and creator filters.
-
             --query <query>  Natural language query text to search for
             --limit [limit]  Maximum number of results to return (default: 10)
-
 
         Options:
           -h, --help  Display this message
@@ -1913,6 +1857,205 @@ describe('many commands with root command (empty string)', () => {
         value: originalColumns,
       })
     }
+  })
+
+  test('root help groups namespaced commands with .section()', async () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('kubectl', { stdout, columns: 80 })
+
+    cli.section('Get')
+    cli.command('get pods', 'List pods')
+      .option('-o, --output <format>', 'Output format')
+      .option('-l, --labels <selector>', 'Label selector')
+      .option('-A, --all-namespaces', 'All namespaces')
+    cli.command('get services', 'List services')
+      .option('-o, --output <format>', 'Output format')
+    cli.command('get nodes', 'List nodes')
+
+    cli.section('Describe')
+    cli.command('describe pod <name>', 'Describe a pod')
+    cli.command('describe service <name>', 'Describe a service')
+
+    cli.section('Apply')
+    cli.command('apply', 'Apply a configuration')
+      .option('-f, --file <path>', 'Config file path')
+      .option('--dry-run', 'Only print what would happen')
+
+    cli.help()
+    await cli.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toMatchInlineSnapshot(`
+      "kubectl
+
+      Usage:
+        $ kubectl <command> [options]
+
+      Commands:
+        Get
+        get pods                   List pods
+          -o, --output <format>    Output format
+          -l, --labels <selector>  Label selector
+          -A, --all-namespaces     All namespaces
+
+        get services               List services
+          -o, --output <format>    Output format
+
+        get nodes                  List nodes
+
+        Describe
+        describe pod <name>        Describe a pod
+        describe service <name>    Describe a service
+
+        Apply
+        apply                      Apply a configuration
+          -f, --file <path>        Config file path
+          --dry-run                Only print what would happen
+
+      Options:
+        -h, --help  Display this message
+      "
+    `)
+  })
+
+  test('unsectioned commands stay above named help sections', async () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout, columns: 80 })
+
+    cli.command('login', 'Authenticate with the server')
+    cli.command('logout', 'Clear saved credentials')
+
+    cli.section('Mail')
+    cli.command('mail list', 'List email threads')
+      .option('--folder [folder]', 'Folder to list')
+    cli.command('mail send', 'Send an email')
+
+    cli.help()
+    await cli.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toMatchInlineSnapshot(`
+      "mycli
+
+      Usage:
+        $ mycli <command> [options]
+
+      Commands:
+        login                Authenticate with the server
+        logout               Clear saved credentials
+
+        Mail
+        mail list            List email threads
+          --folder [folder]  Folder to list
+
+        mail send            Send an email
+
+      Options:
+        -h, --help  Display this message
+      "
+    `)
+  })
+
+  test('command.section() overrides the current CLI section', async () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout, columns: 80 })
+
+    cli.section('Auth')
+    cli.command('auth login', 'Authenticate')
+    cli.command('status', 'Show status').section('Account')
+    cli.command('auth logout', 'Remove credentials')
+
+    cli.help()
+    await cli.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toMatchInlineSnapshot(`
+      "mycli
+
+      Usage:
+        $ mycli <command> [options]
+
+      Commands:
+        Auth
+        auth login   Authenticate
+
+        Account
+        status       Show status
+
+        Auth
+        auth logout  Remove credentials
+
+      Options:
+        -h, --help  Display this message
+      "
+    `)
+  })
+
+  test('completions commands stay out of the current help section', async () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout, columns: 80 })
+
+    cli.section('Auth')
+    cli.command('auth login', 'Authenticate')
+    cli.completions()
+    cli.command('auth logout', 'Remove credentials')
+    cli.help()
+    await cli.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toMatchInlineSnapshot(`
+      "mycli
+
+      Usage:
+        $ mycli <command> [options]
+
+      Commands:
+        Auth
+        auth login             Authenticate
+
+        completions install    Install shell completions
+          --shell [shell]      Target shell (zsh or bash). Auto-detected if omitted.
+
+        completions uninstall  Remove shell completions
+          --shell [shell]      Target shell (zsh or bash). Auto-detected if omitted.
+
+        completions script     Print the completion script to stdout
+          --shell [shell]      Target shell (zsh or bash). Auto-detected if omitted.
+
+        Auth
+        auth logout            Remove credentials
+
+      Options:
+        -h, --help  Display this message
+      "
+    `)
+  })
+
+  test('composed commands keep their help section', async () => {
+    const stdout = createTestOutputStream()
+    const parent = goke('mycli', { stdout, columns: 80 })
+    const sub = goke()
+
+    sub.section('Hosting')
+    sub.command('selfhost', 'Set up on your own workspace')
+
+    parent.command('init', 'Initialize project')
+    parent.use(sub)
+    parent.help()
+    await parent.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toMatchInlineSnapshot(`
+      "mycli
+
+      Usage:
+        $ mycli <command> [options]
+
+      Commands:
+        init      Initialize project
+
+        Hosting
+        selfhost  Set up on your own workspace
+
+      Options:
+        -h, --help  Display this message
+      "
+    `)
   })
 
   test('many subcommands all resolve correctly', async () => {

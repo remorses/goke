@@ -172,6 +172,57 @@ const formatWrappedDescription = (text: string, width: number, indent: number) =
   ].join('\n')
 }
 
+const formatCommandHelpBlock = (args: {
+  displayName: string
+  description: string
+  displayOptions: Option[]
+  sharedDescriptionColumn: number
+  descriptionWidth: number
+}) => {
+  const {
+    displayName,
+    description,
+    displayOptions,
+    sharedDescriptionColumn,
+    descriptionWidth,
+  } = args
+  const commandDescription = formatWrappedDescription(
+    description,
+    descriptionWidth,
+    sharedDescriptionColumn,
+  )
+  const commandPrefix = `  ${pc.bold(commandGreen(displayName))}`
+  const commandPadding = ' '.repeat(
+    Math.max(2, sharedDescriptionColumn - (2 + visibleLength(displayName)))
+  )
+  const headerLine = commandDescription
+    ? `${commandPrefix}${commandPadding}${commandDescription}`
+    : commandPrefix
+
+  if (displayOptions.length === 0) {
+    return headerLine
+  }
+
+  const optionLines = displayOptions
+    .map((option) => {
+      const optionDescription = formatWrappedDescription(
+        optionDescriptionText(option),
+        descriptionWidth,
+        sharedDescriptionColumn,
+      )
+      const optionPrefix = `    ${optionBlue(option.rawName)}`
+      const optionPadding = ' '.repeat(
+        Math.max(2, sharedDescriptionColumn - (4 + visibleLength(option.rawName)))
+      )
+      return optionDescription
+        ? `${optionPrefix}${optionPadding}${optionDescription}`
+        : optionPrefix
+    })
+    .join('\n')
+
+  return `${headerLine}\n${optionLines}`
+}
+
 const optionDescriptionText = (option: Option) => {
   const defaultText = option.default === undefined
     ? ''
@@ -530,6 +581,7 @@ class Command<RawName extends string = string, Opts = {}> {
   examples: CommandExample[]
   helpCallback?: HelpCallback
   globalCommand?: GlobalCommand
+  helpSection?: string
   _hidden?: boolean
 
   constructor(
@@ -568,6 +620,15 @@ class Command<RawName extends string = string, Opts = {}> {
 
   example(example: CommandExample) {
     this.examples.push(example)
+    return this
+  }
+
+  /**
+   * Group this command under a named heading in root help output.
+   * Overrides the section set by `cli.section()`.
+   */
+  section(name: string) {
+    this.helpSection = name || undefined
     return this
   }
 
@@ -762,48 +823,38 @@ class Command<RawName extends string = string, Opts = {}> {
       const optionDescriptionColumn = 4 + longestCommandOptionNameLength + 2
       const sharedDescriptionColumn = Math.max(commandDescriptionColumn, optionDescriptionColumn)
       const descriptionWidth = terminalWidth - sharedDescriptionColumn
+      const commandBlocks: string[] = []
+      let previousSection: string | undefined
+      let previousHadOptions = false
+
+      for (const { command, displayName, displayOptions } of commandRows) {
+        const sectionName = command.helpSection
+        const sectionChanged = sectionName !== previousSection
+        const showSectionHeading = Boolean(sectionName) && sectionChanged
+        const commandBlock = formatCommandHelpBlock({
+          displayName,
+          description: command.description,
+          displayOptions,
+          sharedDescriptionColumn,
+          descriptionWidth,
+        })
+
+        if (commandBlocks.length > 0 && (sectionChanged || previousHadOptions)) {
+          commandBlocks.push('')
+        }
+
+        if (showSectionHeading) {
+          commandBlocks.push(`  ${pc.bold(pc.blue(sectionName))}`)
+        }
+
+        commandBlocks.push(commandBlock)
+        previousSection = sectionName
+        previousHadOptions = displayOptions.length > 0
+      }
 
       sections.push({
         title: 'Commands',
-          body: commandRows
-          .map(({ command, displayName, displayOptions }) => {
-            const commandDescription = formatWrappedDescription(
-              command.description,
-              descriptionWidth,
-              sharedDescriptionColumn,
-            )
-            const commandPrefix = `  ${pc.bold(commandGreen(displayName))}`
-            const commandPadding = ' '.repeat(
-              Math.max(2, sharedDescriptionColumn - (2 + visibleLength(displayName)))
-            )
-            const headerLine = commandDescription
-              ? `${commandPrefix}${commandPadding}${commandDescription}`
-              : commandPrefix
-
-            if (displayOptions.length === 0) {
-              return headerLine
-            }
-
-            const optionLines = displayOptions
-              .map((option) => {
-                const optionDescription = formatWrappedDescription(
-                  optionDescriptionText(option),
-                  descriptionWidth,
-                  sharedDescriptionColumn,
-                )
-                const optionPrefix = `    ${optionBlue(option.rawName)}`
-                const optionPadding = ' '.repeat(
-                  Math.max(2, sharedDescriptionColumn - (4 + visibleLength(option.rawName)))
-                )
-                return optionDescription
-                  ? `${optionPrefix}${optionPadding}${optionDescription}`
-                  : optionPrefix
-              })
-              .join('\n')
-
-            return `${headerLine}\n\n${optionLines}`
-          })
-          .join('\n\n\n'),
+        body: commandBlocks.join('\n'),
       })
     }
 
@@ -898,7 +949,7 @@ class Command<RawName extends string = string, Opts = {}> {
           ? `${pc.bold(pc.blue(section.title))}:\n${section.body}`
           : section.body
       })
-      .join('\n\n\n')
+      .join('\n\n')
   }
 
   outputHelp() {
@@ -992,6 +1043,7 @@ const cloneCommandInto = (source: Command, cli: Goke<any>) => {
   target.examples = [...source.examples]
   target.helpCallback = source.helpCallback
   target.commandAction = source.commandAction
+  target.helpSection = source.helpSection
   target._hidden = source._hidden
   target.options = source.options.map((option) => option.clone())
   target.globalCommand = cli.globalCommand
@@ -1216,6 +1268,7 @@ class Goke<Opts = {}> extends EventEmitter {
   readonly exit: (code: number) => void
 
   #defaultArgv: string[]
+  #currentHelpSection?: string
 
   /**
    * @param name The program name to display in help and version message
@@ -1258,6 +1311,7 @@ class Goke<Opts = {}> extends EventEmitter {
 
     cloned.showHelpOnExit = this.showHelpOnExit
     cloned.showVersionOnExit = this.showVersionOnExit
+    cloned.#currentHelpSection = this.#currentHelpSection
     cloned.globalCommand = cloneCommandInto(this.globalCommand, cloned) as GlobalCommand
     cloned.commands = this.commands.map((command) => cloneCommandInto(command, cloned))
     for (const command of cloned.commands) {
@@ -1378,8 +1432,19 @@ class Goke<Opts = {}> extends EventEmitter {
       this,
     )
     command.globalCommand = this.globalCommand
+    command.helpSection = this.#currentHelpSection
     this.commands.push(command)
     return command
+  }
+
+  /**
+   * Group following commands under a named heading in root help output.
+   * Use this for namespaced commands that share a parent, for example
+   * `get pods` and `get services`.
+   */
+  section(name: string) {
+    this.#currentHelpSection = name || undefined
+    return this
   }
 
   /**
@@ -1621,6 +1686,9 @@ class Goke<Opts = {}> extends EventEmitter {
    * ```
    */
   completions() {
+    const previousHelpSection = this.#currentHelpSection
+    this.#currentHelpSection = undefined
+
     this.command('completions install', 'Install shell completions')
       .option('--shell [shell]', 'Target shell (zsh or bash). Auto-detected if omitted.')
       .action(async (options, { console, process: proc }) => {
@@ -1663,6 +1731,7 @@ class Goke<Opts = {}> extends EventEmitter {
         console.log(script)
       })
 
+    this.#currentHelpSection = previousHelpSection
     return this
   }
 

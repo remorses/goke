@@ -1021,6 +1021,54 @@ cli.completions()
 cli.parse()
 ```
 
+### Help Sections for Namespaced Commands
+
+When commands share a parent word (`get pods`, `get services`, `auth login`), group them with `.section()`. Root help prints a heading for each group and adds extra space around those groups.
+
+```ts
+import { goke } from 'goke'
+
+const cli = goke('kubectl')
+
+cli.section('Get')
+cli.command('get pods', 'List pods')
+  .option('-o, --output <format>', 'Output format')
+cli.command('get services', 'List services')
+cli.command('get nodes', 'List nodes')
+
+cli.section('Describe')
+cli.command('describe pod <name>', 'Describe a pod')
+cli.command('describe service <name>', 'Describe a service')
+
+cli.help()
+cli.completions()
+cli.parse()
+```
+
+```txt
+kubectl
+
+Usage:
+  $ kubectl <command> [options]
+
+Commands:
+  Get
+  get pods                 List pods
+    -o, --output <format>  Output format
+
+  get services             List services
+  get nodes                List nodes
+
+  Describe
+  describe pod <name>      Describe a pod
+  describe service <name>  Describe a service
+
+Options:
+  -h, --help  Display this message
+```
+
+**Always call `.section()` before namespaced commands that share a parent.** Commands registered before any `.section()` stay ungrouped at the top. Use `.command(...).section('Name')` when one command belongs in a different group than the current CLI section.
+
 ### Schema-based Type Coercion
 
 Pass a Standard Schema (like Zod) as the second argument to `.option()` for automatic type coercion. Description and default values are extracted from the schema:
