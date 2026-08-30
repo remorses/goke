@@ -176,7 +176,6 @@ const formatCommandHelpBlock = (args: {
   displayName: string
   description: string
   displayOptions: Option[]
-  commandIndent: number
   sharedDescriptionColumn: number
   descriptionWidth: number
 }) => {
@@ -184,19 +183,17 @@ const formatCommandHelpBlock = (args: {
     displayName,
     description,
     displayOptions,
-    commandIndent,
     sharedDescriptionColumn,
     descriptionWidth,
   } = args
-  const optionIndent = commandIndent + 2
   const commandDescription = formatWrappedDescription(
     description,
     descriptionWidth,
     sharedDescriptionColumn,
   )
-  const commandPrefix = `${' '.repeat(commandIndent)}${pc.bold(commandGreen(displayName))}`
+  const commandPrefix = `  ${pc.bold(commandGreen(displayName))}`
   const commandPadding = ' '.repeat(
-    Math.max(2, sharedDescriptionColumn - (commandIndent + visibleLength(displayName)))
+    Math.max(2, sharedDescriptionColumn - (2 + visibleLength(displayName)))
   )
   const headerLine = commandDescription
     ? `${commandPrefix}${commandPadding}${commandDescription}`
@@ -213,9 +210,9 @@ const formatCommandHelpBlock = (args: {
         descriptionWidth,
         sharedDescriptionColumn,
       )
-      const optionPrefix = `${' '.repeat(optionIndent)}${optionBlue(option.rawName)}`
+      const optionPrefix = `    ${optionBlue(option.rawName)}`
       const optionPadding = ' '.repeat(
-        Math.max(2, sharedDescriptionColumn - (optionIndent + visibleLength(option.rawName)))
+        Math.max(2, sharedDescriptionColumn - (4 + visibleLength(option.rawName)))
       )
       return optionDescription
         ? `${optionPrefix}${optionPadding}${optionDescription}`
@@ -816,23 +813,14 @@ class Command<RawName extends string = string, Opts = {}> {
         }
       })
 
-      // Sectioned commands indent past the heading so later ungrouped rows
-      // cannot look like they belong to the previous section.
-      const commandIndentFor = (helpSection?: string) => helpSection ? 4 : 2
-      const commandDescriptionColumn = Math.max(
-        0,
-        ...commandRows.map((row) =>
-          commandIndentFor(row.command.helpSection) + visibleLength(row.displayName) + 2
-        ),
+      const longestCommandNameLength = maxVisibleLength(
+        commandRows.map((row) => row.displayName)
       )
-      const optionDescriptionColumn = Math.max(
-        0,
-        ...commandRows.flatMap((row) =>
-          row.displayOptions.map((option) =>
-            commandIndentFor(row.command.helpSection) + 2 + visibleLength(option.rawName) + 2
-          )
-        ),
-      )
+      const longestCommandOptions = commandRows
+        .flatMap((row) => row.displayOptions.map((option) => option.rawName))
+      const longestCommandOptionNameLength = maxVisibleLength(longestCommandOptions)
+      const commandDescriptionColumn = 2 + longestCommandNameLength + 2
+      const optionDescriptionColumn = 4 + longestCommandOptionNameLength + 2
       const sharedDescriptionColumn = Math.max(commandDescriptionColumn, optionDescriptionColumn)
       const descriptionWidth = terminalWidth - sharedDescriptionColumn
       const commandBlocks: string[] = []
@@ -847,7 +835,6 @@ class Command<RawName extends string = string, Opts = {}> {
           displayName,
           description: command.description,
           displayOptions,
-          commandIndent: commandIndentFor(sectionName),
           sharedDescriptionColumn,
           descriptionWidth,
         })

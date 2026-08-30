@@ -1892,24 +1892,24 @@ describe('many commands with root command (empty string)', () => {
 
       Commands:
         Get:
-          get pods                   List pods
-            -o, --output <format>    Output format
-            -l, --labels <selector>  Label selector
-            -A, --all-namespaces     All namespaces
+        get pods                   List pods
+          -o, --output <format>    Output format
+          -l, --labels <selector>  Label selector
+          -A, --all-namespaces     All namespaces
 
-          get services               List services
-            -o, --output <format>    Output format
+        get services               List services
+          -o, --output <format>    Output format
 
-          get nodes                  List nodes
+        get nodes                  List nodes
 
         Describe:
-          describe pod <name>        Describe a pod
-          describe service <name>    Describe a service
+        describe pod <name>        Describe a pod
+        describe service <name>    Describe a service
 
         Apply:
-          apply                      Apply a configuration
-            -f, --file <path>        Config file path
-            --dry-run                Only print what would happen
+        apply                      Apply a configuration
+          -f, --file <path>        Config file path
+          --dry-run                Only print what would happen
 
       Options:
         -h, --help  Display this message
@@ -1939,14 +1939,14 @@ describe('many commands with root command (empty string)', () => {
         $ mycli <command> [options]
 
       Commands:
-        login                  Authenticate with the server
-        logout                 Clear saved credentials
+        login                Authenticate with the server
+        logout               Clear saved credentials
 
         Mail:
-          mail list            List email threads
-            --folder [folder]  Folder to list
+        mail list            List email threads
+          --folder [folder]  Folder to list
 
-          mail send            Send an email
+        mail send            Send an email
 
       Options:
         -h, --help  Display this message
@@ -1974,13 +1974,13 @@ describe('many commands with root command (empty string)', () => {
 
       Commands:
         Auth:
-          auth login   Authenticate
+        auth login   Authenticate
 
         Account:
-          status       Show status
+        status       Show status
 
         Auth:
-          auth logout  Remove credentials
+        auth logout  Remove credentials
 
       Options:
         -h, --help  Display this message
@@ -2007,7 +2007,7 @@ describe('many commands with root command (empty string)', () => {
 
       Commands:
         Auth:
-          auth login           Authenticate
+        auth login             Authenticate
 
         completions install    Install shell completions
           --shell [shell]      Target shell (zsh or bash). Auto-detected if omitted.
@@ -2019,7 +2019,7 @@ describe('many commands with root command (empty string)', () => {
           --shell [shell]      Target shell (zsh or bash). Auto-detected if omitted.
 
         Auth:
-          auth logout          Remove credentials
+        auth logout            Remove credentials
 
       Options:
         -h, --help  Display this message
@@ -2047,10 +2047,10 @@ describe('many commands with root command (empty string)', () => {
         $ mycli <command> [options]
 
       Commands:
-        init        Initialize project
+        init      Initialize project
 
         Hosting:
-          selfhost  Set up on your own workspace
+        selfhost  Set up on your own workspace
 
       Options:
         -h, --help  Display this message

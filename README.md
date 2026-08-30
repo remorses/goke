@@ -1053,15 +1053,15 @@ Usage:
 
 Commands:
   Get:
-    get pods                 List pods
-      -o, --output <format>  Output format
+  get pods                 List pods
+    -o, --output <format>  Output format
 
-    get services             List services
-    get nodes                List nodes
+  get services             List services
+  get nodes                List nodes
 
   Describe:
-    describe pod <name>      Describe a pod
-    describe service <name>  Describe a service
+  describe pod <name>      Describe a pod
+  describe service <name>  Describe a service
 
 Options:
   -h, --help  Display this message
