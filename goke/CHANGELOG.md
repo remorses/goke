@@ -1,5 +1,37 @@
 # goke
 
+## 6.15.0
+
+1. **New `.section()` API for namespaced command groups** — root help can group commands under named headings. Use this when commands share a parent word (`get pods`, `get services`):
+
+   ```ts
+   cli.section('Get')
+   cli.command('get pods', 'List pods')
+     .option('-o, --output <format>', 'Output format')
+   cli.command('get services', 'List services')
+
+   cli.section('Describe')
+   cli.command('describe pod <name>', 'Describe a pod')
+   ```
+
+   Root help prints a heading for each group:
+
+   ```txt
+   Commands:
+     Get:
+     get pods                 List pods
+       -o, --output <format>  Output format
+
+     get services             List services
+
+     Describe:
+     describe pod <name>      Describe a pod
+   ```
+
+   Commands registered before any `.section()` stay ungrouped at the top. `.command(...).section('Name')` overrides the current CLI section for that one command.
+
+   Help spacing is tighter: one blank line between Usage / Commands / Options, packed command rows, and extra space only after nested flags or when a named section starts.
+
 ## 6.14.1
 
 1. **Fixed daemon `attach` mode exiting before child finishes** — when using `daemon.start({ attach: true })`, the parent process would exit immediately while the child kept running, causing logs to appear after the parent already returned. Now the parent stays alive and waits for the child to finish, and Ctrl+C properly kills both processes.
