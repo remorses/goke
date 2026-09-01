@@ -25,7 +25,7 @@
  *   exit handler firing late.
  */
 
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -163,12 +163,43 @@ async function killProcess(pid: number): Promise<void> {
 
 const DAEMON_ENV_KEY = 'GOKE_DAEMON'
 const DAEMON_TIMEOUT_ENV_KEY = 'GOKE_DAEMON_TIMEOUT'
+const DAEMON_STARTUP_FILE_ENV_KEY = 'GOKE_DAEMON_STARTUP_FILE'
+const DAEMON_STARTUP_TOKEN_ENV_KEY = 'GOKE_DAEMON_STARTUP_TOKEN'
+
+interface DaemonStartupMessageOptions {
+  /** Foreground stream that receives the message. Default: stdout. */
+  stream?: 'stdout' | 'stderr'
+}
+
+interface DaemonStartupRecord {
+  token: string
+  type: 'message' | 'ready'
+  stream?: 'stdout' | 'stderr'
+  message?: string
+}
+
+interface DaemonOutputStream {
+  write(data: string): void
+}
+
+interface CreateDaemonContextOptions {
+  cliName: string
+  commandName: string
+  argv: string[]
+  env?: Record<string, string | undefined>
+  stdout?: DaemonOutputStream
+  stderr?: DaemonOutputStream
+}
 
 interface DaemonStartOptions {
   /** Auto-exit timeout in milliseconds. Default: 10 minutes. */
   timeoutMs?: number
   /** Extra environment variables passed to the daemon process. */
   env?: Record<string, string>
+  /** Wait for the daemon to publish startup messages and call `ready()`. */
+  waitForStartup?: boolean
+  /** Maximum time to wait for `ready()`. Default: 5 seconds. */
+  startupTimeoutMs?: number
   /**
    * When true, pipe daemon stdout/stderr to the parent process and wait
    * for the daemon to exit before resolving. This lets interactive users
@@ -200,21 +231,27 @@ class DaemonContext {
   #argv: string[]
   #env: Record<string, string | undefined>
   #pidFile: string
+  #stdout: DaemonOutputStream
+  #stderr: DaemonOutputStream
   #instanceId: string | null = null
   #heartbeatInterval: ReturnType<typeof setInterval> | null = null
   #timeoutTimer: ReturnType<typeof setTimeout> | null = null
 
-  constructor(
-    cliName: string,
-    commandName: string,
-    argv: string[],
-    env?: Record<string, string | undefined>,
-  ) {
+  constructor({
+    cliName,
+    commandName,
+    argv,
+    env,
+    stdout = process.stdout,
+    stderr = process.stderr,
+  }: CreateDaemonContextOptions) {
     this.#cliName = cliName
     this.#commandName = commandName
     this.#argv = argv
     this.#env = env ?? process.env
     this.#pidFile = pidFilePath(cliName, commandName)
+    this.#stdout = stdout
+    this.#stderr = stderr
     this.isDaemon = this.#env[DAEMON_ENV_KEY] === '1'
 
     if (this.isDaemon) {
@@ -237,7 +274,44 @@ class DaemonContext {
     const env = { ...this.#env }
     delete env[DAEMON_ENV_KEY]
     delete env[DAEMON_TIMEOUT_ENV_KEY]
-    return new DaemonContext(this.#cliName, commandName, this.#argv, env)
+    delete env[DAEMON_STARTUP_FILE_ENV_KEY]
+    delete env[DAEMON_STARTUP_TOKEN_ENV_KEY]
+    return new DaemonContext({
+      cliName: this.#cliName,
+      commandName,
+      argv: this.#argv,
+      env,
+      stdout: this.#stdout,
+      stderr: this.#stderr,
+    })
+  }
+
+  publishStartupMessage(message: string, options?: DaemonStartupMessageOptions): void {
+    if (!this.isDaemon) {
+      throw new Error('publishStartupMessage() is only available inside a daemon process.')
+    }
+    const stream = options?.stream ?? 'stdout'
+    const output = message.endsWith('\n') ? message : `${message}\n`
+    const token = this.#env[DAEMON_STARTUP_TOKEN_ENV_KEY]
+    if (!token || !this.#env[DAEMON_STARTUP_FILE_ENV_KEY]) {
+      const target = stream === 'stderr' ? this.#stderr : this.#stdout
+      target.write(output)
+      return
+    }
+    this.#appendStartupRecord({ token, type: 'message', stream, message: output })
+  }
+
+  ready(): void {
+    if (!this.isDaemon) {
+      throw new Error('ready() is only available inside a daemon process.')
+    }
+    const token = this.#env[DAEMON_STARTUP_TOKEN_ENV_KEY]
+    if (!token || !this.#env[DAEMON_STARTUP_FILE_ENV_KEY]) return
+    this.#appendStartupRecord({ token, type: 'ready' })
+  }
+
+  #appendStartupRecord(record: DaemonStartupRecord): void {
+    fs.appendFileSync(this.#env[DAEMON_STARTUP_FILE_ENV_KEY]!, `${JSON.stringify(record)}\n`, 'utf-8')
   }
 
   /**
@@ -311,6 +385,86 @@ class DaemonContext {
     }
   }
 
+  async #waitForStartup({
+    child,
+    filePath,
+    token,
+    timeoutMs,
+  }: {
+    child: ChildProcess
+    filePath: string
+    token: string
+    timeoutMs: number
+  }): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      let processedLines = 0
+      let settled = false
+      let timer: ReturnType<typeof setTimeout>
+      const watcher = fs.watch(path.dirname(filePath), (_, filename) => {
+        if (!filename || filename === path.basename(filePath)) readRecords()
+      })
+      const finish = (error?: Error) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        watcher.off('error', onWatchError)
+        watcher.close()
+        child.off('error', finish)
+        child.off('close', onClose)
+        if (error) reject(error)
+        else resolve()
+      }
+      const onClose = (code: number | null) => {
+        finish(new Error(`Daemon "${this.#cliName} ${this.#commandName}" exited before startup was ready${code === null ? '' : ` with code ${code}`}`))
+      }
+      const readRecords = () => {
+        let lines: string[]
+        try {
+          lines = fs.readFileSync(filePath, 'utf-8').split('\n')
+        } catch (error) {
+          finish(error instanceof Error ? error : new Error(String(error)))
+          return
+        }
+        lines.pop()
+
+        for (const line of lines.slice(processedLines)) {
+          let record: DaemonStartupRecord
+          try {
+            record = JSON.parse(line) as DaemonStartupRecord
+          } catch {
+            finish(new Error(`Invalid daemon startup message for "${this.#cliName} ${this.#commandName}"`))
+            return
+          }
+          processedLines++
+          if (record.token !== token) continue
+          if (record.type === 'ready') {
+            finish()
+            return
+          }
+          if (record.type === 'message' && record.message) {
+            const stream = record.stream === 'stderr' ? this.#stderr : this.#stdout
+            stream.write(record.message)
+          }
+        }
+      }
+      const onWatchError = (error: Error) => {
+        readRecords()
+        if (!settled) finish(error)
+      }
+
+      watcher.on('error', onWatchError)
+      child.once('error', finish)
+      child.once('close', onClose)
+      timer = setTimeout(() => {
+        readRecords()
+        if (!settled) {
+          finish(new Error(`Timed out waiting for daemon startup for "${this.#cliName} ${this.#commandName}"`))
+        }
+      }, timeoutMs)
+      readRecords()
+    })
+  }
+
   /**
    * Spawn the current command as a detached background daemon process.
    * Kills any existing daemon for this command first.
@@ -323,30 +477,51 @@ class DaemonContext {
   async start(options?: DaemonStartOptions): Promise<void> {
     const timeoutMs = options?.timeoutMs ?? 10 * 60 * 1000
     const attach = options?.attach ?? false
+    const waitForStartup = options?.waitForStartup ?? false
 
-    // Kill existing daemon if running
+    if (attach && waitForStartup) {
+      throw new Error('attach and waitForStartup cannot both be true.')
+    }
+
     await this.stop()
 
-    const env: Record<string, string | undefined> = {
+    const startupDir = waitForStartup
+      ? fs.mkdtempSync(path.join(os.tmpdir(), 'goke-daemon-startup-'))
+      : undefined
+    const startupFile = startupDir ? path.join(startupDir, 'handoff.jsonl') : undefined
+    const startupToken = startupDir ? crypto.randomBytes(32).toString('hex') : undefined
+    if (startupFile) {
+      fs.writeFileSync(startupFile, '', { encoding: 'utf-8', mode: 0o600 })
+    }
+
+    const env = {
       ...this.#env,
       [DAEMON_ENV_KEY]: '1',
       [DAEMON_TIMEOUT_ENV_KEY]: String(timeoutMs),
       ...options?.env,
-    }
+      [DAEMON_STARTUP_FILE_ENV_KEY]: startupFile,
+      [DAEMON_STARTUP_TOKEN_ENV_KEY]: startupToken,
+    } satisfies Record<string, string | undefined>
 
     // Re-spawn the same command. argv[0] is the node/bun binary,
     // the rest is the CLI invocation (e.g. ["./bin.js", "cloud", "login"]).
     const execPath = this.#argv[0]
     const args = this.#argv.slice(1)
 
-    const child = spawn(execPath, args, {
-      // Detach only when running in background so the daemon outlives the
-      // parent. In attached mode, keep the child in the same process group
-      // so signals propagate naturally and the parent stays alive.
-      detached: !attach,
-      stdio: attach ? ['ignore', 'inherit', 'inherit'] : 'ignore',
-      env,
-    })
+    let child: ChildProcess
+    try {
+      child = spawn(execPath, args, {
+        // Detach only when running in background so the daemon outlives the
+        // parent. In attached mode, keep the child in the same process group
+        // so signals propagate naturally and the parent stays alive.
+        detached: !attach,
+        stdio: attach ? ['ignore', 'inherit', 'inherit'] : 'ignore',
+        env,
+      })
+    } catch (error) {
+      if (startupDir) fs.rmSync(startupDir, { recursive: true, force: true })
+      throw error
+    }
 
     // Only unref when detached (non-attached) so the parent can exit
     // immediately. In attached mode, the parent must stay alive to wait for
@@ -354,6 +529,23 @@ class DaemonContext {
     // and the parent would exit before the child finishes.
     if (!attach) {
       child.unref()
+    }
+
+    if (startupDir && startupFile && startupToken) {
+      try {
+        await this.#waitForStartup({
+          child,
+          filePath: startupFile,
+          token: startupToken,
+          timeoutMs: options?.startupTimeoutMs ?? 5000,
+        })
+        return
+      } catch (error) {
+        if (child.pid) await killProcess(child.pid)
+        throw error
+      } finally {
+        fs.rmSync(startupDir, { recursive: true, force: true })
+      }
     }
 
     // Register close/error listeners immediately after spawn, before the
@@ -434,14 +626,9 @@ class DaemonContext {
  * Create a DaemonContext for a command.
  * Called internally by goke when building the execution context.
  */
-function createDaemonContext(
-  cliName: string,
-  commandName: string,
-  argv: string[],
-  env?: Record<string, string | undefined>,
-): DaemonContext {
-  return new DaemonContext(cliName, commandName, argv, env)
+function createDaemonContext(options: CreateDaemonContextOptions): DaemonContext {
+  return new DaemonContext(options)
 }
 
 export { DaemonContext, createDaemonContext }
-export type { DaemonStartOptions }
+export type { CreateDaemonContextOptions, DaemonStartOptions, DaemonStartupMessageOptions }

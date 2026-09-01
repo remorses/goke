@@ -1389,12 +1389,14 @@ class Goke<Opts = {}> extends EventEmitter {
           throw new GokeProcessExit(code)
         },
       },
-      daemon: createDaemonContext(
-        this.name,
+      daemon: createDaemonContext({
+        cliName: this.name,
         commandName,
-        override?.argv ?? this.rawArgs,
-        override?.env ?? this.env,
-      ),
+        argv: override?.argv ?? this.rawArgs,
+        env: override?.env ?? this.env,
+        stdout,
+        stderr,
+      }),
     }
   }
 

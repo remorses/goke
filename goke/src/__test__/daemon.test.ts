@@ -148,7 +148,7 @@ describe('DaemonContext', () => {
     const distDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'dist')
     fs.writeFileSync(scriptPath, `
 import { DaemonContext } from '${distDir}/daemon.js'
-const ctx = new DaemonContext('test-is-daemon', 'cmd', ['node', 'test'])
+const ctx = new DaemonContext({ cliName: 'test-is-daemon', commandName: 'cmd', argv: ['node', 'test'] })
 console.log(ctx.isDaemon ? 'SERVER' : 'CLIENT')
 // Exit immediately to not leave the daemon alive
 process.exit(0)
@@ -180,7 +180,11 @@ process.exit(0)
     testPidFiles.push(pidFilePath('test-daemon-cli', 'bg'))
 
     const { DaemonContext } = await import('../daemon.js')
-    const ctx = new DaemonContext('test-daemon-cli', 'bg', [process.execPath, helperScript, 'bg'])
+    const ctx = new DaemonContext({
+      cliName: 'test-daemon-cli',
+      commandName: 'bg',
+      argv: [process.execPath, helperScript, 'bg'],
+    })
 
     expect(ctx.isDaemon).toBe(false)
     expect(await ctx.isRunning()).toBe(false)
@@ -206,7 +210,11 @@ process.exit(0)
     testPidFiles.push(pidFilePath('test-daemon-cli', 'bg'))
 
     const { DaemonContext } = await import('../daemon.js')
-    const ctx = new DaemonContext('test-daemon-cli', 'bg', [process.execPath, helperScript, 'bg'])
+    const ctx = new DaemonContext({
+      cliName: 'test-daemon-cli',
+      commandName: 'bg',
+      argv: [process.execPath, helperScript, 'bg'],
+    })
 
     await ctx.start({ timeoutMs: 30_000 })
     const firstPid = readPidFile(pidFilePath('test-daemon-cli', 'bg'))
@@ -232,14 +240,14 @@ process.exit(0)
 
   test('stop is idempotent when no daemon running', async () => {
     const { DaemonContext } = await import('../daemon.js')
-    const ctx = new DaemonContext('nonexistent-cli', 'nope', ['node', 'nope'])
+    const ctx = new DaemonContext({ cliName: 'nonexistent-cli', commandName: 'nope', argv: ['node', 'nope'] })
     await ctx.stop()
     await ctx.stop()
   })
 
   test('forCommand returns context for a different command', async () => {
     const { DaemonContext } = await import('../daemon.js')
-    const loginCtx = new DaemonContext('myapp', 'login', ['node', 'myapp', 'login'])
+    const loginCtx = new DaemonContext({ cliName: 'myapp', commandName: 'login', argv: ['node', 'myapp', 'login'] })
     const meCtx = loginCtx.forCommand('me')
 
     // They should reference different PID files
@@ -258,14 +266,18 @@ process.exit(0)
     const { DaemonContext } = await import('../daemon.js')
 
     // Start daemon for "bg" command
-    const bgCtx = new DaemonContext('test-daemon-cli', 'bg', [process.execPath, helperScript, 'bg'])
+    const bgCtx = new DaemonContext({
+      cliName: 'test-daemon-cli',
+      commandName: 'bg',
+      argv: [process.execPath, helperScript, 'bg'],
+    })
     await bgCtx.start({ timeoutMs: 30_000 })
 
     const pidData = readPidFile(pidFilePath('test-daemon-cli', 'bg'))
     if (pidData) spawnedPids.push(pidData.pid)
 
     // Create a context for "me" command and use forCommand to check "bg"
-    const meCtx = new DaemonContext('test-daemon-cli', 'me', ['node', 'test', 'me'])
+    const meCtx = new DaemonContext({ cliName: 'test-daemon-cli', commandName: 'me', argv: ['node', 'test', 'me'] })
     const bgFromMe = meCtx.forCommand('bg')
 
     expect(await bgFromMe.isRunning()).toBe(true)
@@ -291,7 +303,7 @@ process.exit(0)
     }))
 
     const { DaemonContext } = await import('../daemon.js')
-    const ctx = new DaemonContext('stale-test', 'cmd', ['node', 'test'])
+    const ctx = new DaemonContext({ cliName: 'stale-test', commandName: 'cmd', argv: ['node', 'test'] })
 
     expect(await ctx.isRunning()).toBe(false)
     // PID file should have been cleaned up
@@ -312,7 +324,7 @@ process.exit(0)
     }))
 
     const { DaemonContext } = await import('../daemon.js')
-    const ctx = new DaemonContext('heartbeat-test', 'cmd', ['node', 'test'])
+    const ctx = new DaemonContext({ cliName: 'heartbeat-test', commandName: 'cmd', argv: ['node', 'test'] })
 
     // Should return false because heartbeat is stale (even though PID is alive)
     expect(await ctx.isRunning()).toBe(false)
@@ -356,9 +368,11 @@ setTimeout(() => {
     testPidFiles.push(pidFilePath('test-daemon-cli', 'attach-test'))
 
     const { DaemonContext } = await import('../daemon.js')
-    const ctx = new DaemonContext('test-daemon-cli', 'attach-test', [
-      process.execPath, helperScript, 'attach-test',
-    ])
+    const ctx = new DaemonContext({
+      cliName: 'test-daemon-cli',
+      commandName: 'attach-test',
+      argv: [process.execPath, helperScript, 'attach-test'],
+    })
 
     // attach: true should wait for the daemon to finish
     await ctx.start({ attach: true, timeoutMs: 10_000 })
@@ -402,14 +416,129 @@ setTimeout(() => {
     testPidFiles.push(pidFilePath('test-daemon-cli', 'attach-fail'))
 
     const { DaemonContext } = await import('../daemon.js')
-    const ctx = new DaemonContext('test-daemon-cli', 'attach-fail', [
-      process.execPath, helperScript, 'attach-fail',
-    ])
+    const ctx = new DaemonContext({
+      cliName: 'test-daemon-cli',
+      commandName: 'attach-fail',
+      argv: [process.execPath, helperScript, 'attach-fail'],
+    })
 
     await expect(ctx.start({ attach: true, timeoutMs: 10_000 }))
       .rejects.toThrow('exited with code 1')
 
     try { fs.unlinkSync(helperScript) } catch {}
+  }, 15_000)
+
+  test('detached login returns startup messages and leaves the daemon alive', async () => {
+    const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'goke-daemon-login-'))
+    const tempDir = path.join(fixtureDir, 'tmp')
+    const homeDir = path.join(fixtureDir, 'home')
+    const scriptPath = path.join(fixtureDir, 'login.mjs')
+    const distEntry = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'dist', 'index.js')
+    fs.mkdirSync(tempDir)
+    fs.mkdirSync(homeDir)
+    fs.writeFileSync(scriptPath, `
+import { goke } from ${JSON.stringify(distEntry)}
+
+const cli = goke('agent-login-test')
+cli.command('login', 'Authenticate').action(async (_options, ctx) => {
+  if (ctx.daemon.isDaemon) {
+    ctx.daemon.publishStartupMessage('Preparing authorization')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    ctx.daemon.publishStartupMessage('Authorize: https://auth.example.test/oauth?code=agent-123')
+    ctx.daemon.publishStartupMessage('Waiting for browser approval', { stream: 'stderr' })
+    ctx.daemon.ready()
+    setInterval(() => {}, 1000)
+    return
+  }
+
+  await ctx.daemon.start({ waitForStartup: true, timeoutMs: 30_000 })
+})
+
+await cli.parse()
+`)
+
+    let daemonPid: number | undefined
+    try {
+      const { stdout, stderr } = await execFileAsync(process.execPath, [scriptPath, 'login'], {
+        env: { ...process.env, HOME: homeDir, TMPDIR: tempDir },
+        timeout: 10_000,
+      })
+
+      expect(stdout).toBe([
+        'Preparing authorization',
+        'Authorize: https://auth.example.test/oauth?code=agent-123',
+        '',
+      ].join('\n'))
+      expect(stderr).toBe('Waiting for browser approval\n')
+
+      const pidFile = path.join(homeDir, '.config', 'goke', 'daemons', 'agent-login-test--login.pid.json')
+      const pidData = readPidFile(pidFile)
+      expect(pidData).not.toBeNull()
+      daemonPid = pidData!.pid
+      expect(isProcessAlive(daemonPid)).toBe(true)
+      expect(fs.readdirSync(tempDir)).toEqual([])
+    } finally {
+      if (daemonPid) await killIfAlive(daemonPid)
+      fs.rmSync(fixtureDir, { recursive: true, force: true })
+    }
+  }, 15_000)
+
+  test('failed startup removes the handoff and stops the daemon', async () => {
+    const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'goke-daemon-timeout-'))
+    const tempDir = path.join(fixtureDir, 'tmp')
+    const homeDir = path.join(fixtureDir, 'home')
+    const scriptPath = path.join(fixtureDir, 'timeout.mjs')
+    const childPidFile = path.join(fixtureDir, 'child.pid')
+    const distEntry = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'dist', 'index.js')
+    fs.mkdirSync(tempDir)
+    fs.mkdirSync(homeDir)
+    fs.writeFileSync(scriptPath, `
+import fs from 'node:fs'
+import { goke } from ${JSON.stringify(distEntry)}
+
+const cli = goke('startup-timeout-test')
+cli.command('login', 'Authenticate').action(async (_options, ctx) => {
+  if (ctx.daemon.isDaemon) {
+    fs.writeFileSync(process.env.CHILD_PID_FILE, String(process.pid))
+    setInterval(() => {}, 1000)
+    return
+  }
+
+  try {
+    await ctx.daemon.start({
+      waitForStartup: true,
+      startupTimeoutMs: 300,
+      timeoutMs: 30_000,
+    })
+  } catch (error) {
+    ctx.console.log(error.message)
+  }
+})
+
+await cli.parse()
+`)
+
+    let childPid: number | undefined
+    try {
+      const { stdout } = await execFileAsync(process.execPath, [scriptPath, 'login'], {
+        env: {
+          ...process.env,
+          HOME: homeDir,
+          TMPDIR: tempDir,
+          CHILD_PID_FILE: childPidFile,
+        },
+        timeout: 10_000,
+      })
+      childPid = Number(fs.readFileSync(childPidFile, 'utf-8'))
+      expect(stdout).toContain('Timed out waiting for daemon startup')
+      expect(isProcessAlive(childPid)).toBe(false)
+      expect(fs.readdirSync(tempDir)).toEqual([])
+      const pidFile = path.join(homeDir, '.config', 'goke', 'daemons', 'startup-timeout-test--login.pid.json')
+      expect(fs.existsSync(pidFile)).toBe(false)
+    } finally {
+      if (childPid) await killIfAlive(childPid)
+      fs.rmSync(fixtureDir, { recursive: true, force: true })
+    }
   }, 15_000)
 
   test('daemon context has correct command name from parsed cli', async () => {

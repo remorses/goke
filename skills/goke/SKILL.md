@@ -149,16 +149,22 @@ cli
   .command('login', 'Authenticate with browser login')
   .action(async (options, ctx) => {
     if (ctx.daemon.isDaemon) {
-      // ── DAEMON: run the long-running flow in background ──
-      const result = await startOAuthFlow({ /* ... */ })
+      // ── DAEMON: create the URL, hand it to the foreground, then wait ──
+      const flow = await startOAuthFlow({ /* ... */ })
+      ctx.daemon.publishStartupMessage(`Authorize: ${flow.authorizationUrl}`)
+      ctx.daemon.ready()
+      const result = await flow.waitForApproval()
       if (result.success) saveAuth(result)
       return // daemon exits, PID file is cleaned up
     }
 
     // ── CLIENT: decide foreground vs background ──
     if (isAgent) {
-      // Agent mode: start daemon and return immediately
-      await ctx.daemon.start({ timeoutMs: 10 * 60 * 1000 })
+      // Agent mode: return after the daemon publishes its authorization URL
+      await ctx.daemon.start({
+        waitForStartup: true,
+        timeoutMs: 10 * 60 * 1000,
+      })
       ctx.console.log('Login running in background.')
       ctx.console.log('After approving in browser, verify with: mycli me')
       return
@@ -169,6 +175,8 @@ cli
     ctx.console.log('Login successful!')
   })
 ```
+
+Use `waitForStartup: true` when the daemon creates an OAuth URL, device code, or other value that the agent must see before the foreground command returns. Publish ordered messages with `publishStartupMessage(message, { stream: 'stdout' | 'stderr' })`, then call `ready()`. Detached stdio remains ignored. Attached mode still receives the messages directly and waits for the daemon to exit.
 
 Add a `me` command (exits 0 if logged in, 1 if not) so agents can poll for completion. Use `ctx.daemon.forCommand('login')` to check the login daemon status from other commands. See the **Background Daemons** section in the goke README for the full pattern, including `env` passthrough and PID file safety.
 

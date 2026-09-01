@@ -275,6 +275,39 @@ if (ctx.daemon.isDaemon) {
 
 Keep `env` values **short and non-sensitive when possible**. For larger state, write to your CLI config file before starting the daemon and pass only a lookup key in `env`. The daemon and foreground command should share durable results through files, for example saved auth tokens or cached status.
 
+### Returning startup messages from a detached daemon
+
+Use `waitForStartup: true` when the daemon must create information that the foreground caller needs, such as an OAuth authorization URL. The daemon can publish any number of ordered messages to stdout or stderr, then call `ready()`. The foreground `start()` call writes every message to its matching injected stream before it resolves.
+
+```ts
+cli
+  .command('login', 'Authenticate through browser OAuth')
+  .action(async (_options, ctx) => {
+    if (ctx.daemon.isDaemon) {
+      const { authorizationUrl, waitForApproval } = await startOAuthFlow()
+
+      ctx.daemon.publishStartupMessage(`Authorize: ${authorizationUrl}`)
+      ctx.daemon.publishStartupMessage('Waiting for browser approval', {
+        stream: 'stderr',
+      })
+      ctx.daemon.ready()
+
+      await waitForApproval()
+      return
+    }
+
+    await ctx.daemon.start({
+      waitForStartup: true,
+      startupTimeoutMs: 15_000,
+      timeoutMs: 10 * 60 * 1000,
+    })
+  })
+```
+
+Detached stdin, stdout, and stderr remain ignored. goke uses a private, one-shot handoff file and a filesystem notification to transfer startup records. It removes the handoff directory after `ready()`, a timeout, an early child exit, or a spawn failure. If startup fails, goke also stops the daemon. This path does not poll for output.
+
+Call `ready()` once, after all startup messages are published. Later daemon output stays detached. Use `attach: true` instead when the foreground must receive output for the full daemon lifetime.
+
 ### Agent-friendly login check
 
 Add a `me` command that exits 0 if logged in, 1 if not. Agents run this after `login` to verify. Use `ctx.daemon.forCommand('login')` to check the login daemon from a different command:
@@ -366,10 +399,12 @@ This way agents can run `mycli login` followed by `mycli me` in a loop, with no 
 | Method | Description |
 |--------|-------------|
 | `ctx.daemon.isDaemon` | `true` when running as the background daemon |
-| `ctx.daemon.start({ timeoutMs?, env?, attach? })` | Spawn current command as detached daemon. Kills existing daemon first. |
-| `ctx.daemon.stop()` | Kill the daemon for this command |
-| `ctx.daemon.isRunning()` | Check if daemon is alive (PID + heartbeat) |
-| `ctx.daemon.forCommand(name)` | Get a daemon context for a different command |
+| `ctx.daemon.start({ timeoutMs?, env?, attach?, waitForStartup?, startupTimeoutMs? })` | Spawn the current command as a daemon. Kills an existing daemon first. |
+| `ctx.daemon.publishStartupMessage(message, { stream? })` | Queue a stdout or stderr message for a waiting foreground command. |
+| `ctx.daemon.ready()` | Finish the startup handoff and let the foreground `start()` resolve. |
+| `ctx.daemon.stop()` | Kill the daemon for this command. |
+| `ctx.daemon.isRunning()` | Check if the daemon is alive using its PID and heartbeat. |
+| `ctx.daemon.forCommand(name)` | Get a daemon context for a different command. |
 
 ### Attached mode
 
