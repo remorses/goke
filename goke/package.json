@@ -1,6 +1,6 @@
 {
   "name": "goke",
-  "version": "6.12.1",
+  "version": "6.15.0",
   "type": "module",
   "description": "Simple yet powerful framework for building command-line apps. Inspired by cac.",
   "repository": {
@@ -24,9 +24,13 @@
   "imports": {
     "#runtime": {
       "types": "./dist/runtime-node.d.ts",
-      "development": "./src/runtime-node.ts",
       "node": "./dist/runtime-node.js",
       "default": "./dist/runtime-browser.js"
+    },
+    "#daemon": {
+      "types": "./dist/daemon.d.ts",
+      "node": "./dist/daemon.js",
+      "default": "./dist/daemon-browser.js"
     }
   },
   "exports": {
@@ -51,7 +55,7 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "pnpm clean && tsc",
-    "test": "vitest --run",
+    "test": "pnpm build && vitest --run",
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {},

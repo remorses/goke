@@ -1,6 +1,6 @@
 {
   "name": "notion-mcp-cli",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "type": "module",
   "description": "CLI for Notion MCP with OAuth support",
   "repository": {

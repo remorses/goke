@@ -1,6 +1,117 @@
 # goke
 
-## 6.11.0
+## 6.15.0
+
+1. **New `.section()` API for namespaced command groups** — root help can group commands under named headings. Use this when commands share a parent word (`get pods`, `get services`):
+
+   ```ts
+   cli.section('Get')
+   cli.command('get pods', 'List pods')
+     .option('-o, --output <format>', 'Output format')
+   cli.command('get services', 'List services')
+
+   cli.section('Describe')
+   cli.command('describe pod <name>', 'Describe a pod')
+   ```
+
+   Root help prints a heading for each group:
+
+   ```txt
+   Commands:
+     Get:
+     get pods                 List pods
+       -o, --output <format>  Output format
+
+     get services             List services
+
+     Describe:
+     describe pod <name>      Describe a pod
+   ```
+
+   Commands registered before any `.section()` stay ungrouped at the top. `.command(...).section('Name')` overrides the current CLI section for that one command.
+
+   Help spacing is tighter: one blank line between Usage / Commands / Options, packed command rows, and extra space only after nested flags or when a named section starts.
+
+## 6.14.1
+
+1. **Fixed daemon `attach` mode exiting before child finishes** — when using `daemon.start({ attach: true })`, the parent process would exit immediately while the child kept running, causing logs to appear after the parent already returned. Now the parent stays alive and waits for the child to finish, and Ctrl+C properly kills both processes.
+
+## 6.14.0
+
+1. **New `attach` option for `daemon.start()`** — pipe daemon stdout/stderr to the parent process and wait for the daemon to exit. Interactive users see real-time logs and error messages from the daemon instead of losing them to the detached process:
+
+   ```ts
+   // Agent: fire and forget
+   await ctx.daemon.start({ env: { DEVICE_CODE: code } })
+
+   // Interactive: see all daemon output, block until done
+   await ctx.daemon.start({ attach: true, env: { DEVICE_CODE: code } })
+   ```
+
+   When attached, `start()` throws if the daemon exits with a non-zero code. This solves the problem of interactive login flows silently failing while the foreground shows a generic timeout.
+
+## 6.13.0
+
+1. **Background daemon support** — commands can fork themselves into detached background processes via `ctx.daemon`. The daemon is identified by CLI name + command name, with PID file lifecycle management at `~/.config/goke/daemons/`. No HTTP server or ports needed; communication happens through shared files:
+
+   ```ts
+   cli.command('login', 'Authenticate').action(async (options, ctx) => {
+     if (ctx.daemon.isDaemon) {
+       await waitForBrowserCallback()
+       return
+     }
+
+     await ctx.daemon.start({ timeoutMs: 10 * 60 * 1000 })
+     ctx.console.log('Login running in background')
+   })
+   ```
+
+   Pass short handoff values to the daemon with `ctx.daemon.start({ env })`, then read them from `ctx.process.env` in the daemon branch. Check other commands' daemons with `ctx.daemon.forCommand('login')`.
+
+   PID file safety: each daemon writes a unique instance ID, heartbeats every 5s, and cleanup handlers only remove the file if the ID matches. This prevents false positives from OS PID reuse after crashes.
+
+   Browser runtime compatible via `#daemon` conditional import (stub that throws on `start()`, no-ops everything else).
+
+2. **Suppressed stack traces for user-facing CLI errors** — validation and usage errors (`GokeError`) like unknown options, missing values, and schema coercion failures now print only the error message. Unexpected errors (non-`GokeError`) still include the full stack trace for debugging.
+
+   Before:
+   ```
+   error: Invalid value for --port: expected number, got "abc"
+
+       at coerceToNumber (file:///…/coerce.js:123:11)
+       at coerceBySchema (file:///…/coerce.js:456:12)
+       …
+   ```
+
+   After:
+   ```
+   error: Invalid value for --port: expected number, got "abc"
+   ```
+
+   Fixes https://github.com/remorses/goke/issues/2
+
+## 6.12.3
+
+1. **Fixed bare `<word>` angle brackets in `generateDocs()` output breaking MDX parsers** — descriptions containing angle-bracket placeholders like `<env>` or `<project>` are now automatically wrapped in backticks. This prevents MDX/JSX parsers from interpreting them as HTML tags when rendering generated docs.
+
+## 6.12.2
+
+1. **New `basePath` option for `generateDocs()`** — prefix all inter-page links with a custom path, useful when docs live in a subfolder of a docs site:
+
+   ```ts
+   const pages = generateDocs({ cli, basePath: '/docs/cli' })
+   // links become /docs/cli/deploy.md instead of ./deploy.md
+   ```
+
+2. **Fixed `#runtime` import breaking vitest and Node 22 `--experimental-strip-types`** — removed the `"development"` condition from the `#runtime` conditional import map. Node 22 cannot strip types from `.ts` files inside `node_modules`, and vitest activates the `development` condition, causing import failures. The `"node"` condition already covers the same runtime with compiled `.js`.
+
+3. **Fixed routing for multi-word commands, aliases, and `--flag=value` syntax** — the command pre-check now correctly handles commands like `mcp login`, command aliases, global flags in any position, and `--flag=value` joined syntax. Previously some of these patterns could cause incorrect command matching or mri coercion errors.
+
+## 6.12.1
+
+1. **Unknown commands now exit with code 1** — previously unknown commands silently showed root help and exited 0, making failures invisible to scripts and agents. Now prints "Unknown command: ..." followed by the available commands help, then exits with code 1.
+
+## 6.12.0
 
 **Default command no longer silently swallows unknown positional args.** When a CLI has a default command (`""`) that defines no positional args, passing args like `mycli run` now correctly falls through to the "unknown command" error instead of silently running the default action.
 

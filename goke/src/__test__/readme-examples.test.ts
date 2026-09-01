@@ -151,6 +151,29 @@ describe('README smoke tests', () => {
       `Streaming logs for abc123 from ${process.cwd()} follow=true lines=100\n`,
     )
   })
+
+  test('namespaced commands group under .section() in root help', async () => {
+    const stdout = createTestOutputStream()
+    const cli = gokeTestable('kubectl', { stdout, columns: 80 })
+
+    cli.section('Get')
+    cli.command('get pods', 'List pods')
+      .option('-o, --output <format>', 'Output format')
+    cli.command('get services', 'List services')
+    cli.command('get nodes', 'List nodes')
+
+    cli.section('Describe')
+    cli.command('describe pod <name>', 'Describe a pod')
+    cli.command('describe service <name>', 'Describe a service')
+
+    cli.help()
+    await cli.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toContain('Get')
+    expect(stdout.text).toContain('Describe')
+    expect(stdout.text).toContain('get pods')
+    expect(stdout.text).toContain('describe pod <name>')
+  })
 })
 
 describe('documented command APIs', () => {
@@ -356,6 +379,64 @@ describe('generateDocs', () => {
     const cli = gokeTestable('empty')
     const pages = generateDocs({ cli })
     expect(pages).toEqual([])
+  })
+
+  test('supports basePath option for links', async () => {
+    const cli = gokeTestable('mycli')
+    cli.command('deploy', 'Deploy the app')
+    cli.command('status', 'Show status')
+
+    const pages = generateDocs({ cli, basePath: '/docs/cli' })
+    const index = pages.find((p) => p.slug === 'index')!
+    expect(index.content).toContain('[\`deploy\`](/docs/cli/deploy.md)')
+    expect(index.content).toContain('[\`status\`](/docs/cli/status.md)')
+  })
+
+  test('basePath with trailing slash is normalized', async () => {
+    const cli = gokeTestable('mycli')
+    cli.command('deploy', 'Deploy the app')
+
+    const pages = generateDocs({ cli, basePath: '/docs/cli/' })
+    const index = pages.find((p) => p.slug === 'index')!
+    expect(index.content).toContain('[\`deploy\`](/docs/cli/deploy.md)')
+  })
+
+  test('escapes angle-bracket placeholders in descriptions for MDX safety', async () => {
+    const cli = gokeTestable('strada')
+    cli
+      .command('issues view <fingerprint>', 'View issue details by <fingerprint>')
+      .option('--project <slug>', 'Filter by <project> slug')
+
+    cli
+      .command('deploy <env>', 'Deploy to <env> environment using `<config>` file')
+
+    const pages = generateDocs({ cli })
+
+    // Index page: command descriptions should have <word> escaped
+    const index = pages.find((p) => p.slug === 'index')!
+    expect(index.content).toContain('View issue details by `<fingerprint>`')
+    expect(index.content).toContain('Deploy to `<env>` environment using `<config>` file')
+
+    // Command page: description prose should have <word> escaped
+    const issuesPage = pages.find((p) => p.slug === 'issues-view')!
+    expect(issuesPage.content).toContain('View issue details by `<fingerprint>`')
+
+    // Options table: description should have <word> escaped
+    expect(issuesPage.content).toContain('Filter by `<project>` slug')
+
+    // Arguments table: already uses backtick-wrapped bracket syntax
+    expect(issuesPage.content).toContain('`<fingerprint>`')
+
+    // Verify no bare <word> outside backticks in any page
+    for (const page of pages) {
+      // Strip inline code and fenced code blocks, then check for bare <word>
+      const stripped = page.content
+        .replace(/```[\s\S]*?```/g, '') // remove fenced blocks
+        .replace(/`[^`]+`/g, '') // remove inline code
+      const bareAngle = /<[a-zA-Z_][\w.-]*>/g
+      const matches = stripped.match(bareAngle)
+      expect(matches, `bare <word> found in page "${page.slug}": ${matches}`).toBeNull()
+    }
   })
 
   test('skips deprecated options', async () => {

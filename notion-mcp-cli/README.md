@@ -31,6 +31,21 @@ notion-mcp-cli logout
 2. Caches tools and session for 1 hour
 3. Auto-refreshes tokens when needed
 
+## Agent usage
+
+When running inside an AI agent, `login` automatically starts a background daemon and returns immediately. The agent can poll `me` to check when the user approves in the browser:
+
+```bash
+notion-mcp-cli login
+# "Login server running in background (10 min timeout)."
+
+# Poll until auth completes
+notion-mcp-cli me
+# exits 0 when logged in, 1 if still pending
+```
+
+No tuistory or tmux needed. The daemon exits by itself after browser approval or after the 10 minute timeout.
+
 ## Packages
 
 This monorepo contains:

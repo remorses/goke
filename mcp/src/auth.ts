@@ -29,8 +29,10 @@ async function openBrowser(url: string): Promise<void> {
 
 /**
  * Start the OAuth flow for an MCP server.
- * This is an internal function - consumers should not call this directly.
- * It is automatically triggered by addMcpCommands when a 401 error occurs.
+ *
+ * Used internally by addMcpCommands on 401 errors, but also available
+ * for CLIs that need explicit control over the auth flow (e.g. a login
+ * command that runs the flow in a background daemon).
  *
  * This function:
  * 1. Starts a local callback server on a random port

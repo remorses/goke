@@ -11,6 +11,26 @@
 1. **`--help` / no-args never start OAuth** and no longer print a connect error when the MCP server needs auth. First-run help can show the CLI's own `config` command.
 2. **Expired cache is reused** when a live `tools/list` is impossible (no token, or 401 on help).
 3. **`getHeaders()`** sends extra HTTP headers with `getMcpUrl` (Bearer tokens). Use `getMcpTransport` for stdio or custom transports.
+## 0.0.11
+
+1. **Exported `startOAuthFlow()` for explicit login commands** — CLIs that need a dedicated login command (instead of lazy auth on first tool call) can now import and run the OAuth flow directly:
+
+   ```ts
+   import { startOAuthFlow } from '@goke/mcp'
+
+   const result = await startOAuthFlow({
+     serverUrl: 'https://mcp.notion.com/mcp',
+     clientName: 'My CLI',
+     existingState: loadConfig().oauthState,
+     timeout: 10 * 60 * 1000,
+   })
+
+   if (result.success && result.state) {
+     saveConfig({ oauthState: result.state })
+   }
+   ```
+
+   Also exports `StartOAuthFlowOptions` and `OAuthFlowResult` types.
 
 ## 0.0.10
 

@@ -140,7 +140,7 @@ describe('error formatting', () => {
     expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: connection refused"`)
   })
 
-  test('error output includes stack trace', async () => {
+  test('GokeError (validation) omits stack trace', async () => {
     const stderr = createTestOutputStream()
     const cli = goke('mycli', { stderr, exit: () => {} })
 
@@ -152,10 +152,30 @@ describe('error formatting', () => {
       await cli.parse('node bin build --unknown'.split(' '))
     } catch {}
 
-    // Verify that stderr contains "error:" prefix and a stack trace with "at" lines
     const text = stderr.text
     expect(text).toContain('error:')
     expect(text).toContain('Unknown option `--unknown`')
+    // GokeError is a user-facing error; stack trace should be suppressed
+    expect(text).not.toMatch(/at /)
+  })
+
+  test('unexpected error still includes stack trace', async () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+
+    cli
+      .command('deploy', 'Deploy app')
+      .action(async () => {
+        throw new Error('unexpected crash')
+      })
+
+    await cli.parse('node bin deploy'.split(' '))
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    const text = stderr.text
+    expect(text).toContain('error:')
+    expect(text).toContain('unexpected crash')
+    // Non-GokeError should still show the stack trace
     expect(text).toMatch(/at /)
   })
 })
@@ -1213,31 +1233,17 @@ describe('space-separated subcommands', () => {
     expect(stripAnsi(output)).toMatchInlineSnapshot(`
       "mycli
 
-
       Usage:
         $ mycli <command> [options]
 
-
       Commands:
         mcp login <url>              Login to MCP server
-
-
         mcp logout                   Logout from MCP server
-
-
         mcp status                   Show connection status
-
-
         git remote add <name> <url>  Add a git remote
-
-
         git remote remove <name>     Remove a git remote
-
-
         build                        Build the project
-
           --watch                    Watch mode
-
 
       Options:
         -h, --help  Display this message
@@ -1612,35 +1618,21 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toMatchInlineSnapshot(`
       "deploy
 
-
       Usage:
         $ deploy [options]
 
-
       Commands:
         deploy               Deploy the current project
-
-
         init                 Initialize a new project
-
-
         login                Authenticate with the server
-
-
         logout               Clear saved credentials
-
-
         status               Show deployment status
-
-
         logs <deploymentId>  Stream logs for a deployment
-
 
       Options:
         --env <env>  Target environment
         --dry-run    Preview without deploying
         -h, --help   Display this message
-
 
       Examples:
       # Deploy to staging first
@@ -1672,20 +1664,16 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toMatchInlineSnapshot(`
       "deploy
 
-
       Usage:
         $ deploy logs <deploymentId>
-
 
       Options:
         --follow     Follow log output
         --lines <n>  Number of lines (default: 100)
         -h, --help   Display this message
 
-
       Description:
         Stream logs for a deployment
-
 
       Examples:
       # Stream last 200 lines for a deployment
@@ -1714,17 +1702,12 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toMatchInlineSnapshot(`
       "deploy
 
-
       Usage:
         $ deploy [options]
 
-
       Commands:
         deploy  Deploy the current project
-
-
         status  Show deployment status
-
 
       Options:
         --env <env>  Target environment
@@ -1756,10 +1739,8 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toMatchInlineSnapshot(`
       "mycli
 
-
       Usage:
         $ mycli <command> [options]
-
 
       Commands:
         notion-search      Perform a semantic search over
@@ -1767,20 +1748,16 @@ describe('many commands with root command (empty string)', () => {
                            connected integrations with
                            advanced filtering options, date
                            filters, and creator filters.
-
           --query <query>  Natural language query text to
                            search for
           --limit [limit]  Maximum number of results to return
                            (default: 10)
 
-
         notion-fetch       Retrieve a Notion page or database
                            by URL or ID and render the result
                            in enhanced markdown format for
                            terminal output.
-
           --id <id>        Notion URL or UUID to fetch
-
 
       Options:
         -h, --help  Display this message
@@ -1803,27 +1780,18 @@ describe('many commands with root command (empty string)', () => {
     expect(stdout.text).toMatchInlineSnapshot(`
       "gtui
 
-
       Usage:
         $ gtui <command> [options]
 
-
       Commands:
         auth login                                 Authenticate with Google (opens browser)
-
-
         auth logout                                Remove stored credentials
-
           --force                                  Skip confirmation
 
-
         mail list                                  List email threads
-
           --folder [folder]                        Folder to list
 
-
         attachment get <messageId> <attachmentId>  Download an attachment
-
 
       Options:
         -h, --help  Display this message
@@ -1871,17 +1839,13 @@ describe('many commands with root command (empty string)', () => {
       expect(stdout.text).toMatchInlineSnapshot(`
         "mycli
 
-
         Usage:
           $ mycli <command> [options]
 
-
         Commands:
           notion-search      Perform a semantic search over Notion workspace content and connected integrations with advanced filtering options, date filters, and creator filters.
-
             --query <query>  Natural language query text to search for
             --limit [limit]  Maximum number of results to return (default: 10)
-
 
         Options:
           -h, --help  Display this message
@@ -1893,6 +1857,205 @@ describe('many commands with root command (empty string)', () => {
         value: originalColumns,
       })
     }
+  })
+
+  test('root help groups namespaced commands with .section()', async () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('kubectl', { stdout, columns: 80 })
+
+    cli.section('Get')
+    cli.command('get pods', 'List pods')
+      .option('-o, --output <format>', 'Output format')
+      .option('-l, --labels <selector>', 'Label selector')
+      .option('-A, --all-namespaces', 'All namespaces')
+    cli.command('get services', 'List services')
+      .option('-o, --output <format>', 'Output format')
+    cli.command('get nodes', 'List nodes')
+
+    cli.section('Describe')
+    cli.command('describe pod <name>', 'Describe a pod')
+    cli.command('describe service <name>', 'Describe a service')
+
+    cli.section('Apply')
+    cli.command('apply', 'Apply a configuration')
+      .option('-f, --file <path>', 'Config file path')
+      .option('--dry-run', 'Only print what would happen')
+
+    cli.help()
+    await cli.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toMatchInlineSnapshot(`
+      "kubectl
+
+      Usage:
+        $ kubectl <command> [options]
+
+      Commands:
+        Get:
+        get pods                   List pods
+          -o, --output <format>    Output format
+          -l, --labels <selector>  Label selector
+          -A, --all-namespaces     All namespaces
+
+        get services               List services
+          -o, --output <format>    Output format
+
+        get nodes                  List nodes
+
+        Describe:
+        describe pod <name>        Describe a pod
+        describe service <name>    Describe a service
+
+        Apply:
+        apply                      Apply a configuration
+          -f, --file <path>        Config file path
+          --dry-run                Only print what would happen
+
+      Options:
+        -h, --help  Display this message
+      "
+    `)
+  })
+
+  test('unsectioned commands stay above named help sections', async () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout, columns: 80 })
+
+    cli.command('login', 'Authenticate with the server')
+    cli.command('logout', 'Clear saved credentials')
+
+    cli.section('Mail')
+    cli.command('mail list', 'List email threads')
+      .option('--folder [folder]', 'Folder to list')
+    cli.command('mail send', 'Send an email')
+
+    cli.help()
+    await cli.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toMatchInlineSnapshot(`
+      "mycli
+
+      Usage:
+        $ mycli <command> [options]
+
+      Commands:
+        login                Authenticate with the server
+        logout               Clear saved credentials
+
+        Mail:
+        mail list            List email threads
+          --folder [folder]  Folder to list
+
+        mail send            Send an email
+
+      Options:
+        -h, --help  Display this message
+      "
+    `)
+  })
+
+  test('command.section() overrides the current CLI section', async () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout, columns: 80 })
+
+    cli.section('Auth')
+    cli.command('auth login', 'Authenticate')
+    cli.command('status', 'Show status').section('Account')
+    cli.command('auth logout', 'Remove credentials')
+
+    cli.help()
+    await cli.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toMatchInlineSnapshot(`
+      "mycli
+
+      Usage:
+        $ mycli <command> [options]
+
+      Commands:
+        Auth:
+        auth login   Authenticate
+
+        Account:
+        status       Show status
+
+        Auth:
+        auth logout  Remove credentials
+
+      Options:
+        -h, --help  Display this message
+      "
+    `)
+  })
+
+  test('completions commands stay out of the current help section', async () => {
+    const stdout = createTestOutputStream()
+    const cli = goke('mycli', { stdout, columns: 80 })
+
+    cli.section('Auth')
+    cli.command('auth login', 'Authenticate')
+    cli.completions()
+    cli.command('auth logout', 'Remove credentials')
+    cli.help()
+    await cli.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toMatchInlineSnapshot(`
+      "mycli
+
+      Usage:
+        $ mycli <command> [options]
+
+      Commands:
+        Auth:
+        auth login             Authenticate
+
+        completions install    Install shell completions
+          --shell [shell]      Target shell (zsh or bash). Auto-detected if omitted.
+
+        completions uninstall  Remove shell completions
+          --shell [shell]      Target shell (zsh or bash). Auto-detected if omitted.
+
+        completions script     Print the completion script to stdout
+          --shell [shell]      Target shell (zsh or bash). Auto-detected if omitted.
+
+        Auth:
+        auth logout            Remove credentials
+
+      Options:
+        -h, --help  Display this message
+      "
+    `)
+  })
+
+  test('composed commands keep their help section', async () => {
+    const stdout = createTestOutputStream()
+    const parent = goke('mycli', { stdout, columns: 80 })
+    const sub = goke()
+
+    sub.section('Hosting')
+    sub.command('selfhost', 'Set up on your own workspace')
+
+    parent.command('init', 'Initialize project')
+    parent.use(sub)
+    parent.help()
+    await parent.parse(['node', 'bin', '--help'], { run: false })
+
+    expect(stdout.text).toMatchInlineSnapshot(`
+      "mycli
+
+      Usage:
+        $ mycli <command> [options]
+
+      Commands:
+        init      Initialize project
+
+        Hosting:
+        selfhost  Set up on your own workspace
+
+      Options:
+        -h, --help  Display this message
+      "
+    `)
   })
 
   test('many subcommands all resolve correctly', async () => {
@@ -2771,5 +2934,172 @@ describe('getAction()', () => {
     const cli = goke('mycli')
     const cmd = cli.command('noop', 'No action')
     expect(() => cmd.getAction()).toThrow(/No action registered/)
+  })
+})
+
+describe('command routing with conflicting enum options', () => {
+  test('commands with same option name but different enums route correctly', async () => {
+    const cli = gokeTestable('egaki')
+    let matched = ''
+
+    cli.command('image <prompt>', 'Generate images')
+      .option('-m, --model [model]', z.enum(['imagen-4', 'dall-e-3']).describe('Image model'))
+      .action((prompt, options) => { matched = `image:${prompt}:${options.model}` })
+
+    cli.command('video <prompt>', 'Generate videos')
+      .option('-m, --model [model]', z.enum(['veo-3', 'grok-video']).describe('Video model'))
+      .action((prompt, options) => { matched = `video:${prompt}:${options.model}` })
+
+    await cli.parse(['node', 'bin', 'video', 'test', '--model', 'grok-video'])
+    expect(matched).toBe('video:test:grok-video')
+  })
+
+  test('first-defined command still works with its own enum values', async () => {
+    const cli = gokeTestable('egaki')
+    let matched = ''
+
+    cli.command('image <prompt>', 'Generate images')
+      .option('-m, --model [model]', z.enum(['imagen-4', 'dall-e-3']).describe('Image model'))
+      .action((prompt, options) => { matched = `image:${prompt}:${options.model}` })
+
+    cli.command('video <prompt>', 'Generate videos')
+      .option('-m, --model [model]', z.enum(['veo-3', 'grok-video']).describe('Video model'))
+      .action((prompt, options) => { matched = `video:${prompt}:${options.model}` })
+
+    await cli.parse(['node', 'bin', 'image', 'sunset', '--model', 'dall-e-3'])
+    expect(matched).toBe('image:sunset:dall-e-3')
+  })
+
+  test('parent child command matches before parent <arg>', async () => {
+    const cli = gokeTestable('mycli')
+    let matched = ''
+
+    cli.command('parent <arg>', 'Parent with positional')
+      .action((arg) => { matched = `parent:${arg}` })
+
+    cli.command('parent child', 'Parent child subcommand')
+      .action(() => { matched = 'parent child' })
+
+    await cli.parse(['node', 'bin', 'parent', 'child'])
+    expect(matched).toBe('parent child')
+  })
+
+  test('parent <arg> still works for non-subcommand args', async () => {
+    const cli = gokeTestable('mycli')
+    let matched = ''
+
+    cli.command('parent <arg>', 'Parent with positional')
+      .action((arg) => { matched = `parent:${arg}` })
+
+    cli.command('parent child', 'Parent child subcommand')
+      .action(() => { matched = 'parent child' })
+
+    await cli.parse(['node', 'bin', 'parent', 'something'])
+    expect(matched).toBe('parent:something')
+  })
+
+  test('multi-word commands with same first word and conflicting enums route correctly', async () => {
+    const cli = gokeTestable('egaki')
+    let matched = ''
+
+    cli.command('image create <prompt>', 'Create image')
+      .option('--model [model]', z.enum(['imagen']).describe('Create model'))
+      .action((prompt, options) => { matched = `create:${prompt}:${options.model}` })
+
+    cli.command('image edit <prompt>', 'Edit image')
+      .option('--model [model]', z.enum(['edit-model']).describe('Edit model'))
+      .action((prompt, options) => { matched = `edit:${prompt}:${options.model}` })
+
+    await cli.parse(['node', 'bin', 'image', 'edit', 'test', '--model', 'edit-model'])
+    expect(matched).toBe('edit:test:edit-model')
+  })
+
+  test('aliased command with conflicting enum routes correctly', async () => {
+    const cli = gokeTestable('egaki')
+    let matched = ''
+
+    cli.command('image <prompt>', 'Generate images')
+      .option('--model [model]', z.enum(['imagen']).describe('Image model'))
+      .action((prompt, options) => { matched = `image:${prompt}:${options.model}` })
+
+    cli.command('video <prompt>', 'Generate videos')
+      .alias('v')
+      .option('--model [model]', z.enum(['veo']).describe('Video model'))
+      .action((prompt, options) => { matched = `video:${prompt}:${options.model}` })
+
+    await cli.parse(['node', 'bin', 'v', 'test', '--model', 'veo'])
+    expect(matched).toBe('video:test:veo')
+  })
+
+  test('global boolean flag before command does not disable routing precheck', async () => {
+    const cli = gokeTestable('egaki')
+    let matched = ''
+
+    cli.option('--verbose', 'Verbose output')
+
+    cli.command('image <prompt>', 'Generate images')
+      .option('--model [model]', z.enum(['imagen']).describe('Image model'))
+      .action((prompt, options) => { matched = `image:${prompt}:${options.model}` })
+
+    cli.command('video <prompt>', 'Generate videos')
+      .option('--model [model]', z.enum(['veo']).describe('Video model'))
+      .action((prompt, options) => { matched = `video:${prompt}:${options.model}` })
+
+    await cli.parse(['node', 'bin', '--verbose', 'video', 'test', '--model', 'veo'])
+    expect(matched).toBe('video:test:veo')
+  })
+
+  test('global value option before command keeps routing precheck enabled', async () => {
+    const cli = gokeTestable('egaki')
+    let matched = ''
+
+    cli.option('--config <path>', z.string().describe('Config path'))
+
+    cli.command('image <prompt>', 'Generate images')
+      .option('--model [model]', z.enum(['imagen']).describe('Image model'))
+      .action((prompt, options) => { matched = `image:${prompt}:${options.model}` })
+
+    cli.command('video <prompt>', 'Generate videos')
+      .option('--model [model]', z.enum(['veo']).describe('Video model'))
+      .action((prompt, options) => { matched = `video:${prompt}:${options.model}` })
+
+    await cli.parse(['node', 'bin', '--config', 'config.json', 'video', 'test', '--model', 'veo'])
+    expect(matched).toBe('video:test:veo')
+  })
+
+  test('global value option with equals syntax keeps routing precheck enabled', async () => {
+    const cli = gokeTestable('egaki')
+    let matched = ''
+
+    cli.option('--config <path>', z.string().describe('Config path'))
+
+    cli.command('image <prompt>', 'Generate images')
+      .option('--model [model]', z.enum(['imagen']).describe('Image model'))
+      .action((prompt, options) => { matched = `image:${prompt}:${options.model}` })
+
+    cli.command('video <prompt>', 'Generate videos')
+      .option('--model [model]', z.enum(['veo']).describe('Video model'))
+      .action((prompt, options) => { matched = `video:${prompt}:${options.model}` })
+
+    await cli.parse(['node', 'bin', '--config=config.json', 'video', 'test', '--model', 'veo'])
+    expect(matched).toBe('video:test:veo')
+  })
+
+  test('global boolean flag with explicit equals value keeps routing precheck enabled', async () => {
+    const cli = gokeTestable('egaki')
+    let matched = ''
+
+    cli.option('--verbose', 'Verbose output')
+
+    cli.command('image <prompt>', 'Generate images')
+      .option('--model [model]', z.enum(['imagen']).describe('Image model'))
+      .action((prompt, options) => { matched = `image:${prompt}:${options.model}` })
+
+    cli.command('video <prompt>', 'Generate videos')
+      .option('--model [model]', z.enum(['veo']).describe('Video model'))
+      .action((prompt, options) => { matched = `video:${prompt}:${options.model}` })
+
+    await cli.parse(['node', 'bin', '--verbose=false', 'video', 'test', '--model', 'veo'])
+    expect(matched).toBe('video:test:veo')
   })
 })

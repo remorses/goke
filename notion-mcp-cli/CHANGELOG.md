@@ -1,5 +1,29 @@
 # notion-mcp-cli
 
+## 0.0.9
+
+1. **Agent-friendly login via background daemon** — when running inside an AI coding agent (Claude, Cursor, Codex, etc.), `notion-mcp-cli login` now starts a background daemon and returns immediately instead of blocking the terminal. The user approves in their browser; the agent polls with `me` to check when auth completes:
+
+   ```bash
+   notion-mcp-cli login
+   # → "Login server running in background (10 min timeout)."
+
+   # Poll until authenticated:
+   notion-mcp-cli me
+   # → exits 0 with "Authenticated" when done
+   # → exits 1 with "Login in progress" or "Not logged in"
+   ```
+
+   Interactive (non-agent) mode still runs the OAuth flow directly and blocks until done.
+
+2. **New `me` command** — simple auth status check that exits 0 if authenticated, 1 if not. Agents use this to poll after starting a background login:
+
+   ```bash
+   notion-mcp-cli me
+   ```
+
+3. **Logout stops running login daemon** — `notion-mcp-cli logout` now also kills any background login daemon via `ctx.daemon.forCommand('login')`.
+
 ## 0.0.8
 
 1. **Added `./src` and `./src/*` exports** — import directly from source TypeScript files without going through `dist`.

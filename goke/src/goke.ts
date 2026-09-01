@@ -19,6 +19,8 @@ import { COMPLETION_FLAG, generateCompletionScript, installCompletions, uninstal
 import type { ShellType } from './completions.js'
 import type { GokeFs } from './goke-fs.js'
 import { EventEmitter, fs as runtimeFs, openInBrowser, process } from '#runtime'
+import { createDaemonContext } from '#daemon'
+import type { DaemonContext } from '#daemon'
 
 // ─── Node.js platform constants ───
 
@@ -168,6 +170,57 @@ const formatWrappedDescription = (text: string, width: number, indent: number) =
     lines[0],
     ...lines.slice(1).map((line) => `${' '.repeat(indent)}${line}`),
   ].join('\n')
+}
+
+const formatCommandHelpBlock = (args: {
+  displayName: string
+  description: string
+  displayOptions: Option[]
+  sharedDescriptionColumn: number
+  descriptionWidth: number
+}) => {
+  const {
+    displayName,
+    description,
+    displayOptions,
+    sharedDescriptionColumn,
+    descriptionWidth,
+  } = args
+  const commandDescription = formatWrappedDescription(
+    description,
+    descriptionWidth,
+    sharedDescriptionColumn,
+  )
+  const commandPrefix = `  ${pc.bold(commandGreen(displayName))}`
+  const commandPadding = ' '.repeat(
+    Math.max(2, sharedDescriptionColumn - (2 + visibleLength(displayName)))
+  )
+  const headerLine = commandDescription
+    ? `${commandPrefix}${commandPadding}${commandDescription}`
+    : commandPrefix
+
+  if (displayOptions.length === 0) {
+    return headerLine
+  }
+
+  const optionLines = displayOptions
+    .map((option) => {
+      const optionDescription = formatWrappedDescription(
+        optionDescriptionText(option),
+        descriptionWidth,
+        sharedDescriptionColumn,
+      )
+      const optionPrefix = `    ${optionBlue(option.rawName)}`
+      const optionPadding = ' '.repeat(
+        Math.max(2, sharedDescriptionColumn - (4 + visibleLength(option.rawName)))
+      )
+      return optionDescription
+        ? `${optionPrefix}${optionPadding}${optionDescription}`
+        : optionPrefix
+    })
+    .join('\n')
+
+  return `${headerLine}\n${optionLines}`
 }
 
 const optionDescriptionText = (option: Option) => {
@@ -528,6 +581,7 @@ class Command<RawName extends string = string, Opts = {}> {
   examples: CommandExample[]
   helpCallback?: HelpCallback
   globalCommand?: GlobalCommand
+  helpSection?: string
   _hidden?: boolean
 
   constructor(
@@ -566,6 +620,15 @@ class Command<RawName extends string = string, Opts = {}> {
 
   example(example: CommandExample) {
     this.examples.push(example)
+    return this
+  }
+
+  /**
+   * Group this command under a named heading in root help output.
+   * Overrides the section set by `cli.section()`.
+   */
+  section(name: string) {
+    this.helpSection = name || undefined
     return this
   }
 
@@ -760,48 +823,38 @@ class Command<RawName extends string = string, Opts = {}> {
       const optionDescriptionColumn = 4 + longestCommandOptionNameLength + 2
       const sharedDescriptionColumn = Math.max(commandDescriptionColumn, optionDescriptionColumn)
       const descriptionWidth = terminalWidth - sharedDescriptionColumn
+      const commandBlocks: string[] = []
+      let previousSection: string | undefined
+      let previousHadOptions = false
+
+      for (const { command, displayName, displayOptions } of commandRows) {
+        const sectionName = command.helpSection
+        const sectionChanged = sectionName !== previousSection
+        const showSectionHeading = Boolean(sectionName) && sectionChanged
+        const commandBlock = formatCommandHelpBlock({
+          displayName,
+          description: command.description,
+          displayOptions,
+          sharedDescriptionColumn,
+          descriptionWidth,
+        })
+
+        if (commandBlocks.length > 0 && (sectionChanged || previousHadOptions)) {
+          commandBlocks.push('')
+        }
+
+        if (showSectionHeading) {
+          commandBlocks.push(`  ${pc.bold(pc.blue(`${sectionName}:`))}`)
+        }
+
+        commandBlocks.push(commandBlock)
+        previousSection = sectionName
+        previousHadOptions = displayOptions.length > 0
+      }
 
       sections.push({
         title: 'Commands',
-          body: commandRows
-          .map(({ command, displayName, displayOptions }) => {
-            const commandDescription = formatWrappedDescription(
-              command.description,
-              descriptionWidth,
-              sharedDescriptionColumn,
-            )
-            const commandPrefix = `  ${pc.bold(commandGreen(displayName))}`
-            const commandPadding = ' '.repeat(
-              Math.max(2, sharedDescriptionColumn - (2 + visibleLength(displayName)))
-            )
-            const headerLine = commandDescription
-              ? `${commandPrefix}${commandPadding}${commandDescription}`
-              : commandPrefix
-
-            if (displayOptions.length === 0) {
-              return headerLine
-            }
-
-            const optionLines = displayOptions
-              .map((option) => {
-                const optionDescription = formatWrappedDescription(
-                  optionDescriptionText(option),
-                  descriptionWidth,
-                  sharedDescriptionColumn,
-                )
-                const optionPrefix = `    ${optionBlue(option.rawName)}`
-                const optionPadding = ' '.repeat(
-                  Math.max(2, sharedDescriptionColumn - (4 + visibleLength(option.rawName)))
-                )
-                return optionDescription
-                  ? `${optionPrefix}${optionPadding}${optionDescription}`
-                  : optionPrefix
-              })
-              .join('\n')
-
-            return `${headerLine}\n\n${optionLines}`
-          })
-          .join('\n\n\n'),
+        body: commandBlocks.join('\n'),
       })
     }
 
@@ -896,7 +949,7 @@ class Command<RawName extends string = string, Opts = {}> {
           ? `${pc.bold(pc.blue(section.title))}:\n${section.body}`
           : section.body
       })
-      .join('\n\n\n')
+      .join('\n\n')
   }
 
   outputHelp() {
@@ -990,6 +1043,7 @@ const cloneCommandInto = (source: Command, cli: Goke<any>) => {
   target.examples = [...source.examples]
   target.helpCallback = source.helpCallback
   target.commandAction = source.commandAction
+  target.helpSection = source.helpSection
   target._hidden = source._hidden
   target.options = source.options.map((option) => option.clone())
   target.globalCommand = cli.globalCommand
@@ -1033,6 +1087,8 @@ interface GokeExecutionContext {
   console: GokeConsole
   fs: GokeFs
   process: GokeProcess
+  /** Daemon context for running the current command as a background process. */
+  daemon: DaemonContext
 }
 
 /**
@@ -1144,7 +1200,10 @@ function createConsole(stdout: GokeOutputStream, stderr: GokeOutputStream): Goke
 function formatCliError(err: Error): string {
   const lines: string[] = []
   lines.push(`${pc.red(pc.bold('error:'))} ${err.message}`)
-  if (err.stack) {
+  // GokeError is a user-facing validation/usage error (unknown options, missing
+  // values, invalid types, schema coercion failures). The stack trace is
+  // internal noise for these — only show it for unexpected errors.
+  if (!(err instanceof GokeError) && err.stack) {
     // Extract just the stack frames (skip the first line which is the message)
     const stackLines = err.stack.split('\n').slice(1)
     if (stackLines.length > 0) {
@@ -1209,6 +1268,7 @@ class Goke<Opts = {}> extends EventEmitter {
   readonly exit: (code: number) => void
 
   #defaultArgv: string[]
+  #currentHelpSection?: string
 
   /**
    * @param name The program name to display in help and version message
@@ -1251,6 +1311,7 @@ class Goke<Opts = {}> extends EventEmitter {
 
     cloned.showHelpOnExit = this.showHelpOnExit
     cloned.showVersionOnExit = this.showVersionOnExit
+    cloned.#currentHelpSection = this.#currentHelpSection
     cloned.globalCommand = cloneCommandInto(this.globalCommand, cloned) as GlobalCommand
     cloned.commands = this.commands.map((command) => cloneCommandInto(command, cloned))
     for (const command of cloned.commands) {
@@ -1312,6 +1373,7 @@ class Goke<Opts = {}> extends EventEmitter {
       ? createConsole(stdout, stderr)
       : this.console
     const exitFn = override?.exit ?? this.exit
+    const commandName = this.matchedCommandName || ''
     return {
       console: contextConsole,
       fs: override?.fs ?? this.fs,
@@ -1327,6 +1389,12 @@ class Goke<Opts = {}> extends EventEmitter {
           throw new GokeProcessExit(code)
         },
       },
+      daemon: createDaemonContext(
+        this.name,
+        commandName,
+        override?.argv ?? this.rawArgs,
+        override?.env ?? this.env,
+      ),
     }
   }
 
@@ -1364,8 +1432,19 @@ class Goke<Opts = {}> extends EventEmitter {
       this,
     )
     command.globalCommand = this.globalCommand
+    command.helpSection = this.#currentHelpSection
     this.commands.push(command)
     return command
+  }
+
+  /**
+   * Group following commands under a named heading in root help output.
+   * Use this for namespaced commands that share a parent, for example
+   * `get pods` and `get services`.
+   */
+  section(name: string) {
+    this.#currentHelpSection = name || undefined
+    return this
   }
 
   /**
@@ -1607,6 +1686,9 @@ class Goke<Opts = {}> extends EventEmitter {
    * ```
    */
   completions() {
+    const previousHelpSection = this.#currentHelpSection
+    this.#currentHelpSection = undefined
+
     this.command('completions install', 'Install shell completions')
       .option('--shell [shell]', 'Target shell (zsh or bash). Auto-detected if omitted.')
       .action(async (options, { console, process: proc }) => {
@@ -1649,6 +1731,7 @@ class Goke<Opts = {}> extends EventEmitter {
         console.log(script)
       })
 
+    this.#currentHelpSection = previousHelpSection
     return this
   }
 
@@ -1927,22 +2010,28 @@ class Goke<Opts = {}> extends EventEmitter {
       return bLength - aLength
     })
 
-    // Search sub-commands — mri() can throw coercion errors, catch them
+    // Search sub-commands using two-pass matching:
+    // 1. First pass: parse without schema coercion to find the matching command.
+    //    This avoids z.enum() or other schema validation throwing for the wrong
+    //    command's options before isMatched() can reject it.
+    // 2. Second pass: re-parse with full coercion for the matched command only.
     try {
       for (const command of sortedCommands) {
-        const parsed = this.mri(argv.slice(2), command)
+        const parsed = this.mri(argv.slice(2), command, true)
 
         const result = command.isMatched(parsed.args as string[])
         if (result.matched) {
           shouldParse = false
-          const matchedCommandName = parsed.args.slice(0, result.consumedArgs).join(' ')
+          // Re-parse with coercion now that we know this is the right command
+          const coerced = this.mri(argv.slice(2), command)
+          const matchedCommandName = coerced.args.slice(0, result.consumedArgs).join(' ')
           const parsedInfo = {
-            ...parsed,
-            args: parsed.args.slice(result.consumedArgs),
+            ...coerced,
+            args: coerced.args.slice(result.consumedArgs),
           }
           this.setParsedInfo(parsedInfo, command, matchedCommandName)
           this.emit(`command:${matchedCommandName}`, command)
-          break // Stop after first match (greedy matching)
+          break
         }
       }
 
@@ -2060,7 +2149,9 @@ class Goke<Opts = {}> extends EventEmitter {
 
   private mri(
     argv: string[],
-    /** Matched command */ command?: Command
+    /** Matched command */ command?: Command,
+    /** Skip schema coercion (used during command matching to avoid throwing for wrong commands) */
+    skipCoercion?: boolean,
   ): ParsedArgv {
     // All added options
     const cliOptions = [
@@ -2167,37 +2258,39 @@ class Goke<Opts = {}> extends EventEmitter {
         const keys = key.split('.')
         let value = parsed[key]
 
-        // Apply schema coercion if this option has a schema.
-        // When value is boolean `true` and the option takes a value, it's mri's sentinel
-        // for "flag present, no value given":
-        //   - Required options (<...>): preserve `true` so checkOptionValue() throws
-        //   - Optional options ([...]) with schema AND a default: skip this
-        //     key entirely so the preset default (written into `options` at
-        //     the top of this function) survives. This keeps the type-level
-        //     `HasSchemaDefault` promise honest at runtime.
-        //   - Optional options ([...]) with schema and NO default: replace
-        //     `true` with `undefined` so the caller sees "flag present, no value"
-        //     as `undefined`.
-        const schemaInfo = schemaMap.get(key)
-        if (schemaInfo && value !== undefined) {
-          if (value === true && requiredValueOptions.has(key)) {
-            // Keep sentinel for checkOptionValue() to detect
-          } else if (value === true && optionalValueOptions.has(key)) {
-            if (optionsWithDefault.has(key)) {
-              // Preserve the preset default — don't overwrite with undefined.
-              continue
+        if (!skipCoercion) {
+          // Apply schema coercion if this option has a schema.
+          // When value is boolean `true` and the option takes a value, it's mri's sentinel
+          // for "flag present, no value given":
+          //   - Required options (<...>): preserve `true` so checkOptionValue() throws
+          //   - Optional options ([...]) with schema AND a default: skip this
+          //     key entirely so the preset default (written into `options` at
+          //     the top of this function) survives. This keeps the type-level
+          //     `HasSchemaDefault` promise honest at runtime.
+          //   - Optional options ([...]) with schema and NO default: replace
+          //     `true` with `undefined` so the caller sees "flag present, no value"
+          //     as `undefined`.
+          const schemaInfo = schemaMap.get(key)
+          if (schemaInfo && value !== undefined) {
+            if (value === true && requiredValueOptions.has(key)) {
+              // Keep sentinel for checkOptionValue() to detect
+            } else if (value === true && optionalValueOptions.has(key)) {
+              if (optionsWithDefault.has(key)) {
+                // Preserve the preset default — don't overwrite with undefined.
+                continue
+              }
+              value = undefined
+            } else {
+              value = coerceBySchema(value, schemaInfo.jsonSchema, schemaInfo.optionName)
             }
-            value = undefined
-          } else {
-            value = coerceBySchema(value, schemaInfo.jsonSchema, schemaInfo.optionName)
+          } else if (value === true && optionalValueOptions.has(key)) {
+            // Untyped optional-value flag with no schema: normalize bare `true`
+            // to `''` so callers get a clean `string | undefined` shape. `''`
+            // means "flag passed with no argument", distinct from `undefined`
+            // (flag omitted). This matches the new type inference that treats
+            // `[value]` as `string` instead of `string | boolean`.
+            value = ''
           }
-        } else if (value === true && optionalValueOptions.has(key)) {
-          // Untyped optional-value flag with no schema: normalize bare `true`
-          // to `''` so callers get a clean `string | undefined` shape. `''`
-          // means "flag passed with no argument", distinct from `undefined`
-          // (flag omitted). This matches the new type inference that treats
-          // `[value]` as `string` instead of `string | boolean`.
-          value = ''
         }
 
         setDotProp(options, keys, value)
@@ -2316,6 +2409,8 @@ interface DocPage {
 interface GenerateDocsOptions {
   /** The Goke CLI instance to generate docs from. */
   cli: Goke<any>
+  /** Base path prefix for links between pages (e.g. "/docs/cli"). Defaults to ".". */
+  basePath?: string
 }
 
 /**
@@ -2334,13 +2429,15 @@ interface GenerateDocsOptions {
  *   .command('deploy <env>', 'Deploy to an environment')
  *   .option('--force', 'Skip confirmation')
  *
- * const pages = generateDocs({ cli })
+ * const pages = generateDocs({ cli, basePath: '/docs/cli' })
  * for (const page of pages) {
  *   fs.writeFileSync(`docs/${page.slug}.md`, page.content)
  * }
  * ```
  */
-function generateDocs({ cli }: GenerateDocsOptions): DocPage[] {
+function generateDocs({ cli, basePath = '.' }: GenerateDocsOptions): DocPage[] {
+  // Normalize: strip trailing slash
+  basePath = basePath.replace(/\/+$/, '') || '.'
   const pages: DocPage[] = []
 
   // Collect global options (from globalCommand), excluding deprecated
@@ -2365,9 +2462,9 @@ function generateDocs({ cli }: GenerateDocsOptions): DocPage[] {
     lines.push('|---------|-------------|')
     for (const cmd of visibleCommands) {
       if (cmd.isDefaultCommand) continue
-      const desc = cmd.description.split('\n')[0].trim()
+      const desc = escapeAngleBrackets(cmd.description.split('\n')[0].trim())
       const slug = cmd.name.replace(/\s+/g, '-')
-      lines.push(`| [\`${cmd.name}\`](./${slug}.md) | ${desc} |`)
+      lines.push(`| [\`${cmd.name}\`](${basePath}/${slug}.md) | ${desc} |`)
     }
     lines.push('')
 
@@ -2390,7 +2487,7 @@ function generateDocs({ cli }: GenerateDocsOptions): DocPage[] {
     lines.push('')
 
     if (cmd.description) {
-      lines.push(cmd.description)
+      lines.push(escapeAngleBrackets(cmd.description))
       lines.push('')
     }
 
@@ -2462,6 +2559,19 @@ function generateDocs({ cli }: GenerateDocsOptions): DocPage[] {
   return pages
 }
 
+/**
+ * Wraps bare `<word>` angle-bracket placeholders in backticks so MDX parsers
+ * don't interpret them as JSX tags. Skips content already inside inline code
+ * (single backticks) or fenced code blocks.
+ */
+function escapeAngleBrackets(text: string): string {
+  // Split on inline code spans to avoid double-wrapping
+  return text.replace(/(`.+?`)|(<[a-zA-Z_][\w.-]*>)/g, (match, codeSpan) => {
+    if (codeSpan) return match // already inside backticks
+    return `\`${match}\``
+  })
+}
+
 function formatOptionsTable(options: Option[]): string {
   const lines: string[] = []
   lines.push('| Option | Default | Description |')
@@ -2469,7 +2579,7 @@ function formatOptionsTable(options: Option[]): string {
   for (const opt of options) {
     const defaultVal = opt.default !== undefined ? `\`${String(opt.default)}\`` : '-'
     // Escape pipe characters in description for markdown tables
-    const desc = opt.description.replace(/\|/g, '\\|').replace(/\n/g, ' ')
+    const desc = escapeAngleBrackets(opt.description.replace(/\|/g, '\\|').replace(/\n/g, ' '))
     lines.push(`| \`${opt.rawName}\` | ${defaultVal} | ${desc} |`)
   }
   return lines.join('\n')

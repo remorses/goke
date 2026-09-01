@@ -44,7 +44,8 @@ cli.parse()
 
 - **Hono-like chaining** — `.use()` for middleware, `.command()` for handlers. Build a CLI the same way you'd design a REST API.
 - **Zod type safety** — pass a Zod schema to `.option()` and get automatic coercion, TypeScript inference, and help text for free. Works with Valibot, ArkType, or any Standard Schema library.
-- **MCP server in 2 lines** — expose your entire CLI as an MCP server with `createMcpAction({ cli })`. Every command becomes a tool, ready for Claude Desktop, Cursor, VS Code, and [any MCP client](https://github.com/supermemoryai/install-mcp#supported-clients).
+- **CLI from any MCP server** — [`@goke/mcp`](https://github.com/remorses/goke/tree/main/mcp) connects to an MCP server, discovers tools, and generates typed CLI commands automatically.
+- **MCP server in 2 lines** — expose your entire CLI as an MCP server with `createMcpAction({ cli })` from [`@goke/mcp`](https://github.com/remorses/goke/tree/main/mcp). Every command becomes a tool, ready for Claude Desktop, Cursor, VS Code, and [any MCP client](https://github.com/supermemoryai/install-mcp#supported-clients).
 - **JustBash support** — `cli.createJustBashCommand()` exposes your CLI as a sandboxed JustBash command. Same action code, no changes needed.
 - **Space-separated subcommands** — `git remote add`, `mcp login`, `db migrate` — multi-word commands work out of the box.
 - **Injected `{ fs, console, process }`** — commands receive a portable runtime context. Swap it in tests, or let JustBash replace it with a sandbox. No global side effects.
@@ -65,6 +66,37 @@ npx -y skills add remorses/goke
 ```
 
 This installs the repository skill for AI coding agents. In this repo the shipped skill lives at `skills/goke/SKILL.md`.
+
+## Generate a CLI from an MCP server
+
+Use [`@goke/mcp`](https://github.com/remorses/goke/tree/main/mcp) to turn any MCP server into a CLI. It discovers tools and registers a typed command for each one.
+
+```ts
+import { goke } from 'goke'
+import { addMcpCommands } from '@goke/mcp'
+
+const cli = goke('mycli')
+
+await addMcpCommands({
+  cli,
+  getMcpUrl: () => 'https://mcp.example.com/mcp',
+  loadCache: () => loadConfig().cache,
+  saveCache: (cache) => saveConfig({ cache }),
+})
+
+cli.help()
+cli.completions()
+cli.parse()
+```
+
+Every tool becomes a command:
+
+```bash
+mycli search --query "meeting notes"
+mycli get-page --pageId "abc123"
+```
+
+See the [`@goke/mcp` README](https://github.com/remorses/goke/tree/main/mcp) for OAuth, caching, and exposing a CLI as an MCP server.
 
 ## Agent Detection
 
@@ -119,6 +151,248 @@ cli
 ```
 
 The detection logic is ported from [unjs/std-env](https://github.com/unjs/std-env). Agent-specific env vars checked include `CLAUDECODE`, `CURSOR_AGENT`, `CODEX_SANDBOX`, `GEMINI_CLI`, `OPENCODE`, and others. IDE-based agents (Cursor, Devin, Kiro) are checked last so that agents running inside those IDEs are detected by their own env vars first.
+
+## Background Daemons
+
+Use daemons for any command that needs to **wait for something external** (browser callback, polling an API, watching files) while the CLI returns immediately. This is the recommended pattern for long-running commands because it works seamlessly with AI agents: the agent runs the command, gets control back instantly, and can poll a status command to check when the work is done. No tmux, no tuistory, no background process management needed on the agent side.
+
+Every command gets a `ctx.daemon` object that can fork the current command into a **detached background process**. The daemon is identified by CLI name + command name. A PID file at `~/.config/goke/daemons/` tracks the running process. No HTTP server, no ports. The daemon and client communicate via shared files (config, auth tokens, etc.) that the CLI already manages.
+
+```ts
+import { goke, isAgent, openInBrowser } from 'goke'
+import { z } from 'zod'
+import { createAuthClient } from 'better-auth/client'
+import { deviceAuthorizationClient } from 'better-auth/client/plugins'
+
+const cli = goke('playwriter')
+
+cli
+  .command('cloud login', 'Authenticate with playwriter.dev')
+  .option('--base-url <url>', z.string().default('https://playwriter.dev').describe('Website base URL'))
+  .action(async (options, ctx) => {
+    const client = createAuthClient({
+      baseURL: options.baseUrl,
+      plugins: [deviceAuthorizationClient()],
+    })
+
+    if (ctx.daemon.isDaemon) {
+      // ── BACKGROUND DAEMON ─────────────────────────────────
+      // The device_code was passed via env by the client.
+      // Poll until user approves in browser.
+      const deviceCode = ctx.process.env.DEVICE_CODE!
+      const pollInterval = Number(ctx.process.env.POLL_INTERVAL || 5) * 1000
+      const deadline = Date.now() + 10 * 60 * 1000
+
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, pollInterval))
+        const { data: token, error } = await client.device.token({
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+          device_code: deviceCode,
+          client_id: 'playwriter-cli',
+        })
+        if (token?.access_token) {
+          saveAuth({ token: token.access_token, baseUrl: options.baseUrl })
+          return // daemon exits, PID file is cleaned up
+        }
+        if (error?.error === 'authorization_pending' || error?.error === 'slow_down') continue
+        if (error) return // unrecoverable error, exit
+      }
+      return
+    }
+
+    // ── FOREGROUND CLIENT ─────────────────────────────────
+    const { data, error } = await client.device.code({ client_id: 'playwriter-cli' })
+    if (error || !data) {
+      ctx.console.error(`Failed to request device code: ${error?.error_description || error?.error || 'unknown'}`)
+      ctx.process.exit(1)
+    }
+
+    const url = data.verification_uri_complete
+      || new URL(`/device?user_code=${data.user_code}`, options.baseUrl).toString()
+    ctx.console.log(`\nOpen: ${url}`)
+    ctx.console.log(`Code: ${data.user_code}\n`)
+    await openInBrowser(url)
+
+    // Start daemon, pass device_code and poll interval via env
+    await ctx.daemon.start({
+      timeoutMs: 10 * 60 * 1000,
+      env: {
+        DEVICE_CODE: data.device_code,
+        POLL_INTERVAL: String(data.interval || 5),
+      },
+    })
+
+    if (isAgent) {
+      ctx.console.log('Login running in background.')
+      ctx.console.log('After approving, verify with: playwriter cloud me')
+      return
+    }
+
+    // Interactive: poll the auth file until tokens appear
+    const deadline = Date.now() + (data.expires_in || 300) * 1000
+    while (Date.now() < deadline) {
+      if (loadAuth()) {
+        ctx.console.log('Logged in!')
+        return
+      }
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+    ctx.console.error('Timed out.')
+    ctx.process.exit(1)
+  })
+```
+
+### Passing data to the daemon
+
+Use the `env` option on `ctx.daemon.start()` to pass **small handoff values** from the foreground command to the daemon. goke merges these values into the child process environment, alongside `GOKE_DAEMON=1` and the timeout metadata.
+
+```ts
+await ctx.daemon.start({
+  timeoutMs: 10 * 60 * 1000,
+  env: {
+    DEVICE_CODE: data.device_code,
+    POLL_INTERVAL: String(data.interval || 5),
+  },
+})
+```
+
+Read those values from `ctx.process.env` inside the daemon branch. This keeps the daemon action deterministic because the daemon is just the same command running again with a different environment.
+
+```ts
+if (ctx.daemon.isDaemon) {
+  const deviceCode = ctx.process.env.DEVICE_CODE
+  const pollInterval = Number(ctx.process.env.POLL_INTERVAL || 5) * 1000
+
+  if (!deviceCode) {
+    ctx.console.error('Missing DEVICE_CODE for login daemon')
+    ctx.process.exit(1)
+  }
+
+  await pollUntilApproved({ deviceCode, pollInterval })
+  return
+}
+```
+
+Keep `env` values **short and non-sensitive when possible**. For larger state, write to your CLI config file before starting the daemon and pass only a lookup key in `env`. The daemon and foreground command should share durable results through files, for example saved auth tokens or cached status.
+
+### Agent-friendly login check
+
+Add a `me` command that exits 0 if logged in, 1 if not. Agents run this after `login` to verify. Use `ctx.daemon.forCommand('login')` to check the login daemon from a different command:
+
+```ts
+cli
+  .command('cloud me', 'Check auth status (exits 1 if not logged in)')
+  .action(async (options, ctx) => {
+    if (loadAuth()) {
+      ctx.console.log('Authenticated')
+      return
+    }
+
+    // Check if login daemon is still running
+    const loginDaemon = ctx.daemon.forCommand('cloud login')
+    if (await loginDaemon.isRunning()) {
+      ctx.console.error('Login in progress. Approve in browser first.')
+      ctx.process.exit(1)
+    }
+
+    ctx.console.error('Not logged in. Run `playwriter cloud login` first.')
+    ctx.process.exit(1)
+  })
+
+cli
+  .command('cloud logout', 'Clear auth')
+  .action(async (options, ctx) => {
+    // Stop any running login daemon
+    const loginDaemon = ctx.daemon.forCommand('cloud login')
+    await loginDaemon.stop()
+    clearAuth()
+    ctx.console.log('Logged out')
+  })
+```
+
+### Writing agent-friendly descriptions
+
+When a command uses the daemon pattern, say so in its description. Agents read `--help` output to decide how to run commands. If the description doesn't mention that background handling is built in, agents will wrap the command in tmux, tuistory, or shell backgrounding, which is unnecessary and error-prone.
+
+Include three things in the description: that the command handles backgrounding itself, how to check status, and that no external process management is needed.
+
+```ts
+cli
+  .command(
+    'login',
+    dedent`
+      Authenticate via browser OAuth.
+
+      Starts a background daemon automatically and returns immediately.
+      The daemon waits up to 10 minutes for browser approval, then exits.
+      No tmux or background process management needed.
+
+      Check status with: mycli me
+    `,
+  )
+  .action(async (options, ctx) => {
+    // daemon implementation...
+  })
+```
+
+The `me` / status command should also mention what it checks:
+
+```ts
+cli
+  .command(
+    'me',
+    dedent`
+      Check auth status. Exits 0 if logged in, 1 if not.
+
+      Use this to poll after 'login' completes in the background:
+
+        mycli login
+        mycli me    # exits 0 when auth is ready
+    `,
+  )
+  .action(async (options, ctx) => {
+    // status check...
+  })
+```
+
+This way agents can run `mycli login` followed by `mycli me` in a loop, with no special process management.
+
+### How it works
+
+`ctx.daemon.start()` re-runs the **exact same CLI command** as a detached child process with `GOKE_DAEMON=1` in the environment. When goke parses the command again, `ctx.daemon.isDaemon` is `true`, so the action branches into daemon mode. The PID file tracks the daemon so `isRunning()` and `stop()` work from any command.
+
+### API
+
+| Method | Description |
+|--------|-------------|
+| `ctx.daemon.isDaemon` | `true` when running as the background daemon |
+| `ctx.daemon.start({ timeoutMs?, env?, attach? })` | Spawn current command as detached daemon. Kills existing daemon first. |
+| `ctx.daemon.stop()` | Kill the daemon for this command |
+| `ctx.daemon.isRunning()` | Check if daemon is alive (PID + heartbeat) |
+| `ctx.daemon.forCommand(name)` | Get a daemon context for a different command |
+
+### Attached mode
+
+Pass `attach: true` to pipe the daemon's stdout/stderr to the parent and wait for it to exit. This is useful for interactive login flows where the user wants to see real-time logs, progress, and error messages from the daemon instead of a generic timeout.
+
+```ts
+if (isAgent) {
+  // Agent: fire and forget, check with `me` later
+  await ctx.daemon.start({ timeoutMs: 10 * 60 * 1000, env: { DEVICE_CODE: code } })
+  ctx.console.log('Login running in background. Verify with: mycli me')
+  return
+}
+
+// Interactive: see all daemon output, block until done
+await ctx.daemon.start({ attach: true, timeoutMs: 10 * 60 * 1000, env: { DEVICE_CODE: code } })
+ctx.console.log('Login successful!')
+```
+
+When attached, `start()` throws if the daemon exits with a non-zero code. The daemon branch can use `ctx.console.log/error` and `ctx.process.exit(1)` normally; attached parents will see the output and get the error.
+
+### Safety
+
+Each daemon writes a **unique instance ID** and a **heartbeat** (updated every 5s) into the PID file. `isRunning()` requires both an alive PID and a fresh heartbeat (< 15s), preventing false positives from OS PID reuse after a crash. `stop()` only kills processes with a valid heartbeat. Cleanup handlers remove the PID file on exit, signals, and uncaught exceptions, but only if the file's instance ID still matches.
 
 ## Terminal Colors
 
@@ -746,6 +1020,54 @@ cli.help()
 cli.completions()
 cli.parse()
 ```
+
+### Help Sections for Namespaced Commands
+
+When commands share a parent word (`get pods`, `get services`, `auth login`), group them with `.section()`. Root help prints a heading for each group and adds extra space around those groups.
+
+```ts
+import { goke } from 'goke'
+
+const cli = goke('kubectl')
+
+cli.section('Get')
+cli.command('get pods', 'List pods')
+  .option('-o, --output <format>', 'Output format')
+cli.command('get services', 'List services')
+cli.command('get nodes', 'List nodes')
+
+cli.section('Describe')
+cli.command('describe pod <name>', 'Describe a pod')
+cli.command('describe service <name>', 'Describe a service')
+
+cli.help()
+cli.completions()
+cli.parse()
+```
+
+```txt
+kubectl
+
+Usage:
+  $ kubectl <command> [options]
+
+Commands:
+  Get:
+  get pods                 List pods
+    -o, --output <format>  Output format
+
+  get services             List services
+  get nodes                List nodes
+
+  Describe:
+  describe pod <name>      Describe a pod
+  describe service <name>  Describe a service
+
+Options:
+  -h, --help  Display this message
+```
+
+**Always call `.section()` before namespaced commands that share a parent.** Commands registered before any `.section()` stay ungrouped at the top. Use `.command(...).section('Name')` when one command belongs in a different group than the current CLI section.
 
 ### Schema-based Type Coercion
 
@@ -1386,6 +1708,20 @@ Version: 1.0.0
 ```
 
 Hidden commands and deprecated options are excluded automatically. Add this script to your CI or `package.json` scripts to keep docs in sync with the CLI code.
+
+### `basePath`
+
+By default the index page uses relative links (`./deploy.md`). Pass `basePath` to prefix all inter-page links with an absolute URL path, useful when docs are served under a nested route on your website.
+
+```ts
+// Pages will be served under /docs/cli/* on the website
+const pages = generateDocs({ cli, basePath: '/docs/cli' })
+
+// Index page links become: [deploy](/docs/cli/deploy.md)
+// Without basePath, links are relative: [deploy](./deploy.md)
+```
+
+Default: `"."` (relative links).
 
 For a complete example with Holocron/Mintlify frontmatter, icons, and sidebar navigation, see [docs/holocron-cli-docs.md](./docs/holocron-cli-docs.md).
 
