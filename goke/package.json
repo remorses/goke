@@ -1,6 +1,6 @@
 {
   "name": "goke",
-  "version": "6.15.0",
+  "version": "6.15.1",
   "type": "module",
   "description": "Simple yet powerful framework for building command-line apps. Inspired by cac.",
   "repository": {

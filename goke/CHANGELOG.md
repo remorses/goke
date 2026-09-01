@@ -1,5 +1,26 @@
 # goke
 
+## 6.15.1
+
+1. **Reliable startup messages from detached daemons**: OAuth and device-login commands can now create an authorization URL inside the daemon and return it to the foreground before `start()` resolves.
+
+   ```ts
+   if (ctx.daemon.isDaemon) {
+     const flow = await startOAuthFlow()
+     ctx.daemon.publishStartupMessage(`Authorize: ${flow.authorizationUrl}`)
+     ctx.daemon.ready()
+     await flow.waitForApproval()
+     return
+   }
+
+   await ctx.daemon.start({
+     waitForStartup: true,
+     timeoutMs: 10 * 60 * 1000,
+   })
+   ```
+
+   `publishStartupMessage()` preserves message order and supports stdout or stderr. Detached stdio remains ignored. goke transfers startup records through a private one-shot file, removes it on success or failure, and stops a daemon that exits or times out before `ready()`. Attached mode continues to stream output until the daemon exits.
+
 ## 6.15.0
 
 1. **New `.section()` API for namespaced command groups** — root help can group commands under named headings. Use this when commands share a parent word (`get pods`, `get services`):
