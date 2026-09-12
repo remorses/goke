@@ -3,8 +3,8 @@
  *
  * Proves that one goke cli exposed over the MCP streamable-HTTP
  * transport can serve multiple concurrent users with fully isolated
- * state (in-memory fs + cwd + env) — no shared host process stdio,
- * no cross-tenant leaks.
+ * state (in-memory fs + cwd + env). Isolation comes from the
+ * `x-tenant-id` header on each POST, not from `Mcp-Session-Id`.
  *
  * Wiring choices worth calling out:
  *
@@ -18,15 +18,14 @@
  *     into pure request/response JSON. GET SSE opens are answered
  *     with `405`, which the client treats as "server does not offer
  *     SSE" and moves on (see `_startOrAuthSse` in the SDK client).
- *   - Each session gets its own cli **clone** via
+ *   - Each HTTP POST gets a fresh transport with
+ *     `sessionIdGenerator: undefined` and a cli **clone** via
  *     `baseCli.clone({ cwd, env, fs })`. The clone inherits the
  *     command tree but owns its own `{ cwd, env, fs }`, which is
  *     what `runCliTool` forwards into every action through
  *     `ctx.process.*` / `ctx.fs`.
  */
 
-import { randomUUID } from "node:crypto";
-import { Buffer } from "node:buffer";
 import path from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -34,7 +33,6 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { Server as McpLowLevelServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { goke, type Goke, type GokeFs } from "goke";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -94,7 +92,7 @@ class InMemoryFs implements GokeFs {
  * One cli definition, reused across tenants. Commands read / write
  * through `ctx.fs` and resolve paths against `ctx.process.cwd`, so
  * the *same* code runs per tenant but talks to a tenant-specific
- * filesystem when invoked via the session-scoped clone below.
+ * filesystem when invoked via the per-request clone below.
  */
 function buildBaseCli(): Goke {
   const cli = goke("notes-app");
@@ -122,9 +120,8 @@ function buildBaseCli(): Goke {
 // ─── In-process multi-tenant fetch ────────────────────────────────
 
 /**
- * Per-tenant state resolved from the `x-tenant-id` header on a
- * session-initialization request. Each tenant gets its own cwd,
- * env, and in-memory fs.
+ * Per-tenant state resolved from the `x-tenant-id` header on each
+ * request. Each tenant gets its own cwd, env, and in-memory fs.
  */
 interface TenantState {
   cwd: string;
@@ -133,28 +130,27 @@ interface TenantState {
 }
 
 /**
- * Build a `FetchLike` that routes MCP streamable-HTTP traffic into
- * in-process session-scoped `WebStandardStreamableHTTPServerTransport`
- * instances. One transport + one cli clone per session. Each session
- * is keyed by `mcp-session-id`; initialization requests pick a tenant
- * via the `x-tenant-id` header.
- *
- * Returns both the custom fetch and the transports map so tests can
- * inspect session state if needed.
+ * Build a `FetchLike` that serves MCP streamable-HTTP traffic with a
+ * fresh transport + cli clone on every POST. Tenant identity comes
+ * from `x-tenant-id`. There is no `mcp-session-id` map.
  */
 function createMultiTenantFetch(options: {
   baseCli: Goke;
   resolveTenant: (tenantId: string) => TenantState;
 }): {
   fetch: FetchLike;
-  transports: Map<string, WebStandardStreamableHTTPServerTransport>;
+  sessionHeaders: string[];
 } {
   const { baseCli, resolveTenant } = options;
-  const transports = new Map<string, WebStandardStreamableHTTPServerTransport>();
+  const sessionHeaders: string[] = [];
 
   const customFetch: FetchLike = async (url, init) => {
     const method = (init?.method ?? "GET").toUpperCase();
     const headers = new Headers(init?.headers);
+    const sessionHeader = headers.get("mcp-session-id");
+    if (sessionHeader) {
+      sessionHeaders.push(sessionHeader);
+    }
 
     // Pure request/response mode: tell the client there's no SSE
     // available on GET. `_startOrAuthSse` in the SDK client treats
@@ -177,35 +173,11 @@ function createMultiTenantFetch(options: {
       }
     }
 
-    // Rebuild a plain Request with the same method + headers. The
-    // transport reads accept/content-type from here and uses
-    // `parsedBody` for the actual JSON-RPC payload.
     const request = new Request(url.toString(), {
       method,
       headers,
     });
 
-    const sessionId = headers.get("mcp-session-id");
-
-    // Existing session: route to its transport.
-    if (sessionId && transports.has(sessionId)) {
-      return transports.get(sessionId)!.handleRequest(request, { parsedBody });
-    }
-
-    // New session: must be an initialize POST.
-    if (method !== "POST" || !isInitializeRequest(parsedBody)) {
-      return new Response(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          error: { code: -32000, message: "Bad Request: No valid session ID provided" },
-          id: null,
-        }),
-        { status: 400, headers: { "content-type": "application/json" } },
-      );
-    }
-
-    // Resolve the tenant from the custom header, build a cli clone
-    // with its cwd/env/fs, and spin up a session-scoped MCP server.
     const tenantId = headers.get("x-tenant-id");
     if (!tenantId) {
       return new Response("missing x-tenant-id header", { status: 401 });
@@ -225,29 +197,18 @@ function createMultiTenantFetch(options: {
     addCliToolsToMcp({ cli: tenantCli, server: mcpServer });
 
     const transport = new WebStandardStreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
-      // Pure request/response — no SSE streaming to clean up.
+      sessionIdGenerator: undefined,
       enableJsonResponse: true,
-      onsessioninitialized: (sid) => {
-        transports.set(sid, transport);
-      },
-      onsessionclosed: (sid) => {
-        transports.delete(sid);
-      },
     });
 
-    transport.onclose = () => {
-      const sid = transport.sessionId;
-      if (sid) {
-        transports.delete(sid);
-      }
-    };
-
     await mcpServer.connect(transport);
-    return transport.handleRequest(request, { parsedBody });
+    const response = await transport.handleRequest(request, { parsedBody });
+    await transport.close();
+    await mcpServer.close();
+    return response;
   };
 
-  return { fetch: customFetch, transports };
+  return { fetch: customFetch, sessionHeaders };
 }
 
 // ─── Tests ────────────────────────────────────────────────────────
@@ -267,7 +228,7 @@ describe("remote MCP over streamable HTTP with multi-tenant in-memory fs", () =>
       fs: new InMemoryFs(),
     });
 
-    const { fetch: tenantFetch } = createMultiTenantFetch({
+    const { fetch: tenantFetch, sessionHeaders } = createMultiTenantFetch({
       baseCli,
       resolveTenant: (id) => {
         const tenant = tenants.get(id);
@@ -297,7 +258,7 @@ describe("remote MCP over streamable HTTP with multi-tenant in-memory fs", () =>
       return client;
     }
 
-    return { tenants, connectTenant };
+    return { tenants, connectTenant, sessionHeaders };
   }
 
   function firstTextBlock(result: Awaited<ReturnType<Client["callTool"]>>): string {
@@ -305,8 +266,8 @@ describe("remote MCP over streamable HTTP with multi-tenant in-memory fs", () =>
     return content.find((block) => block.type === "text")?.text ?? "";
   }
 
-  it("routes each session to its own cli clone with tenant-specific cwd/env/fs", async () => {
-    const { tenants, connectTenant } = setupScenario();
+  it("routes each request to its own cli clone with tenant-specific cwd/env/fs", async () => {
+    const { tenants, connectTenant, sessionHeaders } = setupScenario();
 
     const aliceClient = await connectTenant("tenant-a");
     const bobClient = await connectTenant("tenant-b");
@@ -320,8 +281,8 @@ describe("remote MCP over streamable HTTP with multi-tenant in-memory fs", () =>
       expect(bobTools).toEqual(["load", "save"]);
 
       // Both tenants write a file called `notes.txt` with different
-      // content. Since each session uses its own cli clone (with
-      // its own cwd + fs), the writes land in separate Maps.
+      // content. Since each request clones the cli with that tenant's
+      // cwd + fs, the writes land in separate Maps.
       const aliceSave = await aliceClient.callTool({
         name: "save",
         arguments: { filename: "notes.txt", content: "alice-secret" },
@@ -359,6 +320,7 @@ describe("remote MCP over streamable HTTP with multi-tenant in-memory fs", () =>
       expect([...tenantBFs.files.keys()]).toEqual(["/workspace-b/notes.txt"]);
       expect(tenantAFs.files.get("/workspace-a/notes.txt")).toBe("alice-secret");
       expect(tenantBFs.files.get("/workspace-b/notes.txt")).toBe("bob-secret");
+      expect(sessionHeaders).toEqual([]);
     } finally {
       await aliceClient.close();
       await bobClient.close();

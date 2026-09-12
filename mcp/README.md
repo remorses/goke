@@ -25,7 +25,7 @@ MCP server                        Your CLI
 
 1. **Discover** — calls `tools/list` on the MCP server to get every tool + its JSON Schema
 2. **Register** — creates a CLI command per tool with `--options` derived from the schema
-3. **Cache** — tools and session ID are cached for 1 hour (no network on subsequent runs). Expired cache is still used when a live fetch is impossible (no token, 401 on `--help`)
+3. **Cache** — tool schemas are cached for 1 hour (no network on subsequent runs). Expired cache is still used when a live fetch is impossible (no token, 401 on `--help`)
 4. **Execute** — on invocation, connects to the server and calls the tool with coerced arguments
 5. **OAuth** — if the server returns 401, automatically opens the browser for OAuth, then retries. `--help`, `--version`, `completions`, and no-args never start OAuth
 
@@ -199,8 +199,8 @@ When you expose a cli as a **remote** MCP (over `StreamableHTTPServerTransport`,
 The recipe is:
 
 1. Define the cli **once**.
-2. On every new MCP session, **clone** the cli with per-tenant `{ cwd, env, fs, stdin }` and mount it on a fresh session-scoped `Server` via `addCliToolsToMcp({ cli: tenantClone, server })`.
-3. Inside command actions, always use the **injected** `ctx` — `ctx.fs`, `ctx.process.cwd`, `ctx.process.env`, `ctx.console.log` — instead of the Node globals. `@goke/mcp` wires each tool call into the tenant's cloned context, but only code that goes through `ctx` participates in that isolation.
+2. On every HTTP POST, **clone** the cli with per-tenant `{ cwd, env, fs, stdin }` from the request auth (header, cookie, JWT). Mount it on a fresh `Server` via `addCliToolsToMcp({ cli: tenantClone, server })`.
+3. Inside command actions, always use the **injected** `ctx` (`ctx.fs`, `ctx.process.cwd`, `ctx.process.env`, `ctx.console.log`) instead of the Node globals. `@goke/mcp` wires each tool call into the tenant's cloned context, but only code that goes through `ctx` participates in that isolation.
 
 ### Write commands against `ctx`
 
@@ -231,64 +231,36 @@ cli
 
 `ctx.fs` satisfies the `GokeFs` interface — a Node-compatible async filesystem API. You can point it at a real directory, a virtual in-memory store, an S3 bucket adapter, a `memfs`, or anything else you can wrap behind that interface.
 
-### Clone the cli per session
+### Clone the cli per request
 
 The MCP SDK ships `WebStandardStreamableHTTPServerTransport`, which accepts a Web-Standard `Request` and returns a `Response`. That one shape plugs directly into **any** web framework that speaks web-standard: [Spiceflow](https://github.com/remorses/spiceflow), Cloudflare Workers, Deno, Bun, Next.js route handlers, SvelteKit endpoints, or a raw `fetch`-based handler. No Express, no `node:http` wiring, no framework lock-in.
+
+Do **not** keep a `Map` of transports keyed by `Mcp-Session-Id`. Tenant state lives in durable storage. Each POST clones the cli from the request auth.
 
 You build one `handleMcpRequest(request: Request): Promise<Response>` function and mount it wherever you route HTTP:
 
 ```ts
-import { randomUUID } from "node:crypto"
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js"
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
 import { addCliToolsToMcp } from "@goke/mcp"
 import type { GokeFs } from "goke"
 
-// Wherever you store per-user state — DB, Redis, config files, etc.
 declare function resolveTenant(tenantId: string): {
   cwd: string
   env: Record<string, string>
-  fs: GokeFs   // your filesystem adapter
+  fs: GokeFs
 }
 
-const transports = new Map<string, WebStandardStreamableHTTPServerTransport>()
-
 export async function handleMcpRequest(request: Request): Promise<Response> {
-  // Pre-parse the body so we can use it for both routing decisions
-  // (is this an `initialize` request?) and as the pre-parsed body
-  // forwarded to the transport via `HandleRequestOptions.parsedBody`.
   let parsedBody: unknown
   if (request.method === "POST") {
     parsedBody = await request.clone().json().catch(() => undefined)
   }
 
-  const sessionId = request.headers.get("mcp-session-id")
-
-  // Existing session — route to its transport.
-  if (sessionId && transports.has(sessionId)) {
-    return transports.get(sessionId)!.handleRequest(request, { parsedBody })
-  }
-
-  // No session yet — must be an `initialize` request.
-  if (!isInitializeRequest(parsedBody)) {
-    return Response.json(
-      {
-        jsonrpc: "2.0",
-        error: { code: -32000, message: "Bad Request: No valid session ID provided" },
-        id: null,
-      },
-      { status: 400 },
-    )
-  }
-
-  // Derive the tenant from whatever header/cookie/JWT you use.
   const tenantId = request.headers.get("x-tenant-id")
   if (!tenantId) return new Response("missing x-tenant-id", { status: 401 })
   const tenant = resolveTenant(tenantId)
 
-  // Clone the base cli with tenant-specific cwd/env/fs. Every tool
-  // call on this session now sees the tenant's state via `ctx`.
   const tenantCli = baseCli.clone({
     cwd: tenant.cwd,
     env: { ...tenant.env, TENANT_ID: tenantId },
@@ -302,22 +274,17 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
   addCliToolsToMcp({ cli: tenantCli, server: mcpServer })
 
   const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID(),
-    enableJsonResponse: true, // pure request/response; no SSE to manage
-    onsessioninitialized: (sid) => {
-      transports.set(sid, transport)
-    },
-    onsessionclosed: (sid) => {
-      transports.delete(sid)
-    },
+    sessionIdGenerator: undefined,
+    enableJsonResponse: true,
   })
-  transport.onclose = () => {
-    const sid = transport.sessionId
-    if (sid) transports.delete(sid)
-  }
 
   await mcpServer.connect(transport)
-  return transport.handleRequest(request, { parsedBody })
+  try {
+    return await transport.handleRequest(request, { parsedBody })
+  } finally {
+    await transport.close()
+    await mcpServer.close()
+  }
 }
 ```
 
@@ -353,7 +320,7 @@ export async function POST(request: Request) {
 
 **Key guarantees**
 
-- Every tool call inside a session runs against `tenantCli`'s `cwd` / `env` / `fs` — not the base cli's and not another tenant's.
+- Every tool call on a request runs against `tenantCli`'s `cwd` / `env` / `fs`, not the base cli's and not another tenant's.
 - `ctx.console.log` / `ctx.console.error` / `ctx.process.stdout.write` / `ctx.process.stderr.write` are captured into the `CallToolResult.content`. They never reach the host process stdio, so they can't corrupt the JSON-RPC channel or leak between users.
 - `ctx.process.exit(code)` throws `GokeProcessExit` instead of killing the server. The tool call resolves as `{ isError: code !== 0, content: [captured output] }` and the next request keeps running.
 - Actions that `throw` are caught and returned as `{ isError: true, content: [message, stderr] }`.
@@ -486,7 +453,7 @@ Registers MCP tool commands on a goke CLI instance.
 |--------|------|---------|-------------|
 | `cli` | `Goke` | **required** | The goke CLI instance to add commands to |
 | `getMcpUrl` | `() => string \| undefined` | — | Returns the MCP server URL. Return the URL even when the user is not logged in so `--help` still works |
-| `getMcpTransport` | `(sessionId?) => Transport \| null` | — | Custom transport. Use for stdio or anything `getMcpUrl` cannot express |
+| `getMcpTransport` | `() => Transport \| null` | — | Custom transport. Use for stdio or anything `getMcpUrl` cannot express |
 | `getHeaders` | `() => Record<string, string> \| undefined` | — | Extra HTTP headers (for example `Authorization`). Used with `getMcpUrl` |
 | `argv` | `string[]` | `process.argv.slice(2)` | Args used to skip live discovery on help and already registered commands |
 | `commandPrefix` | `string` | `''` | Prefix for commands (e.g. `'mcp'` makes `mcp notion-search`) |
@@ -554,7 +521,7 @@ Tokens are persisted via the `oauth.save()` callback you provide, so subsequent 
 
 ## Caching
 
-Tools and the MCP session ID are cached for **1 hour** to avoid connecting on every invocation. The cache is managed through the `loadCache`/`saveCache` callbacks — you control where it's stored (file, database, env, etc.).
+Tool schemas are cached for **1 hour** so `--help` and command registration do not hit the network on every invocation. The cache is managed through the `loadCache`/`saveCache` callbacks. You control where it is stored (file, database, env, etc.). Each tool call still opens a new MCP connection. There is no `Mcp-Session-Id` reuse.
 
 When the cache expires or a tool call fails, the cache is cleared and tools are re-fetched on the next run.
 

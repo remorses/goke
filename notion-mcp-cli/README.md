@@ -28,7 +28,7 @@ notion-mcp-cli logout
 ## How it works
 
 1. On first command, opens browser for Notion OAuth
-2. Caches tools and session for 1 hour
+2. Caches tool schemas for 1 hour
 3. Auto-refreshes tokens when needed
 
 ## Agent usage

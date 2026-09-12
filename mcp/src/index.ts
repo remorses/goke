@@ -9,7 +9,6 @@
  *
  * - **Auto-discovery**: Fetches all tools from the MCP server and creates CLI commands
  * - **Caching**: Tools are cached for 1 hour to avoid reconnecting on every invocation
- * - **Session reuse**: MCP session IDs are cached to skip initialization handshake
  * - **Type-aware parsing**: Handles string, number, boolean, object, and array arguments
  * - **JSON schema support**: Generates CLI options from tool input schemas
  * - **OAuth support**: Automatic OAuth authentication on 401 errors (lazy auth)
@@ -64,7 +63,6 @@ export interface CachedMcpTools {
     inputSchema?: unknown;
   }>;
   timestamp: number;
-  sessionId?: string;
 }
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -92,9 +90,8 @@ export interface AddMcpCommandsOptions {
   /**
    * Returns a transport to connect to the MCP server, or null if not configured.
    * Use this for stdio servers or any setup `getMcpUrl` cannot express.
-   * @param sessionId - Optional session ID from a still-valid cache
    */
-  getMcpTransport?: (sessionId?: string) => Transport | null | Promise<Transport | null>;
+  getMcpTransport?: () => Transport | null | Promise<Transport | null>;
 
   /**
    * Argv used to decide whether to skip live discovery.
@@ -252,13 +249,11 @@ function matchesRegisteredCommand({ argv, cli }: { argv: string[]; cli: Goke }) 
 
 function createTransportWithAuth({
   url,
-  sessionId,
   oauthState,
   oauth,
   headers,
 }: {
   url: URL
-  sessionId?: string
   oauthState?: McpOAuthState
   oauth?: McpOAuthConfig
   headers?: Record<string, string>
@@ -281,7 +276,6 @@ function createTransportWithAuth({
 
   const hasHeaders = headers && Object.keys(headers).length > 0;
   return new StreamableHTTPClientTransport(url, {
-    sessionId,
     authProvider,
     requestInit: hasHeaders ? { headers } : undefined,
   });
@@ -293,7 +287,6 @@ function createTransportWithAuth({
  * Adds MCP tool commands to a goke CLI instance.
  *
  * Tools are cached for 1 hour to avoid connecting on every CLI invocation.
- * Session ID is also cached to skip MCP initialization handshake.
  *
  * OAuth is lazy - authentication only happens when a 401 error occurs.
  * After successful auth, the operation is automatically retried.
@@ -312,9 +305,7 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
     argv = process.argv.slice(2),
   } = options;
 
-  // Helper to get transport - supports both old and new API
-  const getTransport = async (sessionId?: string): Promise<Transport | null> => {
-    // New API: getMcpUrl + oauth
+  const getTransport = async (): Promise<Transport | null> => {
     if (getMcpUrl) {
       const mcpUrl = getMcpUrl();
       if (!mcpUrl) {
@@ -326,16 +317,14 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
 
       return createTransportWithAuth({
         url,
-        sessionId,
         oauthState,
         oauth,
         headers: getHeaders?.(),
       });
     }
 
-    // Custom / stdio transport
     if (getMcpTransport) {
-      return getMcpTransport(sessionId);
+      return getMcpTransport();
     }
 
     return null;
@@ -377,11 +366,9 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
     isHelpOrMetaArgv(argv) || matchesRegisteredCommand({ argv, cli });
 
   let tools: CachedMcpTools["tools"] | undefined;
-  let cachedSessionId: string | undefined;
 
   if (isCacheValid && cachedTools) {
     tools = cachedTools.tools;
-    cachedSessionId = cachedTools.sessionId;
   } else if (skipLiveDiscovery) {
     if (cachedTools) {
       tools = cachedTools.tools;
@@ -395,8 +382,6 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
         const result = await client.listTools();
         tools = result.tools;
 
-        const sessionId = (transport as { sessionId?: string }).sessionId;
-
         saveCache({
           tools: tools.map((t) => ({
             name: t.name,
@@ -404,9 +389,7 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
             inputSchema: t.inputSchema,
           })),
           timestamp: Date.now(),
-          sessionId,
         });
-        cachedSessionId = sessionId;
       } catch (err) {
         const shouldAuth = isAuthRequiredError(err) && oauth && getMcpUrl && !skipLiveDiscovery;
         if (shouldAuth) {
@@ -481,7 +464,7 @@ export async function addMcpCommands(options: AddMcpCommandsOptions): Promise<vo
       const parsedArgs = extractToolArguments(cliOptions, inputSchema);
 
       const executeWithRetry = async (isRetry = false): Promise<void> => {
-        const transport = await getTransport(isRetry ? undefined : cachedSessionId);
+        const transport = await getTransport();
         if (!transport) {
           console.error("MCP transport not available. Run login command first.");
           process.exit(1);
