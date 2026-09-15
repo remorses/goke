@@ -199,10 +199,7 @@ describe("addCliToolsToMcp", () => {
                 "description": "Uppercase output",
                 "type": "boolean"
               }
-            },
-            "required": [
-              "name"
-            ]
+            }
           }
         },
         {
@@ -219,11 +216,7 @@ describe("addCliToolsToMcp", () => {
                 "type": "number",
                 "description": "Right operand"
               }
-            },
-            "required": [
-              "left",
-              "right"
-            ]
+            }
           }
         },
         {
@@ -265,10 +258,7 @@ describe("addCliToolsToMcp", () => {
                 "type": "boolean",
                 "description": "Dry run flag"
               }
-            },
-            "required": [
-              "title"
-            ]
+            }
           }
         }
       ]"
@@ -305,10 +295,7 @@ describe("addCliToolsToMcp", () => {
                 "description": "Uppercase output",
                 "type": "boolean"
               }
-            },
-            "required": [
-              "name"
-            ]
+            }
           }
         },
         {
@@ -325,11 +312,7 @@ describe("addCliToolsToMcp", () => {
                 "type": "number",
                 "description": "Right operand"
               }
-            },
-            "required": [
-              "left",
-              "right"
-            ]
+            }
           }
         },
         {
@@ -371,10 +354,7 @@ describe("addCliToolsToMcp", () => {
                 "type": "boolean",
                 "description": "Dry run flag"
               }
-            },
-            "required": [
-              "title"
-            ]
+            }
           }
         }
       ]"

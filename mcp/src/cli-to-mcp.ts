@@ -39,7 +39,6 @@ interface OptionLike {
   name: string;
   description: string;
   default?: unknown;
-  required?: boolean;
   isBoolean?: boolean;
   schema?: StandardJSONSchemaV1;
 }
@@ -503,13 +502,11 @@ function createBinding(cli: Goke, command: Command, toolName: string): CliToolBi
     }
   }
 
+  // `--days <days>` sets option.required, but that only means "value required
+  // if the flag is present". CLI flags stay optional; omit them from MCP required.
   for (const option of options) {
     const normalized = normalizeOptionSchema(option);
     properties[option.name] = normalized.schema;
-
-    if (option.required) {
-      requiredNames.push(option.name);
-    }
 
     optionBindings.push({
       name: option.name,

@@ -238,7 +238,7 @@ describe("createMcpAction", () => {
       expect(searchTool.description).toBe("Search for items");
       expect(searchTool.inputSchema.properties).toHaveProperty("query");
       expect(searchTool.inputSchema.properties).toHaveProperty("limit");
-      expect(searchTool.inputSchema.required).toEqual(["query"]);
+      expect(searchTool.inputSchema.required).toBeUndefined();
 
       const deployTool = tools.tools.find((t) => t.name === "deploy")!;
       expect(deployTool.inputSchema.properties).toHaveProperty("env");
@@ -287,6 +287,53 @@ describe("createMcpAction", () => {
       await expect(
         client.callTool({ name: "nonexistent", arguments: {} }),
       ).rejects.toThrow(/not found/i);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("keeps --flag <value> in properties but not in required", async () => {
+    const cli = goke("strada");
+
+    cli
+      .command("projects create <slug>", "Create a project")
+      .option("--traces-days <days>", z.string().describe("Traces retention days"))
+      .option("--logs-days <days>", z.string().describe("Logs retention days"))
+      .option("--errors-days <days>", z.string().describe("Errors retention days"))
+      .option("--metrics-days <days>", z.string().describe("Metrics retention days"))
+      .option("--all-days <days>", z.string().describe("Retention for all signals"))
+      .action((slug, options) => ({ slug, ...options }));
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    cli.command("mcp", "Start MCP server").action(
+      createMcpAction({
+        cli,
+        createTransport: () => serverTransport,
+      }),
+    );
+
+    cli.matchedCommandName = "mcp";
+    const mcpCommand = cli.commands.find((c) => c.name === "mcp")!;
+    await mcpCommand.commandAction!({});
+
+    const client = new Client({ name: "test-client", version: "1.0.0" }, { capabilities: {} });
+    await client.connect(clientTransport);
+
+    try {
+      const tools = await client.listTools();
+      const createTool = tools.tools.find((t) => t.name === "projects_create")!;
+      expect(createTool.inputSchema.properties).toHaveProperty("slug");
+      expect(createTool.inputSchema.properties).toHaveProperty("tracesDays");
+      expect(createTool.inputSchema.properties).toHaveProperty("logsDays");
+      expect(createTool.inputSchema.properties).toHaveProperty("allDays");
+      expect(createTool.inputSchema.required).toEqual(["slug"]);
+
+      const result = await client.callTool({
+        name: "projects_create",
+        arguments: { slug: "my-app" },
+      });
+      expect(firstTextContent(result)).toBe('{\n  "slug": "my-app"\n}');
     } finally {
       await client.close();
     }
