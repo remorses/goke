@@ -196,12 +196,14 @@ addCliToolsToMcp({ cli, server: mcp })
 
 ## Multi-tenant remote MCP over HTTP
 
-When you expose a cli as a **remote** MCP (over `StreamableHTTPServerTransport`, SSE, or any other network transport), one server process handles many concurrent users. Each tool call must run against that user's own filesystem, working directory, environment, and stdin — otherwise tenants see each other's state and stdio writes trample the JSON-RPC channel.
+When you expose a cli as a **remote** MCP over HTTP, one process handles many concurrent users. Each request must run against that user's own filesystem, working directory, environment, and stdin — otherwise tenants see each other's state and stdio writes trample the JSON-RPC channel.
+
+Do **not** keep MCP session IDs. Streamable HTTP can run **stateless**: `sessionIdGenerator: undefined`. Each POST builds a fresh `Server` and transport, then closes them. That works on Cloudflare Workers and any other isolate that does not keep process memory.
 
 The recipe is:
 
 1. Define the cli **once**.
-2. On every new MCP session, **clone** the cli with per-tenant `{ cwd, env, fs, stdin }` and mount it on a fresh session-scoped `Server` via `addCliToolsToMcp({ cli: tenantClone, server })`.
+2. On **every POST**, resolve the tenant from the request (JWT, cookie, header), **clone** the cli with `{ cwd, env, fs }`, and mount it on a fresh `Server` via `addCliToolsToMcp({ cli: tenantClone, server })`.
 3. Inside command actions, always use the **injected** `ctx` — `ctx.fs`, `ctx.process.cwd`, `ctx.process.env`, `ctx.console.log` — instead of the Node globals. `@goke/mcp` wires each tool call into the tenant's cloned context, but only code that goes through `ctx` participates in that isolation.
 
 ### Write commands against `ctx`
@@ -233,17 +235,37 @@ cli
 
 `ctx.fs` satisfies the `GokeFs` interface — a Node-compatible async filesystem API. You can point it at a real directory, a virtual in-memory store, an S3 bucket adapter, a `memfs`, or anything else you can wrap behind that interface.
 
-### Clone the cli per session
+### Clone the cli per request
 
 The MCP SDK ships `WebStandardStreamableHTTPServerTransport`, which accepts a Web-Standard `Request` and returns a `Response`. That one shape plugs directly into **any** web framework that speaks web-standard: [Spiceflow](https://github.com/remorses/spiceflow), Cloudflare Workers, Deno, Bun, Next.js route handlers, SvelteKit endpoints, or a raw `fetch`-based handler. No Express, no `node:http` wiring, no framework lock-in.
+
+Pass `sessionIdGenerator: undefined` so the transport does not emit or expect `mcp-session-id`. Do not store transports in a `Map`. JSON-RPC `initialize`, `tools/list`, and `tools/call` are separate POSTs. Each one clones the cli from the request's tenant identity.
+
+```
+POST /mcp  (JWT / x-tenant-id)
+        │
+        v
+resolveTenant(id) ──> baseCli.clone({ cwd, env, fs })
+                           │
+                           v
+                    fresh Server + transport
+                    sessionIdGenerator: undefined
+                           │
+                           v
+addCliToolsToMcp ──> handleRequest
+                           │
+                           v
+                        Response
+                           │
+                           v
+             close transport + server ──> nothing stored
+```
 
 You build one `handleMcpRequest(request: Request): Promise<Response>` function and mount it wherever you route HTTP:
 
 ```ts
-import { randomUUID } from "node:crypto"
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js"
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
 import { addCliToolsToMcp } from "@goke/mcp"
 import type { GokeFs } from "goke"
 
@@ -254,43 +276,17 @@ declare function resolveTenant(tenantId: string): {
   fs: GokeFs   // your filesystem adapter
 }
 
-const transports = new Map<string, WebStandardStreamableHTTPServerTransport>()
-
 export async function handleMcpRequest(request: Request): Promise<Response> {
-  // Pre-parse the body so we can use it for both routing decisions
-  // (is this an `initialize` request?) and as the pre-parsed body
-  // forwarded to the transport via `HandleRequestOptions.parsedBody`.
-  let parsedBody: unknown
-  if (request.method === "POST") {
-    parsedBody = await request.clone().json().catch(() => undefined)
+  if (request.method !== "POST") {
+    return new Response(null, { status: 405 })
   }
 
-  const sessionId = request.headers.get("mcp-session-id")
+  const parsedBody = await request.clone().json().catch(() => undefined)
 
-  // Existing session — route to its transport.
-  if (sessionId && transports.has(sessionId)) {
-    return transports.get(sessionId)!.handleRequest(request, { parsedBody })
-  }
-
-  // No session yet — must be an `initialize` request.
-  if (!isInitializeRequest(parsedBody)) {
-    return Response.json(
-      {
-        jsonrpc: "2.0",
-        error: { code: -32000, message: "Bad Request: No valid session ID provided" },
-        id: null,
-      },
-      { status: 400 },
-    )
-  }
-
-  // Derive the tenant from whatever header/cookie/JWT you use.
   const tenantId = request.headers.get("x-tenant-id")
   if (!tenantId) return new Response("missing x-tenant-id", { status: 401 })
   const tenant = resolveTenant(tenantId)
 
-  // Clone the base cli with tenant-specific cwd/env/fs. Every tool
-  // call on this session now sees the tenant's state via `ctx`.
   const tenantCli = baseCli.clone({
     cwd: tenant.cwd,
     env: { ...tenant.env, TENANT_ID: tenantId },
@@ -304,22 +300,16 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
   addCliToolsToMcp({ cli: tenantCli, server: mcpServer })
 
   const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID(),
-    enableJsonResponse: true, // pure request/response; no SSE to manage
-    onsessioninitialized: (sid) => {
-      transports.set(sid, transport)
-    },
-    onsessionclosed: (sid) => {
-      transports.delete(sid)
-    },
+    sessionIdGenerator: undefined,
+    enableJsonResponse: true,
   })
-  transport.onclose = () => {
-    const sid = transport.sessionId
-    if (sid) transports.delete(sid)
-  }
-
   await mcpServer.connect(transport)
-  return transport.handleRequest(request, { parsedBody })
+  try {
+    return await transport.handleRequest(request, { parsedBody })
+  } finally {
+    await transport.close()
+    await mcpServer.close()
+  }
 }
 ```
 
@@ -355,7 +345,7 @@ export async function POST(request: Request) {
 
 **Key guarantees**
 
-- Every tool call inside a session runs against `tenantCli`'s `cwd` / `env` / `fs` — not the base cli's and not another tenant's.
+- Every request runs against `tenantCli`'s `cwd` / `env` / `fs` — not the base cli's and not another tenant's.
 - `ctx.console.log` / `ctx.console.error` / `ctx.process.stdout.write` / `ctx.process.stderr.write` are captured into the `CallToolResult.content`. They never reach the host process stdio, so they can't corrupt the JSON-RPC channel or leak between users.
 - `ctx.process.exit(code)` throws `GokeProcessExit` instead of killing the server. The tool call resolves as `{ isError: code !== 0, content: [captured output] }` and the next request keeps running.
 - Actions that `throw` are caught and returned as `{ isError: true, content: [message, stderr] }`.
@@ -371,7 +361,7 @@ Only code that flows through `ctx` participates in the isolation. The following 
 
 Port those to `ctx.fs`, `ctx.console`, `ctx.process.*` and you're multi-tenant-safe.
 
-For a runnable end-to-end example (including two concurrent in-memory-fs tenants writing separate files), see [`src/__test__/http-multi-tenant.test.ts`](./src/__test__/http-multi-tenant.test.ts).
+For a runnable end-to-end example (including two concurrent in-memory-fs tenants writing separate files, with a new server per POST), see [`src/__test__/http-multi-tenant.test.ts`](./src/__test__/http-multi-tenant.test.ts).
 
 ### Lower-level primitive: `cli.createExecutionContext(override)`
 
