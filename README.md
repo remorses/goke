@@ -1166,11 +1166,52 @@ When users run `--help`, deprecated options won't appear, but `--old-port 3000` 
 
 ### Brackets
 
-When using brackets in command name, angled brackets indicate required command arguments, while square brackets indicate optional arguments.
+**Positionals** in the command name:
 
-When using brackets in option name, angled brackets indicate that a string / number value is required, while square brackets indicate that the value is optional.
+- `<slug>`: the argument is required
+- `[slug]`: the argument is optional
 
-**Optionality is determined solely by bracket syntax, not by the schema.** `[square brackets]` makes an option optional regardless of whether the schema is `z.string()` or `z.string().optional()`. The schema's `.optional()` is never consulted for this — it only affects type coercion. This means `z.string()` with `[--name]` is treated as optional: if the flag is omitted, `options.name` is `undefined` even though the schema has no `.optional()`.
+```bash
+mycli projects create            # error: missing required argument `<slug>`
+mycli projects create my-app     # ok
+```
+
+**Flags** use the same brackets for a different meaning. For `<value>` flags, the flag itself is still optional unless the **schema** rejects omit:
+
+- `--verbose`: boolean flag. No value.
+- `--days [days]`: flag optional. Value optional if the flag is present (`--days` alone is valid).
+- `--days <days>`: flag optional. Value **required** if the flag is present. You cannot pass `--days` with nothing after it.
+
+```bash
+mycli serve                      # ok, --port omitted
+mycli serve --port 3000          # ok
+mycli serve --port               # error: option `--port <port>` needs a value
+```
+
+`<days>` does **not** mean the flag must be passed. It only means: if you pass `--days`, you must pass a value. Commander and CAC work the same way.
+
+**Make the flag itself required with a schema.** Use a schema that rejects `undefined` (`z.string()`, `z.number()`, `z.enum([...])`). Use `.optional()` or `.default(...)` when the flag can be omitted:
+
+```ts
+cli
+  .command('checks create', 'Create a check')
+  // Flag must be passed, and it must have a value
+  .option('--url <url>', z.string().describe('URL to check'))
+  // Flag can be omitted. If passed, it still needs a value.
+  .option('--name <name>', z.string().optional().describe('Check name'))
+  // Flag can be omitted. Default fills in.
+  .option('--port <port>', z.number().default(3000).describe('Port'))
+```
+
+```bash
+mycli checks create                           # error: option `--url <url>` is required
+mycli checks create --url                     # error: option `--url <url>` needs a value
+mycli checks create --url https://example.com # ok
+```
+
+`[square brackets]` keep the flag optional even with `z.string()`. The schema then only coerces the value when the flag is present.
+
+Omission checks use sync Standard Schema `validate(undefined)`. Async schemas cannot decide this; use a sync schema, or `.optional()` / `.default()`.
 
 ### Optional-value flags — `--flag` vs `--flag value` vs omitted
 

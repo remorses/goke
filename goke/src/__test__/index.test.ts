@@ -83,7 +83,7 @@ describe('error formatting', () => {
       await cli.parse('node bin serve --port'.split(' '))
     } catch {}
 
-    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: option \`--port <port>\` value is missing"`)
+    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: option \`--port <port>\` needs a value. Do not pass \`--port\` with no argument."`)
   })
 
   test('schema coercion error prints formatted error to stderr', async () => {
@@ -115,7 +115,7 @@ describe('error formatting', () => {
     } catch {}
 
     expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`
-      "error: option \`--port <port>\` value is missing
+      "error: option \`--port <port>\` needs a value. Do not pass \`--port\` with no argument.
       Run "mycli serve --help" for usage information."
     `)
   })
@@ -667,10 +667,111 @@ describe('regression: oracle-found issues', () => {
       .option('--port <port>', z.number().describe('Port'))
       .action(() => { actionCalled = true })
 
-    // --port without a value should throw "value is missing"
     await expect(cli.parse('node bin serve --port'.split(' '), { run: true }))
-      .rejects.toThrow('value is missing')
+      .rejects.toThrow('needs a value')
     expect(actionCalled).toBe(false)
+  })
+
+  test('omitting --flag <value> without a schema is allowed', async () => {
+    const cli = goke()
+    cli.command('serve', 'Start').option('--port <port>', 'Port').action(() => {})
+    const { options } = await cli.parse('node bin serve'.split(' '))
+    expect(options.port).toBeUndefined()
+  })
+
+  test('omitting --flag <value> with z.string().optional() is allowed', async () => {
+    const cli = goke()
+    cli.command('create', 'Create').option('--name <name>', z.string().optional().describe('Name')).action(() => {})
+    const { options } = await cli.parse('node bin create'.split(' '))
+    expect(options.name).toBeUndefined()
+  })
+
+  test('omitting --flag <value> with a non-optional schema is required', async () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+    cli.command('create', 'Create').option('--url <url>', z.string().describe('URL to check')).action(() => {})
+    try {
+      await cli.parse('node bin create'.split(' '))
+    } catch {}
+    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: option \`--url <url>\` is required"`)
+  })
+
+  test('schema-required flag still errors when passed with no value', async () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+    cli.command('create', 'Create').option('--url <url>', z.string().describe('URL to check')).action(() => {})
+    try {
+      await cli.parse('node bin create --url'.split(' '))
+    } catch {}
+    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: option \`--url <url>\` needs a value. Do not pass \`--url\` with no argument."`)
+  })
+
+  test('schema default lets a <value> flag be omitted', async () => {
+    const cli = goke()
+    cli.command('serve', 'Start').option('--port <port>', z.number().default(3000).describe('Port')).action(() => {})
+    const { options } = await cli.parse('node bin serve'.split(' '))
+    expect(options.port).toBe(3000)
+  })
+
+  test('boolean flags stay optional even with z.boolean()', async () => {
+    const cli = goke()
+    cli.command('serve', 'Start').option('--verbose', z.boolean().describe('Verbose')).action(() => {})
+    const { options } = await cli.parse('node bin serve'.split(' '))
+    expect(options.verbose).toBeUndefined()
+  })
+
+  test('required boolean <value> flag accepts true and false', async () => {
+    const cli = goke()
+    cli.command('run', 'Run').option('--enabled <enabled>', z.boolean()).action(() => {})
+    const yes = await cli.parse('node bin run --enabled true'.split(' '))
+    expect(yes.options.enabled).toBe(true)
+    const no = await cli.parse('node bin run --enabled false'.split(' '))
+    expect(no.options.enabled).toBe(false)
+  })
+
+  test('aliased bare <value> flag names the long option in the error', async () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+    cli.command('serve', 'Start').option('-p, --port <port>', 'Port').action(() => {})
+    try {
+      await cli.parse('node bin serve --port'.split(' '))
+    } catch {}
+    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: option \`-p, --port <port>\` needs a value. Do not pass \`--port\` with no argument."`)
+  })
+
+  test('async Standard Schema cannot silently make a required flag optional', async () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+    const schema = {
+      '~standard': {
+        version: 1 as const,
+        vendor: 'test',
+        jsonSchema: {
+          input: () => ({ type: 'string' }),
+          output: () => ({ type: 'string' }),
+        },
+        validate: async (value: unknown) => (
+          value === undefined
+            ? { issues: [{ message: 'required' }] }
+            : { value }
+        ),
+      },
+    }
+    cli.command('create', 'Create').option('--url <url>', schema as any).action(() => {})
+    try {
+      await cli.parse('node bin create'.split(' '))
+    } catch {}
+    expect(stripStackTrace(stderr.text)).toMatch(/async Standard Schema/)
+  })
+
+  test('missing required positional names the argument', async () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+    cli.command('projects create <slug>', 'Create a project').action(() => {})
+    try {
+      await cli.parse('node bin projects create'.split(' '))
+    } catch {}
+    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: missing required argument \`<slug>\` for command \`projects create <slug>\`"`)
   })
 
   test('repeated flags with non-array schema throws', async () => {

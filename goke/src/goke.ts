@@ -12,7 +12,7 @@
 
 import pc from './picocolors.js'
 import mri from "./mri.js"
-import { GokeError, coerceBySchema, extractJsonSchema, extractSchemaMetadata, isStandardSchema } from "./coerce.js"
+import { GokeError, coerceBySchema, extractJsonSchema, extractSchemaMetadata, isStandardSchema, schemaAcceptsOmittedValue } from "./coerce.js"
 import type { StandardJSONSchemaV1 } from "./coerce.js"
 import { createJustBashCommand as createJustBashCommandBridge } from './just-bash.js'
 import { COMPLETION_FLAG, generateCompletionScript, installCompletions, uninstallCompletions, detectShell, detectCompletionShell, validateShell } from './completions.js'
@@ -67,6 +67,11 @@ const findAllBrackets = (v: string) => {
 interface MriOptionsConfig {
   alias: { [k: string]: string[] }
   boolean: string[]
+}
+
+function longFlagToken(option: Option): string {
+  const tokens = option.rawName.split(',').map((part) => removeBrackets(part.trim()))
+  return tokens.find((token) => token.startsWith('--')) ?? tokens[0] ?? `--${option.name}`
 }
 
 const getMriOptions = (options: Option[]) => {
@@ -431,18 +436,24 @@ type HasSchemaDefault<S> =
 /**
  * Build the option type entry for a single .option() call.
  *
- * Required options (`<...>`) produce a required key.
- * Optional options (`[...]`) produce an optional key, EXCEPT when the schema
- * has an effective default (see `HasSchemaDefault`) — in that case goke's
- * runtime always surfaces the default value, so the property is typed as
- * required with the post-coercion output type.
+ * `[...]` options are optional keys, except when the schema has an effective
+ * default (see `HasSchemaDefault`).
+ * `<...>` options are required keys unless the schema input allows `undefined`
+ * (`z.string().optional()`). That is how a flag with a required value can still
+ * be omitted. wrapJsonSchema() has input `unknown`, so those flags stay optional.
  */
 type OptionEntry<RawName extends string, Schema> =
   IsOptionalOption<RawName> extends true
     ? HasSchemaDefault<Schema> extends true
       ? { [K in ExtractOptionName<RawName>]: InferSchemaOutput<Schema> }
       : { [K in ExtractOptionName<RawName>]?: InferSchemaOutput<Schema> }
-    : { [K in ExtractOptionName<RawName>]: InferSchemaOutput<Schema> }
+    : HasSchemaDefault<Schema> extends true
+      ? { [K in ExtractOptionName<RawName>]: InferSchemaOutput<Schema> }
+      : unknown extends InferSchemaInput<Schema>
+        ? { [K in ExtractOptionName<RawName>]?: InferSchemaOutput<Schema> }
+        : undefined extends InferSchemaInput<Schema>
+          ? { [K in ExtractOptionName<RawName>]?: InferSchemaOutput<Schema> }
+          : { [K in ExtractOptionName<RawName>]: InferSchemaOutput<Schema> }
 
 /**
  * Infer the raw runtime value shape for an option declared without a schema.
@@ -965,13 +976,12 @@ class Command<RawName extends string = string, Opts = {}> {
   }
 
   checkRequiredArgs() {
-    const minimalArgsCount = this.args.filter((arg) => arg.required).length
-
-    if (this.cli.args.length < minimalArgsCount) {
-      throw new GokeError(
-        `missing required args for command \`${this.rawName}\``
-      )
-    }
+    const missing = this.args.filter((arg, index) => arg.required && this.cli.args[index] === undefined)
+    if (missing.length === 0) return
+    const names = missing.map((arg) => `\`<${arg.value}>\``).join(', ')
+    throw new GokeError(
+      `missing required argument ${names} for command \`${this.rawName}\``
+    )
   }
 
   /**
@@ -1016,11 +1026,14 @@ class Command<RawName extends string = string, Opts = {}> {
           break
         }
       }
-      // Check required option value
-      if (option.required) {
-        if (value === true || value === false) {
-          throw new GokeError(`option \`${option.rawName}\` value is missing`)
-        }
+      if (
+        option.required
+        && value === undefined
+        && option.default === undefined
+        && option.schema
+        && !schemaAcceptsOmittedValue(option.schema)
+      ) {
+        throw new GokeError(`option \`${option.rawName}\` is required`)
       }
     }
   }
@@ -2024,7 +2037,8 @@ class Goke<Opts = {}> extends EventEmitter {
         const result = command.isMatched(parsed.args as string[])
         if (result.matched) {
           shouldParse = false
-          // Re-parse with coercion now that we know this is the right command
+          this.matchedCommand = command
+          this.matchedCommandName = command.name
           const coerced = this.mri(argv.slice(2), command)
           const matchedCommandName = coerced.args.slice(0, result.consumedArgs).join(' ')
           const parsedInfo = {
@@ -2272,11 +2286,17 @@ class Goke<Opts = {}> extends EventEmitter {
           //   - Optional options ([...]) with schema and NO default: replace
           //     `true` with `undefined` so the caller sees "flag present, no value"
           //     as `undefined`.
+          if (value === true && requiredValueOptions.has(key)) {
+            const option = cliOptions.find((entry) => entry.names.includes(key) || entry.name === key)
+            const rawName = option?.rawName ?? `--${key}`
+            const flagName = option ? longFlagToken(option) : `--${key}`
+            throw new GokeError(
+              `option \`${rawName}\` needs a value. Do not pass \`${flagName}\` with no argument.`,
+            )
+          }
           const schemaInfo = schemaMap.get(key)
           if (schemaInfo && value !== undefined) {
-            if (value === true && requiredValueOptions.has(key)) {
-              // Keep sentinel for checkOptionValue() to detect
-            } else if (value === true && optionalValueOptions.has(key)) {
+            if (value === true && optionalValueOptions.has(key)) {
               if (optionsWithDefault.has(key)) {
                 // Preserve the preset default — don't overwrite with undefined.
                 continue

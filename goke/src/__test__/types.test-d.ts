@@ -129,8 +129,8 @@ describe('type-level: middleware use() callback inference', () => {
       .option('--port <port>', schema1)
       .option('--host <host>', schema2)
       .use((options, { console, fs, process }) => {
-        expectTypeOf(options.port).toEqualTypeOf<number>()
-        expectTypeOf(options.host).toEqualTypeOf<string>()
+        expectTypeOf(options.port).toEqualTypeOf<number | undefined>()
+        expectTypeOf(options.host).toEqualTypeOf<string | undefined>()
         expectTypeOf(fs.mkdir).toBeFunction()
         expectTypeOf(process.argv).toEqualTypeOf<string[]>()
         expectTypeOf(process.cwd).toEqualTypeOf<string>()
@@ -158,7 +158,7 @@ describe('type-level: middleware use() callback inference', () => {
       .use((options, { console }) => {
         // Now both are visible
         expectTypeOf(options.verbose).toEqualTypeOf<boolean | undefined>()
-        expectTypeOf(options.port).toEqualTypeOf<number>()
+        expectTypeOf(options.port).toEqualTypeOf<number | undefined>()
         expectTypeOf(console.error).toBeFunction()
       })
   })
@@ -344,6 +344,26 @@ describe('type-level: command() .action() option inference', () => {
       .action((options) => {
         // Without a schema the runtime still guarantees required value options are strings.
         expectTypeOf(options.port).toEqualTypeOf<string>()
+      })
+  })
+
+  test('z.string().optional() on <value> is typed as optional', () => {
+    goke('test')
+      .command('create', 'Create')
+      .option('--url <url>', z.string().optional().describe('URL'))
+      .action((options) => {
+        expectTypeOf(options.url).toEqualTypeOf<string | undefined>()
+      })
+  })
+
+  test('schema input, not output, decides <value> flag optionality', () => {
+    // Input allows undefined, output does not. Same HasSchemaDefault heuristic as
+    // `.default()`, so the key is typed required even though omit is valid at runtime.
+    goke('test')
+      .command('create', 'Create')
+      .option('--name <name>', z.string().optional().transform((value) => value ?? 'anon'))
+      .action((options) => {
+        expectTypeOf(options.name).toEqualTypeOf<string>()
       })
   })
 

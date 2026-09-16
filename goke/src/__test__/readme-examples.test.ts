@@ -439,6 +439,31 @@ describe('generateDocs', () => {
     }
   })
 
+  test('schema-required <value> flags error when omitted or passed bare', async () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+
+    cli
+      .command('checks create', 'Create a check')
+      .option('--url <url>', z.string().describe('URL to check'))
+      .option('--name <name>', z.string().optional().describe('Check name'))
+      .option('--port <port>', z.number().default(3000).describe('Port'))
+      .action(() => {})
+
+    try {
+      await cli.parse(['node', 'bin', 'checks', 'create'])
+    } catch {}
+    expect(stripAnsi(stderr.text).trim()).toBe('error: option `--url <url>` is required')
+
+    stderr.lines.length = 0
+    try {
+      await cli.parse(['node', 'bin', 'checks', 'create', '--url'])
+    } catch {}
+    expect(stripAnsi(stderr.text).trim()).toBe(
+      'error: option `--url <url>` needs a value. Do not pass `--url` with no argument.',
+    )
+  })
+
   test('skips deprecated options', async () => {
     const cli = gokeTestable('mycli')
     cli
