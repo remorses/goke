@@ -269,7 +269,7 @@ describe('type-level: command() .action() option inference', () => {
       .command('serve', 'Start server')
       .option('--port <port>', z.number())
       .action((options, ctx) => {
-        expectTypeOf(options.port).toEqualTypeOf<number>()
+        expectTypeOf(options.port).toEqualTypeOf<number | undefined>()
         expectTypeOf(ctx).toEqualTypeOf<GokeExecutionContext>()
       })
   })
@@ -281,8 +281,8 @@ describe('type-level: command() .action() option inference', () => {
       .option('--host <host>', z.string())
       .option('--verbose', z.boolean())
       .action((options) => {
-        expectTypeOf(options.port).toEqualTypeOf<number>()
-        expectTypeOf(options.host).toEqualTypeOf<string>()
+        expectTypeOf(options.port).toEqualTypeOf<number | undefined>()
+        expectTypeOf(options.host).toEqualTypeOf<string | undefined>()
         // Boolean flag is optional (no <...> brackets)
         expectTypeOf(options.verbose).toEqualTypeOf<boolean | undefined>()
       })
@@ -294,7 +294,7 @@ describe('type-level: command() .action() option inference', () => {
       .option('--name <name>', z.string())
       .option('--count [count]', z.number())
       .action((options) => {
-        expectTypeOf(options.name).toEqualTypeOf<string>()
+        expectTypeOf(options.name).toEqualTypeOf<string | undefined>()
         expectTypeOf(options.count).toEqualTypeOf<number | undefined>()
       })
   })
@@ -305,8 +305,8 @@ describe('type-level: command() .action() option inference', () => {
       .option('--out-dir <dir>', z.string())
       .option('--my-long-flag <val>', z.string())
       .action((options) => {
-        expectTypeOf(options.outDir).toEqualTypeOf<string>()
-        expectTypeOf(options.myLongFlag).toEqualTypeOf<string>()
+        expectTypeOf(options.outDir).toEqualTypeOf<string | undefined>()
+        expectTypeOf(options.myLongFlag).toEqualTypeOf<string | undefined>()
       })
   })
 
@@ -318,8 +318,8 @@ describe('type-level: command() .action() option inference', () => {
       .action((input, output, options, ctx) => {
         expectTypeOf(input).toEqualTypeOf<string>()
         expectTypeOf(output).toEqualTypeOf<string>()
-        expectTypeOf(options.quality).toEqualTypeOf<number>()
-        expectTypeOf(options.format).toEqualTypeOf<'png' | 'jpg' | 'webp'>()
+        expectTypeOf(options.quality).toEqualTypeOf<number | undefined>()
+        expectTypeOf(options.format).toEqualTypeOf<'png' | 'jpg' | 'webp' | undefined>()
         expectTypeOf(ctx).toEqualTypeOf<GokeExecutionContext>()
       })
   })
@@ -333,7 +333,7 @@ describe('type-level: command() .action() option inference', () => {
         // Global option from cli.option()
         expectTypeOf(options.verbose).toEqualTypeOf<boolean | undefined>()
         // Command-local option
-        expectTypeOf(options.port).toEqualTypeOf<number>()
+        expectTypeOf(options.port).toEqualTypeOf<number | undefined>()
       })
   })
 
@@ -342,8 +342,7 @@ describe('type-level: command() .action() option inference', () => {
       .command('serve', 'Start server')
       .option('--port <port>', 'Port number')
       .action((options) => {
-        // Without a schema the runtime still guarantees required value options are strings.
-        expectTypeOf(options.port).toEqualTypeOf<string>()
+        expectTypeOf(options.port).toEqualTypeOf<string | undefined>()
       })
   })
 
@@ -353,6 +352,60 @@ describe('type-level: command() .action() option inference', () => {
       .option('--url <url>', z.string().optional().describe('URL'))
       .action((options) => {
         expectTypeOf(options.url).toEqualTypeOf<string | undefined>()
+      })
+  })
+
+  test('.required() makes a <value> flag required in action types', () => {
+    goke('test')
+      .command('create', 'Create')
+      .option('--url <url>', z.string().describe('URL'))
+      .required()
+      .action((options) => {
+        expectTypeOf(options.url).toEqualTypeOf<string>()
+      })
+  })
+
+  test('.required() on an untyped <value> flag is a required string', () => {
+    goke('test')
+      .command('create', 'Create')
+      .option('--url <url>', 'URL')
+      .required()
+      .action((options) => {
+        expectTypeOf(options.url).toEqualTypeOf<string>()
+      })
+  })
+
+  test('.required() only marks the last option', () => {
+    goke('test')
+      .command('create', 'Create')
+      .option('--url <url>', z.string().describe('URL'))
+      .required()
+      .option('--name <name>', z.string().describe('Name'))
+      .action((options) => {
+        expectTypeOf(options.url).toEqualTypeOf<string>()
+        expectTypeOf(options.name).toEqualTypeOf<string | undefined>()
+      })
+  })
+
+  test('.required() after two options marks only the second', () => {
+    goke('test')
+      .command('create', 'Create')
+      .option('--url <url>', z.string().describe('URL'))
+      .option('--name <name>', z.string().describe('Name'))
+      .required()
+      .action((options) => {
+        expectTypeOf(options.url).toEqualTypeOf<string | undefined>()
+        expectTypeOf(options.name).toEqualTypeOf<string>()
+      })
+  })
+
+  test('global .required() is visible in command actions', () => {
+    goke('test')
+      .option('--token <token>', z.string().describe('Token'))
+      .required()
+      .command('run', 'Run')
+      .action((options) => {
+        expectTypeOf(options.token).toEqualTypeOf<string>()
       })
   })
 
@@ -451,7 +504,7 @@ describe('type-level: command() .action() option inference', () => {
       .command('serve', 'Start server')
       .option('--port <port>', z.number())
       .action((options) => {
-        expectTypeOf(options.port).toEqualTypeOf<number>()
+        expectTypeOf(options.port).toEqualTypeOf<number | undefined>()
         // @ts-expect-error nonExistent was never declared
         options.nonExistent
       })
@@ -475,7 +528,7 @@ describe('type-level: command() .action() option inference', () => {
       .command('serve', 'Start server')
       .option('--port <port>', z.number())
       .action((options) => {
-        expectTypeOf(options.port).toEqualTypeOf<number>()
+        expectTypeOf(options.port).toEqualTypeOf<number | undefined>()
       })
 
     // Dropping everything is fine
@@ -523,7 +576,7 @@ describe('type-level: README TypeScript examples', () => {
       .action((options) => {
         // Parent's inline command still sees global options
         expectTypeOf(options.verbose).toEqualTypeOf<boolean>()
-        expectTypeOf(options.target).toEqualTypeOf<string>()
+        expectTypeOf(options.target).toEqualTypeOf<string | undefined>()
       })
   })
 
@@ -536,7 +589,7 @@ describe('type-level: README TypeScript examples', () => {
       .option('--parent-only <val>', z.number())
       .use(sub)
       .use((options) => {
-        expectTypeOf(options.parentOnly).toEqualTypeOf<number>()
+        expectTypeOf(options.parentOnly).toEqualTypeOf<number | undefined>()
         // @ts-expect-error subOnly is not declared on the parent
         options.subOnly
       })
@@ -566,7 +619,7 @@ describe('type-level: README TypeScript examples', () => {
 
     const action = cmd.getAction()
     // First param is options with env
-    expectTypeOf(action).parameter(0).toMatchTypeOf<{ env: 'staging' | 'production' }>()
+    expectTypeOf(action).parameter(0).toMatchTypeOf<{ env?: 'staging' | 'production' }>()
   })
 
   test('README global options and middleware example stays typed end-to-end', () => {

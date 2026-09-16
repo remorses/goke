@@ -1,5 +1,29 @@
 # @goke/mcp
 
+## 0.1.2
+
+1. **MCP `inputSchema.required` now lists `.required()` flags.** Required positionals still go in `required`. `z.string()` flags without `.required()` stay optional.
+
+   ```ts
+   cli
+     .command('search', 'Search pages')
+     .option('--query <query>', z.string().describe('Search query'))
+     .required()
+     .option('--limit [limit]', z.number().default(10).describe('Max results'))
+   ```
+
+   Generated MCP schema:
+
+   ```json
+   {
+     "properties": {
+       "query": { "type": "string" },
+       "limit": { "type": "number", "default": 10 }
+     },
+     "required": ["query"]
+   }
+   ```
+
 ## 0.1.1
 
 1. **Stop putting CLI `<value>` flags into MCP `inputSchema.required` just because the flag needs a value when present.** `--days <days>` means the **value is required if the flag is present**. The flag itself is still optional unless the schema rejects omit (`z.string()`, not `z.string().optional()`). MCP `required` now lists required positionals plus schema-required flags.

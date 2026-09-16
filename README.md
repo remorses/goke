@@ -785,6 +785,7 @@ import { z } from 'zod'
 export default goke()
   .command('deploy', 'Deploy the app')
   .option('--env <env>', z.enum(['staging', 'production']).describe('Target environment'))
+  .required()
   .option('--dry-run', 'Preview without deploying')
   .action((options, { console, process }) => {
     console.log(`Deploying to ${options.env} from ${process.cwd}`)
@@ -845,6 +846,7 @@ export function deployAction(options: DeployOptions) { /* ... */ }
 export default goke()
   .command('deploy', 'Deploy')
   .option('--env <env>', z.enum(['staging', 'production']).describe('Environment'))
+  .required()
   .action((options) => {
     options.env // ← always in sync, inferred from the chain
   })
@@ -878,6 +880,7 @@ This makes storage-style commands work in both environments without branching on
 cli
   .command('login', 'Save auth token')
   .option('--token <token>', z.string().describe('Auth token'))
+  .required()
   .action(async (options, { fs, console, process }) => {
     await fs.mkdir('.mycli', { recursive: true })
     await fs.writeFile('.mycli/auth.json', JSON.stringify({ token: options.token }), 'utf8')
@@ -989,7 +992,7 @@ cli
   .option('--port <port>', z.number().describe('Port'))
   .use((options, { console, process }) => {
     options.verbose   // boolean — still visible
-    options.port      // number — now visible
+    options.port      // number | undefined — now visible
     console.error('ready', process.cwd)
   })
 ```
@@ -999,6 +1002,7 @@ Middleware supports async functions. If any middleware is async, the remaining m
 ```ts
 cli
   .option('--token <token>', z.string().describe('API token'))
+  .required()
   .use(async (options, { console, process }) => {
     const client = await connectToApi(options.token)
     globalState.client = client
@@ -1117,8 +1121,10 @@ const cli = goke()
 cli
   .command('serve', 'Start server')
   .option('--port <port>', z.number().describe('Port number'))
+  .required()
   .option('--host [host]', z.string().default('localhost').describe('Hostname'))
   .option('--workers <workers>', z.int().describe('Worker count'))
+  .required()
   .option('--tags <tag>', z.array(z.string()).describe('Tags (repeatable)'))
   .option('--verbose', 'Verbose output')
   .action((options, { console, process }) => {
@@ -1176,7 +1182,7 @@ mycli projects create            # error: missing required argument `<slug>`
 mycli projects create my-app     # ok
 ```
 
-**Flags** use the same brackets for a different meaning. For `<value>` flags, the flag itself is still optional unless the **schema** rejects omit:
+**Flags** use the same brackets for a different meaning. For `<value>` flags, the flag itself is still optional unless you chain **`.required()`**:
 
 - `--verbose`: boolean flag. No value.
 - `--days [days]`: flag optional. Value optional if the flag is present (`--days` alone is valid).
@@ -1188,17 +1194,18 @@ mycli serve --port 3000          # ok
 mycli serve --port               # error: option `--port <port>` needs a value
 ```
 
-`<days>` does **not** mean the flag must be passed. It only means: if you pass `--days`, you must pass a value. Commander and CAC work the same way.
+`<days>` does **not** mean the flag must be passed. It only means: if you pass `--days`, you must pass a value. Commander and CAC work the same way. `z.string()` without `.required()` stays optional.
 
-**Make the flag itself required with a schema.** Use a schema that rejects `undefined` (`z.string()`, `z.number()`, `z.enum([...])`). Use `.optional()` or `.default(...)` when the flag can be omitted:
+**Make the flag itself required with `.required()`.** Chain it after `.option()`. Boolean flags and `[value]` flags cannot be required.
 
 ```ts
 cli
   .command('checks create', 'Create a check')
   // Flag must be passed, and it must have a value
   .option('--url <url>', z.string().describe('URL to check'))
+  .required()
   // Flag can be omitted. If passed, it still needs a value.
-  .option('--name <name>', z.string().optional().describe('Check name'))
+  .option('--name <name>', z.string().describe('Check name'))
   // Flag can be omitted. Default fills in.
   .option('--port <port>', z.number().default(3000).describe('Port'))
 ```
@@ -1208,10 +1215,6 @@ mycli checks create                           # error: option `--url <url>` is r
 mycli checks create --url                     # error: option `--url <url>` needs a value
 mycli checks create --url https://example.com # ok
 ```
-
-`[square brackets]` keep the flag optional even with `z.string()`. The schema then only coerces the value when the flag is present.
-
-Omission checks use sync Standard Schema `validate(undefined)`. Async schemas cannot decide this; use a sync schema, or `.optional()` / `.default()`.
 
 ### Optional-value flags — `--flag` vs `--flag value` vs omitted
 
@@ -1327,6 +1330,7 @@ const cli = goke('runner')
 cli
   .command('run <script>', 'Run a script with injected environment variables')
   .option('--env <env>', z.enum(['dev', 'staging', 'production']).describe('Target environment'))
+  .required()
   .example('# Pass extra flags to the child script via --')
   .example('runner run --env staging server.js -- --port 3000 --verbose')
   .action((script, options) => {
@@ -1468,6 +1472,7 @@ const cli = goke('mycli')
 const deployCmd = cli
   .command('deploy', 'Deploy the app')
   .option('--env <env>', z.enum(['staging', 'production']).describe('Target environment'))
+  .required()
   .action((options, { console }) => {
     console.log(`Deploying to ${options.env}`)
   })
@@ -1878,6 +1883,12 @@ Add a global option. The second argument is either:
 - A **string** used as the description text
 - A **Standard Schema** (e.g. `z.number().describe('Port')`) — description and default are extracted from the schema automatically
 
+#### cli.required()
+
+- Type: `() => CLI`
+
+Mark the last `.option()` as required. Omitting that flag then errors. Chain it immediately after `.option()`. Boolean flags and `[value]` flags cannot be required.
+
 #### cli.use(callback)
 
 - Type: `(callback: (options: Opts, { fs, console, process }) => void | Promise<void>) => CLI`
@@ -1965,6 +1976,12 @@ const help = cli.helpText()
 #### command.option()
 
 Basically the same as `cli.option` but this adds the option to specific command.
+
+#### command.required()
+
+- Type: `() => Command`
+
+Mark the last `.option()` on this command as required. Same rules as `cli.required()`.
 
 #### command.action(callback)
 

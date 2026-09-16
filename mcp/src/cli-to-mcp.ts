@@ -20,7 +20,6 @@ import {
   coerceBySchema,
   extractJsonSchema,
   GokeProcessExit,
-  schemaAcceptsOmittedValue,
   type Command,
   type Goke,
   type GokeExecutionContext,
@@ -41,6 +40,7 @@ interface OptionLike {
   description: string;
   default?: unknown;
   required?: boolean;
+  flagRequired?: boolean;
   isBoolean?: boolean;
   schema?: StandardJSONSchemaV1;
 }
@@ -505,17 +505,12 @@ function createBinding(cli: Goke, command: Command, toolName: string): CliToolBi
   }
 
   // `--days <days>` means "value required if the flag is present". The flag
-  // itself is required only when a non-optional schema rejects `undefined`.
+  // itself is required only when `.required()` set `flagRequired`.
   for (const option of options) {
     const normalized = normalizeOptionSchema(option);
     properties[option.name] = normalized.schema;
 
-    if (
-      option.required
-      && option.default === undefined
-      && option.schema
-      && !schemaAcceptsOmittedValue(option.schema)
-    ) {
+    if (option.flagRequired && option.default === undefined) {
       requiredNames.push(option.name);
     }
 

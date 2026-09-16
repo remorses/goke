@@ -439,13 +439,14 @@ describe('generateDocs', () => {
     }
   })
 
-  test('schema-required <value> flags error when omitted or passed bare', async () => {
+  test('.required() <value> flags error when omitted or passed bare', async () => {
     const stderr = createTestOutputStream()
     const cli = goke('mycli', { stderr, exit: () => {} })
 
     cli
       .command('checks create', 'Create a check')
       .option('--url <url>', z.string().describe('URL to check'))
+      .required()
       .option('--name <name>', z.string().optional().describe('Check name'))
       .option('--port <port>', z.number().default(3000).describe('Port'))
       .action(() => {})
@@ -462,6 +463,21 @@ describe('generateDocs', () => {
     expect(stripAnsi(stderr.text).trim()).toBe(
       'error: option `--url <url>` needs a value. Do not pass `--url` with no argument.',
     )
+  })
+
+  test('marks .required() flags in the options table', async () => {
+    const cli = gokeTestable('mycli')
+    cli
+      .command('checks create', 'Create a check')
+      .option('--url <url>', z.string().describe('URL to check'))
+      .required()
+      .option('--name <name>', z.string().describe('Check name'))
+
+    const pages = generateDocs({ cli })
+    const page = pages.find((p) => p.slug === 'checks-create')!
+    expect(page.content).toContain('| `--url <url>` | - | URL to check (required) |')
+    expect(page.content).toContain('| `--name <name>` | - | Check name |')
+    expect(page.content).not.toContain('Check name (required)')
   })
 
   test('skips deprecated options', async () => {

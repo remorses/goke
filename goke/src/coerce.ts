@@ -505,38 +505,10 @@ function coerceToArray(value: string | boolean, optionName: string): unknown[] {
 /**
  * Type guard for the ~standard property shape on StandardJSONSchemaV1 objects.
  */
-function hasStandardProp(schema: object): schema is { '~standard': { jsonSchema?: unknown; validate?: (value: unknown) => unknown } } {
+function hasStandardProp(schema: object): schema is { '~standard': { jsonSchema?: unknown } } {
   if (!('~standard' in schema)) return false
   const std = (schema as Record<string, unknown>)['~standard']
   return std != null && typeof std === 'object'
-}
-
-/**
- * True when omitting the flag is valid for this schema (`undefined` parses).
- * Zod `z.string().optional()` and `.default(...)` accept omit. `z.string()` does not.
- * Schemas without Standard Schema `validate` (including `wrapJsonSchema`) allow omit.
- */
-export function schemaAcceptsOmittedValue(schema: unknown): boolean {
-  if (!schema || typeof schema !== 'object') return true
-  if (!hasStandardProp(schema)) return true
-  const validate = schema['~standard'].validate
-  if (typeof validate !== 'function') return true
-  try {
-    const result = validate(undefined)
-    if (result == null || typeof result !== 'object') return true
-    if ('then' in result) {
-      throw new GokeError(
-        'async Standard Schema validate() cannot decide whether a flag is required. Use a sync schema, or .optional() / .default().',
-      )
-    }
-    if ('issues' in result && Array.isArray(result.issues) && result.issues.length > 0) {
-      return false
-    }
-    return true
-  } catch (err) {
-    if (err instanceof GokeError) throw err
-    return true
-  }
 }
 
 /**

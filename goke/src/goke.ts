@@ -12,7 +12,7 @@
 
 import pc from './picocolors.js'
 import mri from "./mri.js"
-import { GokeError, coerceBySchema, extractJsonSchema, extractSchemaMetadata, isStandardSchema, schemaAcceptsOmittedValue } from "./coerce.js"
+import { GokeError, coerceBySchema, extractJsonSchema, extractSchemaMetadata, isStandardSchema } from "./coerce.js"
 import type { StandardJSONSchemaV1 } from "./coerce.js"
 import { createJustBashCommand as createJustBashCommandBridge } from './just-bash.js'
 import { COMPLETION_FLAG, generateCompletionScript, installCompletions, uninstallCompletions, detectShell, detectCompletionShell, validateShell } from './completions.js'
@@ -229,10 +229,25 @@ const formatCommandHelpBlock = (args: {
 }
 
 const optionDescriptionText = (option: Option) => {
+  const requiredText = option.flagRequired ? ` ${pc.cyan('(required)')}` : ''
   const defaultText = option.default === undefined
     ? ''
     : ` ${pc.cyan(`(default: ${String(option.default)})`)}`
-  return `${option.description}${defaultText}`.trim()
+  return `${option.description}${requiredText}${defaultText}`.trim()
+}
+
+function markLastOptionRequired(options: Option[]) {
+  const option = options[options.length - 1]
+  if (!option) {
+    throw new GokeError('required() needs a preceding option()')
+  }
+  if (option.isBoolean) {
+    throw new GokeError('boolean flags cannot be required')
+  }
+  if (option.required === false) {
+    throw new GokeError('`[value]` flags cannot be required')
+  }
+  option.flagRequired = true
 }
 
 const camelcase = (input: string) => {
@@ -293,8 +308,10 @@ class Option {
   /** Option name and aliases */
   names: string[]
   isBoolean?: boolean
-  // `required` will be a boolean for options with brackets
+  // `required` means the flag needs a value if present (`<value>` vs `[value]`)
   required?: boolean
+  // `flagRequired` means the flag itself must be passed (set by `.required()`)
+  flagRequired?: boolean
   /** Description text for help output */
   description: string
   /** Default value for this option */
@@ -355,7 +372,9 @@ class Option {
   }
 
   clone() {
-    return new Option(this.rawName, this.schema ?? this.description)
+    const option = new Option(this.rawName, this.schema ?? this.description)
+    option.flagRequired = this.flagRequired
+    return option
   }
 }
 
@@ -384,13 +403,6 @@ type ExtractOptionName<S extends string> =
   S extends `${string}--${infer Name} [${string}]` ? CamelCase<Name> :
   S extends `${string}--${infer Name}` ? CamelCase<Name> :
   string
-
-/**
- * Determines if an option takes a required value (<...>) vs optional ([...]) vs boolean flag.
- */
-type IsOptionalOption<S extends string> =
-  S extends `${string}<${string}>` ? false :
-  true
 
 /**
  * Infer the input type from a StandardTypedV1-compatible schema.
@@ -436,29 +448,24 @@ type HasSchemaDefault<S> =
 /**
  * Build the option type entry for a single .option() call.
  *
- * `[...]` options are optional keys, except when the schema has an effective
- * default (see `HasSchemaDefault`).
- * `<...>` options are required keys unless the schema input allows `undefined`
- * (`z.string().optional()`). That is how a flag with a required value can still
- * be omitted. wrapJsonSchema() has input `unknown`, so those flags stay optional.
+ * Flags stay optional keys unless `.required()` is chained, or the schema has
+ * an effective default (see `HasSchemaDefault`). `<value>` only means the flag
+ * needs a value if it is present.
  */
 type OptionEntry<RawName extends string, Schema> =
-  IsOptionalOption<RawName> extends true
-    ? HasSchemaDefault<Schema> extends true
-      ? { [K in ExtractOptionName<RawName>]: InferSchemaOutput<Schema> }
-      : { [K in ExtractOptionName<RawName>]?: InferSchemaOutput<Schema> }
-    : HasSchemaDefault<Schema> extends true
-      ? { [K in ExtractOptionName<RawName>]: InferSchemaOutput<Schema> }
-      : unknown extends InferSchemaInput<Schema>
-        ? { [K in ExtractOptionName<RawName>]?: InferSchemaOutput<Schema> }
-        : undefined extends InferSchemaInput<Schema>
-          ? { [K in ExtractOptionName<RawName>]?: InferSchemaOutput<Schema> }
-          : { [K in ExtractOptionName<RawName>]: InferSchemaOutput<Schema> }
+  HasSchemaDefault<Schema> extends true
+    ? { [K in ExtractOptionName<RawName>]: InferSchemaOutput<Schema> }
+    : { [K in ExtractOptionName<RawName>]?: InferSchemaOutput<Schema> }
+
+type RequireOption<Opts, Name extends string> =
+  Name extends keyof Opts
+    ? Omit<Opts, Name> & { [K in Name]-?: Exclude<Opts[K], undefined> }
+    : Opts
 
 /**
  * Infer the raw runtime value shape for an option declared without a schema.
  *
- * Required value options (`--port <port>`) always reach actions as strings.
+ * Value options (`--port <port>` / `--host [host]`) reach actions as strings.
  * Optional value options (`--host [host]`) reach actions as strings: the
  * empty string `''` when the flag is passed bare (`--host`), the given
  * value when passed with one (`--host example.com`), and `undefined` when
@@ -477,9 +484,7 @@ type UntypedOptionValue<RawName extends string> =
  * description (no schema).
  */
 type UntypedOptionEntry<RawName extends string> =
-  RawName extends `${string}<${string}>`
-    ? { [K in ExtractOptionName<RawName>]: UntypedOptionValue<RawName> }
-    : { [K in ExtractOptionName<RawName>]?: UntypedOptionValue<RawName> }
+  { [K in ExtractOptionName<RawName>]?: UntypedOptionValue<RawName> }
 
 /**
  * Tokenize a command raw name by splitting on whitespace.
@@ -580,7 +585,7 @@ type HelpCallback = (sections: HelpSection[]) => void | HelpSection[]
 
 type CommandExample = ((bin: string) => string) | string
 
-class Command<RawName extends string = string, Opts = {}> {
+class Command<RawName extends string = string, Opts = {}, Last extends string = never> {
   options: Option[]
   aliasNames: string[]
   /* Parsed command name */
@@ -623,10 +628,10 @@ class Command<RawName extends string = string, Opts = {}> {
     return this
   }
 
-  version(version: string, customFlags = '-v, --version') {
+  version(version: string, customFlags = '-v, --version'): Command<RawName, Opts, never> {
     this.versionNumber = version
     this.option(customFlags, 'Display version number')
-    return this
+    return this as Command<RawName, Opts, never>
   }
 
   example(example: CommandExample) {
@@ -667,15 +672,20 @@ class Command<RawName extends string = string, Opts = {}> {
   >(
     rawName: OptionRawName,
     schema: S,
-  ): Command<RawName, Opts & OptionEntry<OptionRawName, S>>
+  ): Command<RawName, Opts & OptionEntry<OptionRawName, S>, ExtractOptionName<OptionRawName>>
   option<OptionRawName extends string>(
     rawName: OptionRawName,
     description?: string,
-  ): Command<RawName, Opts & UntypedOptionEntry<OptionRawName>>
+  ): Command<RawName, Opts & UntypedOptionEntry<OptionRawName>, ExtractOptionName<OptionRawName>>
   option(rawName: string, descriptionOrSchema?: string | StandardJSONSchemaV1): any {
     const option = new Option(rawName, descriptionOrSchema)
     this.options.push(option)
     return this
+  }
+
+  required(this: [Last] extends [never] ? never : this): Command<RawName, RequireOption<Opts, Last>, Last> {
+    markLastOptionRequired(this.options)
+    return this as Command<RawName, RequireOption<Opts, Last>, Last>
   }
 
   alias(name: string) {
@@ -730,6 +740,7 @@ class Command<RawName extends string = string, Opts = {}> {
    * const cmd = cli
    *   .command('deploy', 'Deploy')
    *   .option('--env <env>', z.enum(['staging', 'production']))
+   *   .required()
    *   .action((options, { console }) => console.log(options.env))
    *
    * const action = cmd.getAction()
@@ -1027,11 +1038,9 @@ class Command<RawName extends string = string, Opts = {}> {
         }
       }
       if (
-        option.required
+        option.flagRequired
         && value === undefined
         && option.default === undefined
-        && option.schema
-        && !schemaAcceptsOmittedValue(option.schema)
       ) {
         throw new GokeError(`option \`${option.rawName}\` is required`)
       }
@@ -1236,7 +1245,7 @@ interface ParsedArgv {
   }
 }
 
-class Goke<Opts = {}> extends EventEmitter {
+class Goke<Opts = {}, Last extends string = never> extends EventEmitter {
   /** The program name to display in help and version message */
   name: string
   commands: Command<any, any>[]
@@ -1478,15 +1487,20 @@ class Goke<Opts = {}> extends EventEmitter {
   option<
     RawName extends string,
     S extends StandardJSONSchemaV1
-  >(rawName: RawName, schema: S): Goke<Opts & OptionEntry<RawName, S>>
+  >(rawName: RawName, schema: S): Goke<Opts & OptionEntry<RawName, S>, ExtractOptionName<RawName>>
   option<RawName extends string>(
     rawName: RawName,
     description?: string,
-  ): Goke<Opts & UntypedOptionEntry<RawName>>
+  ): Goke<Opts & UntypedOptionEntry<RawName>, ExtractOptionName<RawName>>
   option(rawName: string, descriptionOrSchema?: string | StandardJSONSchemaV1): any {
     const option = new Option(rawName, descriptionOrSchema)
     this.globalCommand.options.push(option)
     return this
+  }
+
+  required(this: [Last] extends [never] ? never : this): Goke<RequireOption<Opts, Last>, Last> {
+    markLastOptionRequired(this.globalCommand.options)
+    return this as Goke<RequireOption<Opts, Last>, Last>
   }
 
   /**
@@ -1559,21 +1573,21 @@ class Goke<Opts = {}> extends EventEmitter {
    * Show help message when `-h, --help` flags appear.
    *
    */
-  help(callback?: HelpCallback) {
+  help(callback?: HelpCallback): Goke<Opts, never> {
     this.globalCommand.option('-h, --help', 'Display this message')
     this.globalCommand.helpCallback = callback
     this.showHelpOnExit = true
-    return this
+    return this as Goke<Opts, never>
   }
 
   /**
    * Show version number when `-v, --version` flags appear.
    *
    */
-  version(version: string, customFlags = '-v, --version') {
+  version(version: string, customFlags = '-v, --version'): Goke<Opts, never> {
     this.globalCommand.version(version, customFlags)
     this.showVersionOnExit = true
-    return this
+    return this as Goke<Opts, never>
   }
 
   /**
@@ -2600,9 +2614,9 @@ function formatOptionsTable(options: Option[]): string {
   lines.push('|--------|---------|-------------|')
   for (const opt of options) {
     const defaultVal = opt.default !== undefined ? `\`${String(opt.default)}\`` : '-'
-    // Escape pipe characters in description for markdown tables
     const desc = escapeAngleBrackets(opt.description.replace(/\|/g, '\\|').replace(/\n/g, ' '))
-    lines.push(`| \`${opt.rawName}\` | ${defaultVal} | ${desc} |`)
+    const requiredText = opt.flagRequired ? (desc ? ' (required)' : '(required)') : ''
+    lines.push(`| \`${opt.rawName}\` | ${defaultVal} | ${desc}${requiredText} |`)
   }
   return lines.join('\n')
 }

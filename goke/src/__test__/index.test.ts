@@ -242,6 +242,7 @@ describe('injected fs', () => {
       cli
         .command('login', 'Persist login state')
         .option('--token <token>', z.string().describe('Token'))
+        .required()
         .action(async (options, { fs, console }) => {
           await fs.mkdir('.mycli', { recursive: true })
           await fs.writeFile('.mycli/auth.json', JSON.stringify({ token: options.token }), 'utf8')
@@ -686,17 +687,140 @@ describe('regression: oracle-found issues', () => {
     expect(options.name).toBeUndefined()
   })
 
-  test('omitting --flag <value> with a non-optional schema is required', async () => {
+  test('omitting --flag <value> with z.string() is allowed', async () => {
+    const cli = goke()
+    cli.command('create', 'Create').option('--url <url>', z.string().describe('URL to check')).action(() => {})
+    const { options } = await cli.parse('node bin create'.split(' '))
+    expect(options.url).toBeUndefined()
+  })
+
+  test('omitting --flag <value> with z.array() is allowed', async () => {
+    const cli = goke()
+    cli.command('send', 'Send').option('--file <path>', z.array(z.string()).describe('Files')).action(() => {})
+    const { options } = await cli.parse('node bin send'.split(' '))
+    expect(options.file).toBeUndefined()
+  })
+
+  test('.required() errors when the flag is omitted', async () => {
     const stderr = createTestOutputStream()
     const cli = goke('mycli', { stderr, exit: () => {} })
-    cli.command('create', 'Create').option('--url <url>', z.string().describe('URL to check')).action(() => {})
+    cli.command('create', 'Create').option('--url <url>', z.string().describe('URL to check')).required().action(() => {})
     try {
       await cli.parse('node bin create'.split(' '))
     } catch {}
     expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: option \`--url <url>\` is required"`)
   })
 
-  test('schema-required flag still errors when passed with no value', async () => {
+  test('.required() on an untyped flag errors when omitted', async () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+    cli.command('create', 'Create').option('--url <url>', 'URL to check').required().action(() => {})
+    try {
+      await cli.parse('node bin create'.split(' '))
+    } catch {}
+    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: option \`--url <url>\` is required"`)
+  })
+
+  test('.required() still errors when passed with no value', async () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+    cli.command('create', 'Create').option('--url <url>', z.string().describe('URL to check')).required().action(() => {})
+    try {
+      await cli.parse('node bin create --url'.split(' '))
+    } catch {}
+    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: option \`--url <url>\` needs a value. Do not pass \`--url\` with no argument."`)
+  })
+
+  test('.required() on a boolean flag throws', async () => {
+    const cli = goke()
+    expect(() => {
+      cli.command('run', 'Run').option('--verbose', 'Verbose').required()
+    }).toThrow('boolean flags cannot be required')
+  })
+
+  test('.required() on a [value] flag throws', async () => {
+    const cli = goke()
+    expect(() => {
+      cli.command('run', 'Run').option('--host [host]', 'Host').required()
+    }).toThrow('`[value]` flags cannot be required')
+  })
+
+  test('.required() without a preceding option throws', async () => {
+    const cli = goke()
+    expect(() => {
+      ;(cli.command('run', 'Run') as any).required()
+    }).toThrow('required() needs a preceding option()')
+  })
+
+  test('.required() only applies to the last option', async () => {
+    const cli = goke()
+    cli
+      .command('create', 'Create')
+      .option('--url <url>', z.string().describe('URL'))
+      .required()
+      .option('--name <name>', z.string().describe('Name'))
+      .action(() => {})
+    const { options } = await cli.parse('node bin create --url https://example.com'.split(' '))
+    expect(options.url).toBe('https://example.com')
+    expect(options.name).toBeUndefined()
+  })
+
+  test('.required() after two options marks only the second', async () => {
+    const cli = goke()
+    cli
+      .command('create', 'Create')
+      .option('--url <url>', z.string().describe('URL'))
+      .option('--name <name>', z.string().describe('Name'))
+      .required()
+      .action(() => {})
+    const { options } = await cli.parse('node bin create --name home'.split(' '))
+    expect(options.url).toBeUndefined()
+    expect(options.name).toBe('home')
+
+    const stderr = createTestOutputStream()
+    const failing = goke('mycli', { stderr, exit: () => {} })
+    failing
+      .command('create', 'Create')
+      .option('--url <url>', z.string().describe('URL'))
+      .option('--name <name>', z.string().describe('Name'))
+      .required()
+      .action(() => {})
+    try {
+      await failing.parse('node bin create --url https://example.com'.split(' '))
+    } catch {}
+    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: option \`--name <name>\` is required"`)
+  })
+
+  test('.help() then .required() throws because --help is a boolean flag', () => {
+    const cli = goke()
+    expect(() => {
+      ;(cli.option('--url <url>', z.string().describe('URL')).help() as any).required()
+    }).toThrow('boolean flags cannot be required')
+  })
+
+  test('clone keeps .required() flags required', async () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+    cli.command('create', 'Create').option('--url <url>', z.string().describe('URL')).required().action(() => {})
+    const cloned = cli.clone({ stderr, exit: () => {} })
+    try {
+      await cloned.parse('node bin create'.split(' '))
+    } catch {}
+    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: option \`--url <url>\` is required"`)
+  })
+
+  test('global .required() errors when the flag is omitted', async () => {
+    const stderr = createTestOutputStream()
+    const cli = goke('mycli', { stderr, exit: () => {} })
+    cli.option('--token <token>', z.string().describe('Token')).required()
+    cli.command('run', 'Run').action(() => {})
+    try {
+      await cli.parse('node bin run'.split(' '))
+    } catch {}
+    expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: option \`--token <token>\` is required"`)
+  })
+
+  test('<value> flag still errors when passed with no value', async () => {
     const stderr = createTestOutputStream()
     const cli = goke('mycli', { stderr, exit: () => {} })
     cli.command('create', 'Create').option('--url <url>', z.string().describe('URL to check')).action(() => {})
@@ -737,31 +861,6 @@ describe('regression: oracle-found issues', () => {
       await cli.parse('node bin serve --port'.split(' '))
     } catch {}
     expect(stripStackTrace(stderr.text)).toMatchInlineSnapshot(`"error: option \`-p, --port <port>\` needs a value. Do not pass \`--port\` with no argument."`)
-  })
-
-  test('async Standard Schema cannot silently make a required flag optional', async () => {
-    const stderr = createTestOutputStream()
-    const cli = goke('mycli', { stderr, exit: () => {} })
-    const schema = {
-      '~standard': {
-        version: 1 as const,
-        vendor: 'test',
-        jsonSchema: {
-          input: () => ({ type: 'string' }),
-          output: () => ({ type: 'string' }),
-        },
-        validate: async (value: unknown) => (
-          value === undefined
-            ? { issues: [{ message: 'required' }] }
-            : { value }
-        ),
-      },
-    }
-    cli.command('create', 'Create').option('--url <url>', schema as any).action(() => {})
-    try {
-      await cli.parse('node bin create'.split(' '))
-    } catch {}
-    expect(stripStackTrace(stderr.text)).toMatch(/async Standard Schema/)
   })
 
   test('missing required positional names the argument', async () => {
@@ -3032,6 +3131,7 @@ describe('getAction()', () => {
     const cmd = cli
       .command('deploy', 'Deploy the app')
       .option('--env <env>', z.enum(['staging', 'production']).describe('Target environment'))
+      .required()
       .action((options, { console }) => {
         console.log(`Deploying to ${options.env}`)
       })

@@ -1,6 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { z } from 'zod'
-import { coerceBySchema, schemaAcceptsOmittedValue, wrapJsonSchema } from '../coerce.js'
+import { coerceBySchema } from '../coerce.js'
 
 describe('coerceBySchema', () => {
   describe('string type', () => {
@@ -408,42 +407,5 @@ describe('coerceBySchema', () => {
       expect(coerceBySchema(false, { type: ['boolean', 'null'] }, 'val'))
         .toBe(false)
     })
-  })
-})
-
-describe('schemaAcceptsOmittedValue', () => {
-  test('z.string() rejects omit', () => {
-    expect(schemaAcceptsOmittedValue(z.string())).toBe(false)
-  })
-
-  test('z.string().optional() accepts omit', () => {
-    expect(schemaAcceptsOmittedValue(z.string().optional())).toBe(true)
-  })
-
-  test('z.string().default() accepts omit', () => {
-    expect(schemaAcceptsOmittedValue(z.string().default('x'))).toBe(true)
-  })
-
-  test('wrapJsonSchema accepts omit', () => {
-    expect(schemaAcceptsOmittedValue(wrapJsonSchema({ type: 'number' }))).toBe(true)
-  })
-
-  test('async Standard Schema validate() is not treated as optional', () => {
-    const schema = {
-      '~standard': {
-        version: 1,
-        vendor: 'test',
-        jsonSchema: {
-          input: () => ({ type: 'string' }),
-          output: () => ({ type: 'string' }),
-        },
-        validate: async (value: unknown) => (
-          value === undefined
-            ? { issues: [{ message: 'required' }] }
-            : { value }
-        ),
-      },
-    }
-    expect(() => schemaAcceptsOmittedValue(schema)).toThrow('async Standard Schema')
   })
 })

@@ -18,6 +18,7 @@ function createCli() {
   cli
     .command("say hi", "Say hello")
     .option("--name <name>", z.string().describe("Person to greet"))
+    .required()
     .option("--caps", z.boolean().default(false).describe("Uppercase output"))
     .action((options) => {
       const message = `Hello ${options.name}!`;

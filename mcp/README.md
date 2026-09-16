@@ -95,6 +95,7 @@ const cli = goke("my-cli")
 cli
   .command("search", "Search pages")
   .option("--query <query>", z.string().describe("Search query"))
+  .required()
   .option("--limit [limit]", z.number().default(10).describe("Max results"))
   .action((options) => {
     return { results: findPages(options.query, options.limit) }
@@ -129,7 +130,7 @@ my-cli mcp
 
 When running as MCP, the server exposes `search` and `deploy` as tools. The `mcp` command itself is excluded. Options with Zod schemas (or any Standard Schema) become typed `inputSchema` properties in the MCP tool definition.
 
-**`inputSchema.required` is not the CLI `<value>` syntax.** `--query <query>` means the flag needs a value if it is present. The flag is still optional unless the schema rejects omit (`z.string()`, not `z.string().optional()`). Required **positionals** like `<env>` always go in `required`. Schema-required flags go in `required` too. Untyped flags and `wrapJsonSchema()` flags stay optional.
+**`inputSchema.required` is not the CLI `<value>` syntax.** `--query <query>` means the flag needs a value if it is present. The flag itself is still optional unless you chain `.required()`. Required **positionals** like `<env>` always go in `required`. `.required()` flags go in `required` too.
 
 ### Installing the MCP server in clients
 

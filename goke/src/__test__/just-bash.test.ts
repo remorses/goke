@@ -232,6 +232,7 @@ describe('createJustBashCommand', () => {
     cli
       .command('login', 'Persist login state')
       .option('--token <token>', z.string().describe('Token'))
+      .required()
       .action(async (options, { fs, console }) => {
         await fs.mkdir('.mycli', { recursive: true })
         await fs.writeFile('.mycli/auth.json', JSON.stringify({ token: options.token }), 'utf8')
@@ -260,6 +261,7 @@ describe('createJustBashCommand', () => {
     cli
       .command('login', 'Persist login state')
       .option('--token <token>', z.string().describe('Token'))
+      .required()
       .action(async (options, { fs, console }) => {
         await fs.mkdir('.mycli', { recursive: true })
         await fs.writeFile('.mycli/auth.json', JSON.stringify({ token: options.token }), 'utf8')
@@ -350,6 +352,7 @@ describe('createJustBashCommand', () => {
     cli
       .command('login', 'Persist login state')
       .option('--token <token>', z.string().describe('Token'))
+      .required()
       .action(async (options, { fs, console }) => {
         await fs.mkdir('.mycli', { recursive: true })
         await fs.writeFile('.mycli/auth.json', JSON.stringify({ token: options.token }), 'utf8')

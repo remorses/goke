@@ -1,5 +1,24 @@
 # goke
 
+## 6.17.0
+
+1. **New `.required()` method** — mark a flag as required. Omitting a `<value>` flag is no longer an error just because the schema rejects `undefined`.
+
+   `--url <url>` still means the flag needs a value if it is present. The flag itself stays optional unless you chain `.required()`. Boolean flags and `[value]` flags cannot be required.
+
+   ```ts
+   .option('--url <url>', z.string().describe('URL to check')).required()
+   .option('--file <path>', z.array(z.string()).describe('Files')) // omit ok
+   ```
+
+   ```
+   error: option `--url <url>` is required
+   ```
+
+   If a `z.string()` or other non-optional schema previously made a flag required in goke 6.16.0, add `.required()` after that `.option()` call.
+
+   This also removes the public `schemaAcceptsOmittedValue` export. Use `.required()` instead.
+
 ## 6.16.0
 
 1. **Make a `<value>` flag required by using a schema that rejects omit.** `--days <days>` still only means the flag needs a value if it is present. The flag itself stays optional unless the schema rejects `undefined`.

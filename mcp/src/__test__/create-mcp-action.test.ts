@@ -238,7 +238,7 @@ describe("createMcpAction", () => {
       expect(searchTool.description).toBe("Search for items");
       expect(searchTool.inputSchema.properties).toHaveProperty("query");
       expect(searchTool.inputSchema.properties).toHaveProperty("limit");
-      expect(searchTool.inputSchema.required).toEqual(["query"]);
+      expect(searchTool.inputSchema.required).toBeUndefined();
 
       const deployTool = tools.tools.find((t) => t.name === "deploy")!;
       expect(deployTool.inputSchema.properties).toHaveProperty("env");
@@ -346,13 +346,15 @@ describe("createMcpAction", () => {
     }
   });
 
-  it("puts schema-required --flag <value> in inputSchema.required", async () => {
+  it("puts .required() --flag <value> in inputSchema.required", async () => {
     const cli = goke("checks");
 
     cli
       .command("checks create", "Create a check")
       .option("--url <url>", z.string().describe("URL to check"))
+      .required()
       .option("--name <name>", z.string().describe("Check name"))
+      .required()
       .option("--timeout [ms]", z.number().optional().describe("Timeout"))
       .action((options) => options);
 
