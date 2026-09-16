@@ -199,7 +199,10 @@ describe("addCliToolsToMcp", () => {
                 "description": "Uppercase output",
                 "type": "boolean"
               }
-            }
+            },
+            "required": [
+              "name"
+            ]
           }
         },
         {
@@ -295,7 +298,10 @@ describe("addCliToolsToMcp", () => {
                 "description": "Uppercase output",
                 "type": "boolean"
               }
-            }
+            },
+            "required": [
+              "name"
+            ]
           }
         },
         {

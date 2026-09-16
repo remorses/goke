@@ -238,7 +238,7 @@ describe("createMcpAction", () => {
       expect(searchTool.description).toBe("Search for items");
       expect(searchTool.inputSchema.properties).toHaveProperty("query");
       expect(searchTool.inputSchema.properties).toHaveProperty("limit");
-      expect(searchTool.inputSchema.required).toBeUndefined();
+      expect(searchTool.inputSchema.required).toEqual(["query"]);
 
       const deployTool = tools.tools.find((t) => t.name === "deploy")!;
       expect(deployTool.inputSchema.properties).toHaveProperty("env");
@@ -297,11 +297,11 @@ describe("createMcpAction", () => {
 
     cli
       .command("projects create <slug>", "Create a project")
-      .option("--traces-days <days>", z.string().describe("Traces retention days"))
-      .option("--logs-days <days>", z.string().describe("Logs retention days"))
-      .option("--errors-days <days>", z.string().describe("Errors retention days"))
-      .option("--metrics-days <days>", z.string().describe("Metrics retention days"))
-      .option("--all-days <days>", z.string().describe("Retention for all signals"))
+      .option("--traces-days <days>", z.string().optional().describe("Traces retention days"))
+      .option("--logs-days <days>", z.string().optional().describe("Logs retention days"))
+      .option("--errors-days <days>", z.string().optional().describe("Errors retention days"))
+      .option("--metrics-days <days>", z.string().optional().describe("Metrics retention days"))
+      .option("--all-days <days>", z.string().optional().describe("Retention for all signals"))
       .action((slug, options) => ({ slug, ...options }));
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -334,6 +334,106 @@ describe("createMcpAction", () => {
         arguments: { slug: "my-app" },
       });
       expect(firstTextContent(result)).toBe('{\n  "slug": "my-app"\n}');
+
+      await expect(
+        client.callTool({
+          name: "projects_create",
+          arguments: {},
+        }),
+      ).rejects.toThrow("Missing required argument: slug");
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("puts schema-required --flag <value> in inputSchema.required", async () => {
+    const cli = goke("checks");
+
+    cli
+      .command("checks create", "Create a check")
+      .option("--url <url>", z.string().describe("URL to check"))
+      .option("--name <name>", z.string().describe("Check name"))
+      .option("--timeout [ms]", z.number().optional().describe("Timeout"))
+      .action((options) => options);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    cli.command("mcp", "Start MCP server").action(
+      createMcpAction({
+        cli,
+        createTransport: () => serverTransport,
+      }),
+    );
+
+    cli.matchedCommandName = "mcp";
+    const mcpCommand = cli.commands.find((c) => c.name === "mcp")!;
+    await mcpCommand.commandAction!({});
+
+    const client = new Client({ name: "test-client", version: "1.0.0" }, { capabilities: {} });
+    await client.connect(clientTransport);
+
+    try {
+      const tools = await client.listTools();
+      const createTool = tools.tools.find((t) => t.name === "checks_create")!;
+      expect(createTool.inputSchema.properties).toHaveProperty("url");
+      expect(createTool.inputSchema.properties).toHaveProperty("name");
+      expect(createTool.inputSchema.properties).toHaveProperty("timeout");
+      expect(createTool.inputSchema.required).toEqual(["url", "name"]);
+
+      const result = await client.callTool({
+        name: "checks_create",
+        arguments: { url: "https://example.com", name: "home" },
+      });
+      expect(firstTextContent(result)).toContain("https://example.com");
+
+      await expect(
+        client.callTool({
+          name: "checks_create",
+          arguments: { name: "home" },
+        }),
+      ).rejects.toThrow("Missing required argument: url");
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("does not put wrapJsonSchema flags in required", async () => {
+    const cli = goke("wrapped");
+
+    cli
+      .command("config set", "Set a config value")
+      .option("--key <key>", wrapJsonSchema({ type: "string", description: "Config key" }))
+      .option("--value <value>", wrapJsonSchema({ type: "string", description: "Config value" }))
+      .action((options) => options);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    cli.command("mcp", "Start MCP server").action(
+      createMcpAction({
+        cli,
+        createTransport: () => serverTransport,
+      }),
+    );
+
+    cli.matchedCommandName = "mcp";
+    const mcpCommand = cli.commands.find((c) => c.name === "mcp")!;
+    await mcpCommand.commandAction!({});
+
+    const client = new Client({ name: "test-client", version: "1.0.0" }, { capabilities: {} });
+    await client.connect(clientTransport);
+
+    try {
+      const tools = await client.listTools();
+      const setTool = tools.tools.find((t) => t.name === "config_set")!;
+      expect(setTool.inputSchema.properties).toHaveProperty("key");
+      expect(setTool.inputSchema.properties).toHaveProperty("value");
+      expect(setTool.inputSchema.required).toBeUndefined();
+
+      const result = await client.callTool({
+        name: "config_set",
+        arguments: {},
+      });
+      expect(firstTextContent(result)).toBe("{}");
     } finally {
       await client.close();
     }

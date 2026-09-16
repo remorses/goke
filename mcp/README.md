@@ -129,6 +129,8 @@ my-cli mcp
 
 When running as MCP, the server exposes `search` and `deploy` as tools. The `mcp` command itself is excluded. Options with Zod schemas (or any Standard Schema) become typed `inputSchema` properties in the MCP tool definition.
 
+**`inputSchema.required` is not the CLI `<value>` syntax.** `--query <query>` means the flag needs a value if it is present. The flag is still optional unless the schema rejects omit (`z.string()`, not `z.string().optional()`). Required **positionals** like `<env>` always go in `required`. Schema-required flags go in `required` too. Untyped flags and `wrapJsonSchema()` flags stay optional.
+
 ### Installing the MCP server in clients
 
 Users can install your CLI as an MCP server in any client using [`@playwriter/install-mcp`](https://github.com/nicepkg/install-mcp) — a cross-platform tool that handles config file locations for every major MCP client:
