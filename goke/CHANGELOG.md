@@ -1,5 +1,31 @@
 # goke
 
+## 6.16.0
+
+1. **Make a `<value>` flag required by using a schema that rejects omit.** `--days <days>` still only means the flag needs a value if it is present. The flag itself stays optional unless the schema rejects `undefined`.
+
+   ```ts
+   .option('--url <url>', z.string())                 // flag required
+   .option('--name <name>', z.string().optional())    // flag optional, value required if present
+   .option('--port <port>', z.number().default(3000)) // flag optional, default fills in
+   ```
+
+   Errors now say what to do:
+
+   ```
+   error: option `--url <url>` is required
+   error: option `--port <port>` needs a value. Do not pass `--port` with no argument.
+   error: missing required argument `<slug>` for command `projects create <slug>`
+   ```
+
+2. **Treat a following negative number as an option value, not a new flag.** `--offset -1` used to parse `-1` as an unknown option. Value-taking flags now consume tokens like `-1` and `-2.5`. Boolean flags still leave those tokens alone, so `--verbose -1` stays an unknown option.
+
+   ```ts
+   cli.option('--offset [days]', z.number())
+   await cli.parse(['node', 'bin', '--offset', '-1'])
+   // options.offset === -1
+   ```
+
 ## 6.15.1
 
 1. **Reliable startup messages from detached daemons**: OAuth and device-login commands can now create an authorization URL inside the daemon and return it to the foreground before `start()` resolves.

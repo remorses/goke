@@ -1,5 +1,38 @@
 # @goke/mcp
 
+## 0.1.1
+
+1. **Stop putting CLI `<value>` flags into MCP `inputSchema.required` just because the flag needs a value when present.** `--days <days>` means the **value is required if the flag is present**. The flag itself is still optional unless the schema rejects omit (`z.string()`, not `z.string().optional()`). MCP `required` now lists required positionals plus schema-required flags.
+
+   ```ts
+   cli
+     .command('projects create <slug>', 'Create a project')
+     .option('--traces-days <days>', z.string().optional())
+     .option('--url <url>', z.string())
+   ```
+
+   Generated MCP schema:
+
+   ```json
+   {
+     "properties": {
+       "slug": { "type": "string" },
+       "tracesDays": { "type": "string" },
+       "url": { "type": "string" }
+     },
+     "required": ["slug", "url"]
+   }
+   ```
+
+2. **Document remote HTTP MCP as stateless.** Each POST clones the CLI and builds a fresh Server. Check `Origin` when the header is present. Reject a present, disallowed Origin with **403**. Missing Origin is normal for non-browser MCP clients.
+
+   ```ts
+   const transport = new WebStandardStreamableHTTPServerTransport({
+     sessionIdGenerator: undefined,
+     enableJsonResponse: true,
+   })
+   ```
+
 ## 0.1.0
 
 1. **Stop caching and reusing MCP `sessionId`.** Tool schemas still cache for 1 hour. Each CLI invocation opens a new connection.
