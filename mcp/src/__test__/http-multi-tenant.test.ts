@@ -338,4 +338,25 @@ describe("remote MCP over streamable HTTP with multi-tenant in-memory fs", () =>
       await bobClient.close();
     }
   });
+
+  it("rejects a present Origin that is not allowed", async () => {
+    const { fetch } = createMultiTenantFetch({
+      baseCli: buildBaseCli(),
+      resolveTenant: () => {
+        throw new Error("tenant must not be resolved for a forbidden origin");
+      },
+    });
+
+    const response = await fetch("http://in-memory-mcp.test/mcp", {
+      method: "POST",
+      headers: {
+        origin: "https://evil.example",
+        "x-tenant-id": "tenant-a",
+        "content-type": "application/json",
+      },
+      body: "{}",
+    });
+
+    expect(response.status).toBe(403);
+  });
 });
