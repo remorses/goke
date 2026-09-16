@@ -11,4 +11,4 @@ const transport = new WebStandardStreamableHTTPServerTransport({
 })
 ```
 
-That matches the MCP SDK stateless mode and works on Cloudflare Workers, where process memory does not survive across requests.
+That matches MCP SDK v1 Streamable HTTP without optional transport sessions (`2025-11-25`). Session IDs are optional. Stateless servers omit them. Check `Origin` when the header is present. This works on Cloudflare Workers, where process memory does not survive across requests.
