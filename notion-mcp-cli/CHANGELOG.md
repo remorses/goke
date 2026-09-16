@@ -1,5 +1,9 @@
 # notion-mcp-cli
 
+## 0.0.10
+
+1. **Stop caching and reusing MCP `sessionId`.** Tool schemas still cache for 1 hour. Each CLI invocation opens a new connection.
+
 ## 0.0.9
 
 1. **Agent-friendly login via background daemon** — when running inside an AI coding agent (Claude, Cursor, Codex, etc.), `notion-mcp-cli login` now starts a background daemon and returns immediately instead of blocking the terminal. The user approves in their browser; the agent polls with `me` to check when auth completes:

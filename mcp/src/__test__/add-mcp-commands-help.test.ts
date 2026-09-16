@@ -1,7 +1,10 @@
 // First-run help and stale-cache behavior for addMcpCommands.
 import http from 'node:http'
 import { describe, expect, it } from 'vitest'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { goke } from 'goke'
+import { addCliToolsToMcp } from '../cli-to-mcp.js'
 import { addMcpCommands, type CachedMcpTools } from '../index.js'
 
 const staleCache = (over: Partial<CachedMcpTools> = {}): CachedMcpTools => ({
@@ -13,7 +16,6 @@ const staleCache = (over: Partial<CachedMcpTools> = {}): CachedMcpTools => ({
     },
   ],
   timestamp: Date.now() - 2 * 60 * 60 * 1000,
-  sessionId: 'stale-session',
   ...over,
 })
 
@@ -135,5 +137,70 @@ describe('addMcpCommands first-run help', () => {
     })
 
     expect(transportCalls).toBe(0)
+  })
+
+  it('does not pass a session id into getMcpTransport', async () => {
+    const sessionIds: Array<string | undefined> = []
+    const cli = goke('testcli')
+
+    await addMcpCommands({
+      cli,
+      argv: ['find_bookmarks'],
+      getMcpTransport: (sessionId?: string) => {
+        sessionIds.push(sessionId)
+        return null
+      },
+      loadCache: () => ({
+        tools: [
+          {
+            name: 'find_bookmarks',
+            description: 'Find bookmarks',
+            inputSchema: { type: 'object', properties: {} },
+          },
+        ],
+        timestamp: Date.now(),
+        sessionId: 'should-not-be-reused',
+      }),
+      saveCache: () => {},
+    })
+
+    const command = cli.commands.find((entry) => entry.name === 'find_bookmarks')
+    try {
+      await command?.commandAction?.({})
+    } catch {
+      // transport is null, so the action exits
+    }
+
+    expect(sessionIds).toEqual([undefined])
+  })
+
+  it('caches tools without a session id', async () => {
+    const saved: CachedMcpTools[] = []
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    const serverCli = goke('server-cli')
+    serverCli.command('ping', 'Ping').action(() => 'pong')
+
+    const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: {} })
+    addCliToolsToMcp({ cli: serverCli, server })
+    await server.connect(serverTransport)
+
+    const cli = goke('testcli')
+    try {
+      await addMcpCommands({
+        cli,
+        argv: ['ping'],
+        getMcpTransport: () => clientTransport,
+        loadCache: () => undefined,
+        saveCache: (cache) => {
+          if (cache) saved.push(cache)
+        },
+      })
+    } finally {
+      await server.close()
+    }
+
+    expect(saved).toHaveLength(1)
+    expect(saved[0]?.tools.map((tool) => tool.name)).toEqual(['ping'])
+    expect(saved[0]).not.toHaveProperty('sessionId')
   })
 })

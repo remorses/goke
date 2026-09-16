@@ -4,7 +4,8 @@
  * Proves that one goke cli exposed over stateless MCP streamable HTTP
  * can serve multiple concurrent users with fully isolated state
  * (in-memory fs + cwd + env) — no shared host process stdio, no
- * cross-tenant leaks, no mcp-session-id map.
+ * cross-tenant leaks, no mcp-session-id map. Isolation comes from
+ * the `x-tenant-id` header on each POST, not from `Mcp-Session-Id`.
  *
  * Wiring choices worth calling out:
  *
@@ -141,15 +142,28 @@ interface TenantState {
 function createMultiTenantFetch(options: {
   baseCli: Goke;
   resolveTenant: (tenantId: string) => TenantState;
-}): { fetch: FetchLike } {
+}): {
+  fetch: FetchLike;
+  sessionHeaders: string[];
+} {
   const { baseCli, resolveTenant } = options;
+  const sessionHeaders: string[] = [];
 
   const customFetch: FetchLike = async (url, init) => {
     const method = (init?.method ?? "GET").toUpperCase();
     const headers = new Headers(init?.headers);
+    const sessionHeader = headers.get("mcp-session-id");
+    if (sessionHeader) {
+      sessionHeaders.push(sessionHeader);
+    }
+
+    const origin = headers.get("origin");
+    if (origin && origin !== "http://in-memory-mcp.test") {
+      return new Response(null, { status: 403 });
+    }
 
     if (method !== "POST") {
-      return new Response(null, { status: 405 });
+      return new Response(null, { status: 405, headers: { Allow: "POST" } });
     }
 
     let parsedBody: unknown = undefined;
@@ -200,7 +214,7 @@ function createMultiTenantFetch(options: {
     }
   };
 
-  return { fetch: customFetch };
+  return { fetch: customFetch, sessionHeaders };
 }
 
 // ─── Tests ────────────────────────────────────────────────────────
@@ -220,7 +234,7 @@ describe("remote MCP over streamable HTTP with multi-tenant in-memory fs", () =>
       fs: new InMemoryFs(),
     });
 
-    const { fetch: tenantFetch } = createMultiTenantFetch({
+    const { fetch: tenantFetch, sessionHeaders } = createMultiTenantFetch({
       baseCli,
       resolveTenant: (id) => {
         const tenant = tenants.get(id);
@@ -248,7 +262,7 @@ describe("remote MCP over streamable HTTP with multi-tenant in-memory fs", () =>
       return client;
     }
 
-    return { tenants, connectTenant };
+    return { tenants, connectTenant, sessionHeaders };
   }
 
   function firstTextBlock(result: Awaited<ReturnType<Client["callTool"]>>): string {
@@ -257,7 +271,7 @@ describe("remote MCP over streamable HTTP with multi-tenant in-memory fs", () =>
   }
 
   it("routes each request to its own cli clone with tenant-specific cwd/env/fs", async () => {
-    const { tenants, connectTenant } = setupScenario();
+    const { tenants, connectTenant, sessionHeaders } = setupScenario();
 
     const aliceClient = await connectTenant("tenant-a");
     const bobClient = await connectTenant("tenant-b");
@@ -302,6 +316,7 @@ describe("remote MCP over streamable HTTP with multi-tenant in-memory fs", () =>
       expect([...tenantBFs.files.keys()]).toEqual(["/workspace-b/notes.txt"]);
       expect(tenantAFs.files.get("/workspace-a/notes.txt")).toBe("alice-secret");
       expect(tenantBFs.files.get("/workspace-b/notes.txt")).toBe("bob-secret");
+      expect(sessionHeaders).toEqual([]);
     } finally {
       await aliceClient.close();
       await bobClient.close();

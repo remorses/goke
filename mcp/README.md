@@ -25,7 +25,7 @@ MCP server                        Your CLI
 
 1. **Discover** — calls `tools/list` on the MCP server to get every tool + its JSON Schema
 2. **Register** — creates a CLI command per tool with `--options` derived from the schema
-3. **Cache** — tools and session ID are cached for 1 hour (no network on subsequent runs). Expired cache is still used when a live fetch is impossible (no token, 401 on `--help`)
+3. **Cache** — tool schemas are cached for 1 hour (no network on subsequent runs). Expired cache is still used when a live fetch is impossible (no token, 401 on `--help`)
 4. **Execute** — on invocation, connects to the server and calls the tool with coerced arguments
 5. **OAuth** — if the server returns 401, automatically opens the browser for OAuth, then retries. `--help`, `--version`, `completions`, and no-args never start OAuth
 
@@ -241,6 +241,10 @@ The MCP SDK ships `WebStandardStreamableHTTPServerTransport`, which accepts a We
 
 Pass `sessionIdGenerator: undefined` so the transport does not emit or expect `mcp-session-id`. Do not store transports in a `Map`. JSON-RPC `initialize`, `tools/list`, and `tools/call` are separate POSTs. Each one clones the cli from the request's tenant identity.
 
+This is MCP SDK v1 Streamable HTTP **without optional transport sessions** (protocol revisions through `2025-11-25`). It is not the later `2026-07-28` protocol, which drops `initialize`. Session IDs are optional in `2025-11-25`. Stateless servers omit them.
+
+The Streamable HTTP spec requires **Origin** checks on every request (DNS rebinding). Reject a present, disallowed `Origin` with **403**. Missing `Origin` is normal for non-browser MCP clients.
+
 ```
 POST /mcp  (JWT / x-tenant-id)
         │
@@ -269,11 +273,10 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { addCliToolsToMcp } from "@goke/mcp"
 import type { GokeFs } from "goke"
 
-// Wherever you store per-user state — DB, Redis, config files, etc.
 declare function resolveTenant(tenantId: string): {
   cwd: string
   env: Record<string, string>
-  fs: GokeFs   // your filesystem adapter
+  fs: GokeFs
 }
 
 export async function handleMcpRequest(request: Request): Promise<Response> {
@@ -478,7 +481,7 @@ Registers MCP tool commands on a goke CLI instance.
 |--------|------|---------|-------------|
 | `cli` | `Goke` | **required** | The goke CLI instance to add commands to |
 | `getMcpUrl` | `() => string \| undefined` | — | Returns the MCP server URL. Return the URL even when the user is not logged in so `--help` still works |
-| `getMcpTransport` | `(sessionId?) => Transport \| null` | — | Custom transport. Use for stdio or anything `getMcpUrl` cannot express |
+| `getMcpTransport` | `() => Transport \| null` | — | Custom transport. Use for stdio or anything `getMcpUrl` cannot express |
 | `getHeaders` | `() => Record<string, string> \| undefined` | — | Extra HTTP headers (for example `Authorization`). Used with `getMcpUrl` |
 | `argv` | `string[]` | `process.argv.slice(2)` | Args used to skip live discovery on help and already registered commands |
 | `commandPrefix` | `string` | `''` | Prefix for commands (e.g. `'mcp'` makes `mcp notion-search`) |
@@ -546,7 +549,7 @@ Tokens are persisted via the `oauth.save()` callback you provide, so subsequent 
 
 ## Caching
 
-Tools and the MCP session ID are cached for **1 hour** to avoid connecting on every invocation. The cache is managed through the `loadCache`/`saveCache` callbacks — you control where it's stored (file, database, env, etc.).
+Tool schemas are cached for **1 hour** so `--help` and command registration do not hit the network on every invocation. The cache is managed through the `loadCache`/`saveCache` callbacks. You control where it is stored (file, database, env, etc.). Each tool call still opens a new MCP connection. There is no `Mcp-Session-Id` reuse.
 
 When the cache expires or a tool call fails, the cache is cleared and tools are re-fetched on the next run.
 
