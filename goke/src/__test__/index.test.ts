@@ -363,6 +363,34 @@ describe('schema-based options', () => {
     expect(typeof options.port).toBe('number')
   })
 
+  test('negative number is a value for a numeric option, not a new flag', async () => {
+    const cli = goke()
+    cli.option('--offset [days]', z.number().describe('Offset'))
+
+    const { options } = await cli.parse(['node', 'bin', '--offset', '-1'])
+    expect(options.offset).toBe(-1)
+  })
+
+  test('required numeric option accepts a spaced negative number', async () => {
+    const cli = goke()
+    cli.option('--count <count>', z.number().int().describe('Count'))
+
+    const { options } = await cli.parse(['node', 'bin', '--count', '-2'])
+    expect(options.count).toBe(-2)
+  })
+
+  test('boolean flags do not swallow a following negative number', async () => {
+    const cli = gokeTestable()
+    cli
+      .command('run', 'Run')
+      .option('--verbose', 'Verbose output')
+      .option('--offset [days]', z.number().describe('Offset'))
+      .action(() => {})
+
+    await expect(cli.parse(['node', 'bin', 'run', '--verbose', '-1']))
+      .rejects.toThrow('Unknown option `-1`')
+  })
+
   test('schema preserves string (no auto-conversion to number)', async () => {
     const cli = goke()
 

@@ -13,6 +13,10 @@ export interface MriOptions {
   unknown?(flag: string): void
 }
 
+function isNegativeNumberToken(value: string | undefined): boolean {
+  return value != null && /^-?\d+(?:\.\d+)?$/.test(value)
+}
+
 export type MriArgv<T = Dict<any>> = T & {
   _: string[]
 }
@@ -127,10 +131,12 @@ export default function mri(args?: string[], opts?: MriOptions): MriArgv {
       }
 
       name = arg.substring(j, idx)
+      const next = args[i + 1]
+      const isBooleanFlag = !!~boolean.indexOf(name)
       val =
         arg.substring(++idx) ||
         (i + 1 === len ||
-        ('' + args[i + 1]).charCodeAt(0) === 45 ||
+        ((('' + next).charCodeAt(0) === 45) && (isBooleanFlag || !isNegativeNumberToken(next))) ||
         args[++i])
       arr = j === 2 ? [name] : (name as any)
 
