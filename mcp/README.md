@@ -279,9 +279,16 @@ declare function resolveTenant(tenantId: string): {
   fs: GokeFs
 }
 
+declare function isAllowedOrigin(origin: string): boolean
+
 export async function handleMcpRequest(request: Request): Promise<Response> {
+  const origin = request.headers.get("origin")
+  if (origin && !isAllowedOrigin(origin)) {
+    return new Response(null, { status: 403 })
+  }
+
   if (request.method !== "POST") {
-    return new Response(null, { status: 405 })
+    return new Response(null, { status: 405, headers: { Allow: "POST" } })
   }
 
   const parsedBody = await request.clone().json().catch(() => undefined)
