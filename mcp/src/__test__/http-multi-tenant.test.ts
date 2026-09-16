@@ -104,6 +104,7 @@ function buildBaseCli(): Goke {
   cli
     .command("save <filename>", "Save content to a file in the tenant workspace")
     .option("--content <content>", z.string().describe("File content"))
+    .required()
     .action(async (filename: string, options: { content: string }, ctx) => {
       const full = path.posix.join(ctx.process.cwd, filename);
       await ctx.fs.writeFile(full, options.content);

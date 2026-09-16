@@ -35,7 +35,9 @@ describe("createMcpAction", () => {
     cli
       .command("add", "Add numbers")
       .option("--a <a>", z.number().describe("First"))
+      .required()
       .option("--b <b>", z.number().describe("Second"))
+      .required()
       .action((options) => ({ sum: options.a + options.b }));
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
