@@ -2352,11 +2352,13 @@ describe('stdout/stderr/argv injection', () => {
     const stdout = createTestOutputStream()
     const cli = goke('mycli', { stdout })
 
-    cli.version('1.2.3')
-    await cli.parse(['node', 'bin', '--version'], { run: false })
-    cli.outputVersion()
+    cli.command('', 'Start')
+    cli.command('serve', 'Start server')
+    cli.help()
+    cli.version('1.2.3', '-V, --version')
+    await cli.parse(['node', 'bin', '-V'])
 
-    expect(stdout.text).toContain('mycli/1.2.3')
+    expect(stdout.text).toBe('1.2.3\n')
   })
 
   test('stdout captures prefix help for unknown subcommands', async () => {

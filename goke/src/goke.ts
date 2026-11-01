@@ -25,7 +25,6 @@ import type { DaemonContext } from '#daemon'
 // ─── Node.js platform constants ───
 
 const processArgs = process.argv
-const platformInfo = `${process.platform}-${process.arch} node-${process.version}`
 
 // ─── Utility functions ───
 
@@ -979,10 +978,9 @@ class Command<RawName extends string = string, Opts = {}, Last extends string = 
   }
 
   outputVersion() {
-    const { name } = this.cli
     const { versionNumber } = this.cli.globalCommand
     if (versionNumber) {
-      this.cli.console.log(`${name}/${versionNumber} ${platformInfo}`)
+      this.cli.console.log(versionNumber)
     }
   }
 
@@ -2129,7 +2127,8 @@ class Goke<Opts = {}, Last extends string = never> extends EventEmitter {
       this.unsetMatchedCommand()
     }
 
-    if (this.options.version && this.showVersionOnExit && this.matchedCommandName == null) {
+    const showVersion = Boolean(this.options.version && this.showVersionOnExit && this.matchedCommandName == null)
+    if (showVersion) {
       this.outputVersion()
       run = false
       this.unsetMatchedCommand()
@@ -2169,7 +2168,8 @@ class Goke<Opts = {}, Last extends string = never> extends EventEmitter {
       !this.matchedCommand &&
       this.args.length === 0 &&
       this.showHelpOnExit &&
-      !(this.options.help && this.showHelpOnExit)
+      !(this.options.help && this.showHelpOnExit) &&
+      !showVersion
     ) {
       this.outputHelp()
     }

@@ -1,5 +1,16 @@
 # goke
 
+## 6.18.0
+
+1. **`--version` prints only the version number** — easy to read in scripts, like `node --version`:
+
+   ```
+   $ mycli --version
+   1.2.3
+   ```
+
+   Before, it printed `mycli/1.2.3 darwin-arm64 node-v24.0.0`, and a CLI with `cli.help()` and a default command also printed the full help after it.
+
 ## 6.17.0
 
 1. **New `.required()` method** — mark a flag as required. Omitting a `<value>` flag is no longer an error just because the schema rejects `undefined`.
