@@ -62,7 +62,7 @@ npm install goke
 ## Install skill for AI agents
 
 ```bash
-npx -y skills add remorses/goke
+npx -y skills add remorses/goke -g -y
 ```
 
 This installs the repository skill for AI coding agents. In this repo the shipped skill lives at `skills/goke/SKILL.md`.
