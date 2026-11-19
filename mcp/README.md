@@ -136,16 +136,14 @@ When running as MCP, the server exposes `search` and `deploy` as tools. The `mcp
 
 **Arguments are coerced like argv.** `"false"` becomes `false` for a boolean flag and `"3"` becomes `3` for a number schema. A value that does not fit (`"maybe"` for a boolean, `1` for a plain flag) fails the call with `InvalidParams` before the action runs.
 
-**`isMcpToolCall(ctx)`** is true when the action runs as a tool. Use it to refuse things that need a terminal, like reading `process.stdin`, which is the JSON-RPC channel of a stdio server:
+**`ctx.isMcpToolCall`** is true when the action runs as a tool. Use it to refuse things that need a terminal, like reading `process.stdin`, which is the JSON-RPC channel of a stdio server:
 
 ```ts
-import { isMcpToolCall } from "@goke/mcp"
-
 cli
   .command("send", "Send a message")
   .option("--body-file <path>", z.string().describe("Read body from file (- for stdin)"))
   .action(async (options, ctx) => {
-    if (options.bodyFile === "-" && isMcpToolCall(ctx)) {
+    if (options.bodyFile === "-" && ctx.isMcpToolCall) {
       ctx.console.error("Pass the body inline. stdin is not available in MCP")
       ctx.process.exit(1)
     }
@@ -552,7 +550,7 @@ export type { AddMcpCommandsOptions, CachedMcpTools } from '@goke/mcp'
 export type { McpOAuthConfig, McpOAuthState } from '@goke/mcp'
 
 // CLI → MCP server (expose CLI commands as MCP tools)
-export { createMcpAction, addCliToolsToMcp, isMcpToolCall } from '@goke/mcp'
+export { createMcpAction, addCliToolsToMcp } from '@goke/mcp'
 export type { CreateMcpActionOptions, AddCliToolsToMcpOptions } from '@goke/mcp'
 ```
 

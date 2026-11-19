@@ -50,7 +50,7 @@
     "js-yaml": "^4.1.1"
   },
   "peerDependencies": {
-    "goke": "*"
+    "goke": "^6.19.0"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",

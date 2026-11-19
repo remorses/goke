@@ -33,17 +33,6 @@ const CLI_TO_MCP_STATE = Symbol.for("@goke/mcp/cli-to-mcp-state");
 /** Global options that only make sense on the command line. */
 const CLI_ONLY_GLOBAL_OPTIONS = new Set(["help", "version"]);
 
-const toolCallContexts = new WeakSet<GokeExecutionContext>();
-
-/**
- * True when an action runs as an MCP tool call instead of from argv.
- * Use it to refuse things that need the real terminal, for example reading
- * `process.stdin`, which is the JSON-RPC channel of a stdio MCP server.
- */
-export function isMcpToolCall(ctx: GokeExecutionContext): boolean {
-  return toolCallContexts.has(ctx);
-}
-
 interface CommandArgLike {
   required: boolean;
   value: string;
@@ -339,8 +328,8 @@ function createCallToolExecutionContext(cli: Goke): {
     // wrapper will still throw `GokeProcessExit` after this returns,
     // which `runCliTool` catches and turns into a `CallToolResult`.
     exit: () => {},
+    isMcpToolCall: true,
   });
-  toolCallContexts.add(ctx);
   return { ctx, stdout, stderr };
 }
 

@@ -49,7 +49,7 @@ import { FileOAuthProvider } from "./oauth-provider.js";
 import { startOAuthFlow, isAuthRequiredError } from "./auth.js";
 export { startOAuthFlow } from "./auth.js";
 import type { McpOAuthConfig, McpOAuthState } from "./types.js";
-export { addCliToolsToMcp, createMcpAction, isMcpToolCall } from "./cli-to-mcp.js";
+export { addCliToolsToMcp, createMcpAction } from "./cli-to-mcp.js";
 export type { AddCliToolsToMcpOptions, CreateMcpActionOptions } from "./cli-to-mcp.js";
 
 // Public exports

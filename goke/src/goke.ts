@@ -1109,6 +1109,12 @@ interface GokeExecutionContext {
   process: GokeProcess
   /** Daemon context for running the current command as a background process. */
   daemon: DaemonContext
+  /**
+   * True when the action runs as an MCP tool call (`@goke/mcp`), not from argv.
+   * Use it to refuse things that need a terminal, like reading `process.stdin`,
+   * which is the JSON-RPC channel of a stdio MCP server.
+   */
+  isMcpToolCall: boolean
 }
 
 /**
@@ -1148,6 +1154,8 @@ interface GokeExecutionContextOverride {
    * without killing the host process can pass `() => {}`.
    */
   exit?: (code: number) => void
+  /** Mark the context as an MCP tool call. Set by `@goke/mcp`. */
+  isMcpToolCall?: boolean
 }
 
 class GokeProcessExit extends Error {
@@ -1417,6 +1425,7 @@ class Goke<Opts = {}, Last extends string = never> extends EventEmitter {
         stdout,
         stderr,
       }),
+      isMcpToolCall: override?.isMcpToolCall ?? false,
     }
   }
 

@@ -10,7 +10,7 @@ import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } fr
 import { goke, wrapJsonSchema, type Goke } from "goke";
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
-import { addCliToolsToMcp, isMcpToolCall } from "../cli-to-mcp.js";
+import { addCliToolsToMcp } from "../cli-to-mcp.js";
 
 function createCli() {
   const cli = goke("test-cli");
@@ -758,7 +758,7 @@ describe("addCliToolsToMcp arguments", () => {
         id,
         force: options.force,
         account: options.account,
-        mcp: isMcpToolCall(ctx),
+        mcp: ctx.isMcpToolCall,
       }));
 
     return cli;
@@ -802,12 +802,12 @@ describe("addCliToolsToMcp arguments", () => {
     `);
   });
 
-  it("isMcpToolCall is false when the command runs from argv", async () => {
+  it("ctx.isMcpToolCall is false when the command runs from argv", async () => {
     const cli = createArgsCli();
     const stdout = { write: (_data: string) => {} };
     let seen: unknown;
     cli.command("probe", "Report mode").action((_options, ctx) => {
-      seen = isMcpToolCall(ctx);
+      seen = ctx.isMcpToolCall;
     });
     await cli.clone({ stdout }).parse(["node", "args-cli", "probe"]);
     expect(seen).toBe(false);
