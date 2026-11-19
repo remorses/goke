@@ -132,6 +132,27 @@ When running as MCP, the server exposes `search` and `deploy` as tools. The `mcp
 
 **`inputSchema.required` is not the CLI `<value>` syntax.** `--query <query>` means the flag needs a value if it is present. The flag itself is still optional unless you chain `.required()`. Required **positionals** like `<env>` always go in `required`. `.required()` flags go in `required` too.
 
+**Global options are tool arguments too.** A `cli.option('--account [account]', ...)` shows up in every tool's `inputSchema` and reaches `options.account`, like on the command line. `--help` and `--version` are skipped. Middleware from `cli.use()` does not run for tool calls.
+
+**Arguments are coerced like argv.** `"false"` becomes `false` for a boolean flag and `"3"` becomes `3` for a number schema. A value that does not fit (`"maybe"` for a boolean, `1` for a plain flag) fails the call with `InvalidParams` before the action runs.
+
+**`isMcpToolCall(ctx)`** is true when the action runs as a tool. Use it to refuse things that need a terminal, like reading `process.stdin`, which is the JSON-RPC channel of a stdio server:
+
+```ts
+import { isMcpToolCall } from "@goke/mcp"
+
+cli
+  .command("send", "Send a message")
+  .option("--body-file <path>", z.string().describe("Read body from file (- for stdin)"))
+  .action(async (options, ctx) => {
+    if (options.bodyFile === "-" && isMcpToolCall(ctx)) {
+      ctx.console.error("Pass the body inline. stdin is not available in MCP")
+      ctx.process.exit(1)
+    }
+    // ...
+  })
+```
+
 ### Installing the MCP server in clients
 
 Users can install your CLI as an MCP server in any client using [`@playwriter/install-mcp`](https://github.com/nicepkg/install-mcp) — a cross-platform tool that handles config file locations for every major MCP client:
@@ -518,7 +539,7 @@ export type { AddMcpCommandsOptions, CachedMcpTools } from '@goke/mcp'
 export type { McpOAuthConfig, McpOAuthState } from '@goke/mcp'
 
 // CLI → MCP server (expose CLI commands as MCP tools)
-export { createMcpAction, addCliToolsToMcp } from '@goke/mcp'
+export { createMcpAction, addCliToolsToMcp, isMcpToolCall } from '@goke/mcp'
 export type { CreateMcpActionOptions, AddCliToolsToMcpOptions } from '@goke/mcp'
 ```
 

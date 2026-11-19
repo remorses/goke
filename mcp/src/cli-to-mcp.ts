@@ -19,6 +19,7 @@ import {
 import {
   coerceBySchema,
   extractJsonSchema,
+  GokeError,
   GokeProcessExit,
   type Command,
   type Goke,
@@ -28,6 +29,20 @@ import {
 } from "goke";
 
 const CLI_TO_MCP_STATE = Symbol.for("@goke/mcp/cli-to-mcp-state");
+
+/** Global options that only make sense on the command line. */
+const CLI_ONLY_GLOBAL_OPTIONS = new Set(["help", "version"]);
+
+const toolCallContexts = new WeakSet<GokeExecutionContext>();
+
+/**
+ * True when an action runs as an MCP tool call instead of from argv.
+ * Use it to refuse things that need the real terminal, for example reading
+ * `process.stdin`, which is the JSON-RPC channel of a stdio MCP server.
+ */
+export function isMcpToolCall(ctx: GokeExecutionContext): boolean {
+  return toolCallContexts.has(ctx);
+}
 
 interface CommandArgLike {
   required: boolean;
@@ -48,7 +63,10 @@ interface OptionLike {
 interface OptionBinding {
   name: string;
   defaultValue?: unknown;
-  jsonSchema?: Record<string, unknown>;
+  /** Coerces tool arguments like argv values. Plain options get `{ type: "boolean" | "string" }`. */
+  coerceSchema: Record<string, unknown>;
+  /** Option without a Standard Schema: like argv, it only accepts strings and booleans. */
+  plain: boolean;
 }
 
 interface CliToolBinding {
@@ -322,6 +340,7 @@ function createCallToolExecutionContext(cli: Goke): {
     // which `runCliTool` catches and turns into a `CallToolResult`.
     exit: () => {},
   });
+  toolCallContexts.add(ctx);
   return { ctx, stdout, stderr };
 }
 
@@ -397,6 +416,30 @@ function buildProcessExitResult(
   };
 }
 
+/**
+ * Coerce a tool argument the same way goke coerces argv, so `"false"` is
+ * `false` for a boolean flag. Invalid values become `InvalidParams` errors
+ * instead of reaching the action.
+ */
+function coerceOptionValue(option: OptionBinding, value: unknown): unknown {
+  const isStringArray = Array.isArray(value) && value.every((entry) => typeof entry === "string");
+  if (typeof value !== "string" && typeof value !== "boolean" && !isStringArray) {
+    if (option.plain) {
+      throw new McpError(ErrorCode.InvalidParams, `Invalid argument ${option.name}: expected ${option.coerceSchema.type}`);
+    }
+    // Typed JSON values (numbers, objects) are already what the schema wants.
+    return value;
+  }
+  try {
+    return coerceBySchema(value, option.coerceSchema, option.name);
+  } catch (error) {
+    if (error instanceof GokeError) {
+      throw new McpError(ErrorCode.InvalidParams, error.message);
+    }
+    throw error;
+  }
+}
+
 async function runCliTool(binding: CliToolBinding, argumentsObject: Record<string, unknown>): Promise<CallToolResult> {
   for (const requiredName of binding.requiredNames) {
     if (getToolCallArguments(argumentsObject, requiredName) === undefined) {
@@ -427,13 +470,8 @@ async function runCliTool(binding: CliToolBinding, argumentsObject: Record<strin
     if (optionValue === undefined && option.defaultValue !== undefined) {
       optionValue = option.defaultValue;
     }
-
-    if (optionValue !== undefined && option.jsonSchema) {
-      const isStringArray = Array.isArray(optionValue) && optionValue.every((value) => typeof value === "string");
-      const isCoercibleType = typeof optionValue === "string" || typeof optionValue === "boolean" || isStringArray;
-      if (isCoercibleType) {
-        optionValue = coerceBySchema(optionValue as string | boolean | string[], option.jsonSchema, option.name);
-      }
+    if (optionValue !== undefined) {
+      optionValue = coerceOptionValue(option, optionValue);
     }
 
     if (optionValue !== undefined) {
@@ -479,7 +517,13 @@ async function runCliTool(binding: CliToolBinding, argumentsObject: Record<strin
 
 function createBinding(cli: Goke, command: Command, toolName: string): CliToolBinding {
   const positionalArgs = command.args as unknown as CommandArgLike[];
-  const options = command.options as unknown as OptionLike[];
+  const commandOptions: OptionLike[] = command.options;
+  const commandOptionNames = new Set(commandOptions.map((option) => option.name));
+  // Global options (like `--account`) are tool arguments too, same as on the command line.
+  const globalOptions = cli.globalCommand.options.filter(
+    (option) => !CLI_ONLY_GLOBAL_OPTIONS.has(option.name) && !commandOptionNames.has(option.name),
+  );
+  const options: OptionLike[] = [...commandOptions, ...globalOptions];
 
   const properties: Record<string, Record<string, unknown>> = {};
   const requiredNames: string[] = [];
@@ -517,7 +561,8 @@ function createBinding(cli: Goke, command: Command, toolName: string): CliToolBi
     optionBindings.push({
       name: option.name,
       defaultValue: option.default,
-      jsonSchema: normalized.jsonSchema,
+      coerceSchema: normalized.schema,
+      plain: !normalized.jsonSchema,
     });
   }
 

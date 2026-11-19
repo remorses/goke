@@ -10,7 +10,7 @@ import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } fr
 import { goke, wrapJsonSchema, type Goke } from "goke";
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
-import { addCliToolsToMcp } from "../cli-to-mcp.js";
+import { addCliToolsToMcp, isMcpToolCall } from "../cli-to-mcp.js";
 
 function createCli() {
   const cli = goke("test-cli");
@@ -741,5 +741,75 @@ describe("addCliToolsToMcp execution context", () => {
 
     // Same binding Goke#runMatchedCommand uses for parse-path actions.
     expect(seenThis).toBe(cli);
+  });
+});
+
+describe("addCliToolsToMcp arguments", () => {
+  function createArgsCli() {
+    const cli = goke("args-cli")
+      .option("--account [account]", z.array(z.string()).optional().describe("Account filter"))
+      .help()
+      .version("1.0.0");
+
+    cli
+      .command("remove <id>", "Remove an item")
+      .option("--force", "Skip confirmation")
+      .action((id, options, ctx) => ({
+        id,
+        force: options.force,
+        account: options.account,
+        mcp: isMcpToolCall(ctx),
+      }));
+
+    return cli;
+  }
+
+  it("exposes global options, skips help/version, and coerces values like argv", async () => {
+    const cli = createArgsCli();
+
+    const result = await withMcpClient(cli, async (client) => {
+      const { tools } = await client.listTools();
+      const call = async (args: Record<string, unknown>) => {
+        const res = await client.callTool({ name: "remove", arguments: { id: "a1", ...args } }).catch((error: Error) => error.message);
+        return typeof res === "string" ? res : firstTextContent(res);
+      };
+      return {
+        properties: Object.keys(tools[0]!.inputSchema.properties ?? {}),
+        stringFalse: await call({ force: "false", account: ["me@example.com"] }),
+        invalidBoolean: await call({ force: "maybe" }),
+        numberForFlag: await call({ force: 1 }),
+      };
+    });
+
+    expect(result).toMatchInlineSnapshot(`
+      {
+        "invalidBoolean": "MCP error -32602: MCP error -32602: Invalid value for --force: expected true or false, got "maybe"",
+        "numberForFlag": "MCP error -32602: MCP error -32602: Invalid argument force: expected boolean",
+        "properties": [
+          "id",
+          "force",
+          "account",
+        ],
+        "stringFalse": "{
+        "id": "a1",
+        "force": false,
+        "account": [
+          "me@example.com"
+        ],
+        "mcp": true
+      }",
+      }
+    `);
+  });
+
+  it("isMcpToolCall is false when the command runs from argv", async () => {
+    const cli = createArgsCli();
+    const stdout = { write: (_data: string) => {} };
+    let seen: unknown;
+    cli.command("probe", "Report mode").action((_options, ctx) => {
+      seen = isMcpToolCall(ctx);
+    });
+    await cli.clone({ stdout }).parse(["node", "args-cli", "probe"]);
+    expect(seen).toBe(false);
   });
 });
