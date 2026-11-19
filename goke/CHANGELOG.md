@@ -1,5 +1,18 @@
 # goke
 
+## 6.19.0
+
+1. **New `ctx.isMcpToolCall`** — true when an action runs as an MCP tool call through `@goke/mcp`, false from the command line. Use it to refuse things that need a terminal, like reading `process.stdin`, which is the JSON-RPC channel of a stdio MCP server:
+
+   ```ts
+   .action(async (options, ctx) => {
+     if (options.bodyFile === '-' && ctx.isMcpToolCall) {
+       ctx.console.error('Pass the body inline. stdin is not available in MCP')
+       ctx.process.exit(1)
+     }
+   })
+   ```
+
 ## 6.18.0
 
 1. **`--version` prints only the version number** — easy to read in scripts, like `node --version`:

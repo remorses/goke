@@ -1,5 +1,13 @@
 # @goke/mcp
 
+## 0.2.0
+
+1. **Global options are tool arguments** — a `cli.option('--account [account]', ...)` now appears in every tool's `inputSchema` and reaches `options.account`, like on the command line. `--help` and `--version` are skipped. Middleware from `cli.use()` still does not run for tool calls.
+
+2. **Tool arguments are coerced like argv** — `"false"` becomes `false` for a boolean flag and `"3"` becomes `3` for a number schema. Before, plain flags without a schema got the raw value, so `force: "false"` reached the action as a truthy string and skipped confirmations. Values that do not fit (`"maybe"` for a boolean, a number for a plain flag) now fail with `InvalidParams` before the action runs.
+
+3. **Tool calls set `ctx.isMcpToolCall`** — commands can check it to refuse terminal-only input like `--body-file -`. Requires goke 6.19.0, now the peer dependency.
+
 ## 0.1.2
 
 1. **MCP `inputSchema.required` now lists `.required()` flags.** Required positionals still go in `required`. `z.string()` flags without `.required()` stay optional.
