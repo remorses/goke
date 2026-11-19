@@ -222,11 +222,16 @@ When you expose a cli as a **remote** MCP over HTTP, one process handles many co
 
 Do **not** keep MCP session IDs. Streamable HTTP can run **stateless**: `sessionIdGenerator: undefined`. Each POST builds a fresh `Server` and transport, then closes them. That works on Cloudflare Workers and any other isolate that does not keep process memory.
 
+**Goke does not do OAuth.** This section is clone isolation and Origin checks. For Cursor / Claude login on `https://example.com/mcp`, wrap the handler with Better Auth `@better-auth/mcp` (`requireMcpAuth`, `cimd()`, `jwt()`). Do not treat `x-tenant-id` as login. Full recipe: the `better-auth` skill `mcp.md`.
+
+This is MCP SDK **v1** Streamable HTTP (protocol through `2025-11-25`). It is not the later `2026-07-28` JSON-RPC that drops `initialize`. CIMD `metadataProfile: 'mcp-2026-07-28'` is only client metadata.
+
 The recipe is:
 
-1. Define the cli **once**.
-2. On **every POST**, resolve the tenant from the request (JWT, cookie, header), **clone** the cli with `{ cwd, env, fs }`, and mount it on a fresh `Server` via `addCliToolsToMcp({ cli: tenantClone, server })`.
+1. Define the cli **once**. Split a command tree without TUI if the handler runs on Workers.
+2. Authenticate the request first (`requireMcpAuth` or equivalent). Then on **every POST**, **clone** the cli with `{ cwd, env, fs }`, and mount it on a fresh `Server` via `addCliToolsToMcp({ cli: tenantClone, server })`.
 3. Inside command actions, always use the **injected** `ctx` — `ctx.fs`, `ctx.process.cwd`, `ctx.process.env`, `ctx.console.log` — instead of the Node globals. `@goke/mcp` wires each tool call into the tenant's cloned context, but only code that goes through `ctx` participates in that isolation.
+4. Strip the MCP access token before in-process calls to the app API. The JWT `aud` is `/mcp`. Do not send it to `/api/v0`.
 
 ### Write commands against `ctx`
 
@@ -268,24 +273,32 @@ This is MCP SDK v1 Streamable HTTP **without optional transport sessions** (prot
 The Streamable HTTP spec requires **Origin** checks on every request (DNS rebinding). Reject a present, disallowed `Origin` with **403**. Missing `Origin` is normal for non-browser MCP clients.
 
 ```
-POST /mcp  (JWT / x-tenant-id)
+POST /mcp
         │
         v
-resolveTenant(id) ──> baseCli.clone({ cwd, env, fs })
-                           │
-                           v
-                    fresh Server + transport
-                    sessionIdGenerator: undefined
-                           │
-                           v
+Origin check  ── present + disallowed → 403
+        │
+        v
+requireMcpAuth  ── no token → 401 + WWW-Authenticate
+        │
+        v
+load user by JWT sub ──> baseCli.clone({ cwd, env, fs })
+                               │
+                               v
+                        fresh Server + transport
+                        sessionIdGenerator: undefined
+                               │
+                               v
 addCliToolsToMcp ──> handleRequest
-                           │
-                           v
-                        Response
-                           │
-                           v
-             close transport + server ──> nothing stored
+                               │
+                               v
+                            Response
+                               │
+                               v
+                 close transport + server ──> nothing stored
 ```
+
+Remote HTTP has **no folder**. Stdio can use `mycli setup` and a home config file. HTTP tools that need a project must take `--project`. Keep those flags optional in MCP schema unless you chain `.required()`. `<value>` means the flag needs a value if present. It does not mean MCP `required`.
 
 You build one `handleMcpRequest(request: Request): Promise<Response>` function and mount it wherever you route HTTP:
 
